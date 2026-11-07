@@ -197,11 +197,16 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
     recognizer.rotation = 0
     rotationTotal += radians
     guard abs(rotationTotal) > 8 * .pi / 180 else { return }
+    // UIKit's rotation is clockwise-positive (y points down); AppKit's is
+    // counter-clockwise-positive, so the sign flips on the way to the Mac.
+    var degrees = -Double(radians * 180 / .pi)
     if !rotationActive {
       rotationActive = true
       send(.rotate(degreesDelta: 0, phase: .began))
+      // Catch up the dead zone so the canvas tracks the fingers, not 8° behind.
+      degrees = -Double(rotationTotal * 180 / .pi)
     }
-    send(.rotate(degreesDelta: Double(radians * 180 / .pi), phase: .changed))
+    send(.rotate(degreesDelta: degrees, phase: .changed))
   }
 
   @objc private func handleUndo(_ recognizer: UITapGestureRecognizer) {
