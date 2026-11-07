@@ -30,7 +30,7 @@ public struct UsbmuxPacket: Sendable, Equatable {
     encode(
       tag: tag,
       plist: [
-        "Message": "Listen",
+        "MessageType": "Listen",
         "ClientVersionString": "Nib",
         "ProgName": "Nib",
       ])
@@ -43,13 +43,15 @@ public struct UsbmuxPacket: Sendable, Equatable {
     return encode(
       tag: tag,
       plist: [
-        "Message": "Connect",
+        "MessageType": "Connect",
         "DeviceID": Int(deviceID),
         "PortNumber": networkPort,
       ])
   }
 
-  public static func decode(_ data: Data) throws -> UsbmuxPacket {
+  public static func decode(_ input: Data) throws -> UsbmuxPacket {
+    // Callers pass slices of a receive buffer; rebase so offsets start at 0.
+    let data = Data(input)
     guard data.count >= headerLength else { throw Error.truncatedHeader }
     let length = loadUInt32(data, at: 0)
     guard length >= headerLength, Int(length) <= data.count else {
@@ -63,7 +65,7 @@ public struct UsbmuxPacket: Sendable, Equatable {
     guard
       let plist = try PropertyListSerialization.propertyList(
         from: body, options: [], format: nil) as? [String: Any],
-      let name = plist["Message"] as? String
+      let name = plist["MessageType"] as? String
     else { throw Error.invalidPlist }
     let message: Message
     switch name {
@@ -74,11 +76,12 @@ public struct UsbmuxPacket: Sendable, Equatable {
       message = .connect(
         deviceID: UInt32(truncatingIfNeeded: deviceID), port: UInt16(truncatingIfNeeded: port).bigEndian)
     case "Attached":
-      guard let deviceID = integer((plist["Device"] as? [String: Any])?["DeviceID"])
-      else { throw Error.invalidPlist }
-      let device = plist["Device"] as? [String: Any]
+      // Real usbmuxd: {MessageType, DeviceID, Properties: {ConnectionType, ...}}.
+      guard let deviceID = integer(plist["DeviceID"]) else { throw Error.invalidPlist }
+      let properties = plist["Properties"] as? [String: Any]
       message = .attached(
-        deviceID: UInt32(truncatingIfNeeded: deviceID), connectionType: device?["ConnectionType"] as? String)
+        deviceID: UInt32(truncatingIfNeeded: deviceID),
+        connectionType: properties?["ConnectionType"] as? String)
     case "Detached":
       guard let deviceID = integer(plist["DeviceID"]) else { throw Error.invalidPlist }
       message = .detached(deviceID: UInt32(truncatingIfNeeded: deviceID))
@@ -124,7 +127,8 @@ public struct UsbmuxConnectResultFramer: Sendable {
     }
     guard bytes.count >= Int(length) else { return nil }
     let packet = try UsbmuxPacket.decode(bytes.prefix(Int(length)))
-    bytes.removeFirst(Int(length))
+    // Data.removeFirst keeps the old indices; rebase so bytes[0] stays valid.
+    bytes = Data(bytes.dropFirst(Int(length)))
     return packet
   }
 

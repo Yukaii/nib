@@ -43,19 +43,57 @@ struct USBTransportTests {
     #expect(!USBPeerPolicy.allowsLoopbackPeer("localhost"))
   }
 
-  @Test func connectResultFramerPreservesFollowingBytes() throws {
-    let result = UsbmuxPacket(tag: 4, message: .result(code: 0))
-    let body = try PropertyListSerialization.data(
-      fromPropertyList: ["Message": "Result", "Number": 0], format: .xml, options: 0)
+  private func usbmuxdPacket(_ plist: [String: Any], tag: UInt32) throws -> Data {
+    let body = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
     var packet = Data()
     let length = UInt32(UsbmuxPacket.headerLength + body.count)
-    for value in [length, UInt32(1), UInt32(8), UInt32(4)] {
+    for value in [length, UInt32(1), UInt32(8), tag] {
       packet.append(UInt8(truncatingIfNeeded: value))
       packet.append(UInt8(truncatingIfNeeded: value >> 8))
       packet.append(UInt8(truncatingIfNeeded: value >> 16))
       packet.append(UInt8(truncatingIfNeeded: value >> 24))
     }
     packet.append(body)
+    return packet
+  }
+
+  // Shapes captured from a real usbmuxd (macOS, iPad mini on USB).
+  @Test func decodesRealUsbmuxdAttachedAndDetached() throws {
+    let attached = try usbmuxdPacket(
+      [
+        "MessageType": "Attached", "DeviceID": 2660,
+        "Properties": ["ConnectionType": "USB", "DeviceID": 2660],
+      ], tag: 0)
+    #expect(
+      try UsbmuxPacket.decode(attached).message == .attached(deviceID: 2660, connectionType: "USB"))
+    let detached = try usbmuxdPacket(["MessageType": "Detached", "DeviceID": 2660], tag: 0)
+    #expect(try UsbmuxPacket.decode(detached).message == .detached(deviceID: 2660))
+  }
+
+  // usbmuxd sends Result and Attached back to back; the second read used to trap.
+  @Test func framerDecodesConsecutivePacketsInOneBuffer() throws {
+    var buffer = try usbmuxdPacket(["MessageType": "Result", "Number": 0], tag: 1)
+    buffer.append(
+      try usbmuxdPacket(
+        ["MessageType": "Attached", "DeviceID": 3, "Properties": ["ConnectionType": "USB"]], tag: 0))
+    var framer = UsbmuxConnectResultFramer()
+    #expect(try framer.append(buffer)?.message == .result(code: 0))
+    #expect(try framer.append(Data())?.message == .attached(deviceID: 3, connectionType: "USB"))
+    #expect(try UsbmuxPacket.decode(buffer.dropFirst(0)).message == .result(code: 0))
+  }
+
+  @Test func requestsUseMessageTypeKey() throws {
+    for request in [UsbmuxPacket.listenRequest(), UsbmuxPacket.connectRequest(deviceID: 7)] {
+      let body = request.dropFirst(UsbmuxPacket.headerLength)
+      let plist = try #require(
+        PropertyListSerialization.propertyList(from: body, format: nil) as? [String: Any])
+      #expect(plist["MessageType"] is String)
+    }
+  }
+
+  @Test func connectResultFramerPreservesFollowingBytes() throws {
+    let result = UsbmuxPacket(tag: 4, message: .result(code: 0))
+    var packet = try usbmuxdPacket(["MessageType": "Result", "Number": 0], tag: 4)
     packet.append(contentsOf: [0x01, 0x02, 0x03])
     var framer = UsbmuxConnectResultFramer()
     #expect(try framer.append(packet) == result)

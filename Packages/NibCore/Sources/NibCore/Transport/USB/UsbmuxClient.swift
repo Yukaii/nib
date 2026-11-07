@@ -97,7 +97,8 @@
         }
         guard listenBytes.count >= Int(length) else { return }
         let packet = try UsbmuxPacket.decode(listenBytes.prefix(Int(length)))
-        listenBytes.removeFirst(Int(length))
+        // Data.removeFirst keeps the old indices; rebase so listenBytes[0] stays valid.
+        listenBytes = Data(listenBytes.dropFirst(Int(length)))
         switch packet.message {
         case .attached(let id, let type) where type == "USB":
           let device = Device(id: id, connectionType: type)
