@@ -78,9 +78,13 @@ that checks the protocol version and exchanges surface/display geometry.
 Filled in by the worker:
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/implement-transport-layer @ 827ff49e52ecd9b87e74dd2cc7e5ed63bbb4a749
+Verify: verify: ok (Test run with 22 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added Codable TCP control messages with length framing, incremental decoding, and size protection.
+- Added wrap-aware UDP sample sequencing and Network.framework sender/receiver with Bonjour discovery, handshake, geometry, retries, heartbeats, and transition triple-send.
+- Added the macOS `nib-receive` executable and deterministic transport tests.
+- Wired NibPad to the network sink, geometry reporting, and HUD link state while preserving capture debounce/prediction behavior.
+Manual checks: Not run; requires a physical iPad, same-Wi-Fi Mac, local-network permission, and a drawing app. Steps: run `nib-receive`, launch NibPad, allow local network, draw and check pressure lines; quit/restart receiver and check searching/reconnect HUD state.
+Not done / risks: Receiver currently accepts the first UDP session while one TCP session is active; pairing/encryption and display geometry values remain task 0006 scope.
 ```
