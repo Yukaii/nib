@@ -15,6 +15,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   private let send: (Gesture) -> Void
   private let profile: () -> PadSettings.Profile
   private var palm = GesturePalmRejection()
+  private let edgeControlContains: (CGPoint) -> Bool
   // A gesture that began must always end on the Mac, even if palm rejection
   // or a settings change would now suppress it; otherwise apps see a scroll
   // that never finishes.
@@ -27,11 +28,13 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
 
   init(
     view: UIView, send: @escaping (Gesture) -> Void,
-    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forBundleID: "") }
+    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forBundleID: "") },
+    edgeControlContains: @escaping (CGPoint) -> Bool = { _ in false }
   ) {
     self.view = view
     self.send = send
     self.profile = profile
+    self.edgeControlContains = edgeControlContains
     pan = UIPanGestureRecognizer()
     pinch = UIPinchGestureRecognizer()
     undoTap = UITapGestureRecognizer()
@@ -57,7 +60,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   func pencilEnded() { palm.pencilEnded(at: CACurrentMediaTime()) }
 
   func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-    touch.type == .direct
+    touch.type == .direct && !edgeControlContains(touch.location(in: view))
   }
 
   func gestureRecognizer(
