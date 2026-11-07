@@ -91,7 +91,7 @@ The Pencil keeps drawing as before.
 ## Handoff
 
 ```
-Branch/commit: t3/finger-gesture-events @ c1829e7ff2b00d45ac5057cc7fe1182b7e98f2b2
+Branch/commit: t3/finger-gesture-events @ bc1b0dd654da49b8963094edc73aede8aaad79fa
 Verify: verify: ok (Test run with 55 tests; NibMac + NibPad built)
 Done:
 - Added Codable TCP gesture messages and sender/receiver callbacks for scroll, zoom, undo, and redo.
