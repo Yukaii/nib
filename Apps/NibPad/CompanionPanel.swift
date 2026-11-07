@@ -7,6 +7,7 @@ struct CompanionPanel: View {
   let linkState: String
   let profileName: String
   let frontApp: ControlMessage.FrontApp
+  let hostInfo: ControlMessage.HostInfo?
   @Binding var showsHUD: Bool
   @State private var testRaw: Double = 0.5
   @State private var editing: ProfileTarget?
@@ -21,6 +22,12 @@ struct CompanionPanel: View {
           VStack(alignment: .leading) {
             Text("Nib Companion").font(.title2.bold())
             Text("Link: \(linkState)").font(.footnote).foregroundStyle(.secondary)
+            if let hostInfo {
+              Text(
+                "Connected to \(hostInfo.name) (\(hostInfo.platform.rawValue), Nib \(hostInfo.appVersion))"
+              )
+              .font(.footnote).foregroundStyle(.secondary)
+            }
           }
           Spacer()
           Button("Done") { NotificationCenter.default.post(name: .closeCompanionPanel, object: nil) }
@@ -87,13 +94,13 @@ struct CompanionPanel: View {
     }
   }
 
-  private var activeID: UUID { store.settings.profile(forBundleID: frontApp.bundleID).id }
+  private var activeID: UUID { store.settings.profile(forAppID: frontApp.appID).id }
 
   private var profilesSection: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Profiles").font(.headline)
       Text(
-        "Active: \(profileName) (front app: \(frontApp.bundleID.isEmpty ? "none reported" : frontApp.name))"
+        "Active: \(profileName) (front app: \(frontApp.appID.isEmpty ? "none reported" : frontApp.name))"
       )
       .font(.footnote).foregroundStyle(.secondary)
       ForEach(store.settings.profiles) { profile in
@@ -122,7 +129,7 @@ struct CompanionPanel: View {
       .buttonStyle(.bordered)
     }
     .sheet(item: $editing) { target in
-      ProfileEditor(store: store, profileID: target.id, frontApp: frontApp)
+      ProfileEditor(store: store, profileID: target.id, frontApp: frontApp, hostInfo: hostInfo)
     }
     .confirmationDialog(
       "Replace all profiles with the Default, Krita, Photoshop and Affinity presets?",
@@ -134,7 +141,7 @@ struct CompanionPanel: View {
 
   private func profileSummary(_ profile: PadSettings.Profile) -> String {
     let apps =
-      store.settings.isDefault(profile.id) ? "Fallback" : profile.bundleIDPrefixes.joined(separator: ", ")
+      store.settings.isDefault(profile.id) ? "Fallback" : profile.appIDPrefixes.joined(separator: ", ")
     return "\(apps.isEmpty ? "No apps" : apps) · \(profile.buttons.count) buttons"
   }
 

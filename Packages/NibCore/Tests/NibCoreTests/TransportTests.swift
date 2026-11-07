@@ -4,11 +4,15 @@ import Testing
 
 struct TransportTests {
   private let hello = ControlMessage.hello(
-    .init(appVersion: "0.1.0", deviceName: "Pad", surfaceWidth: 1024, surfaceHeight: 768))
+    .init(appVersion: "0.2.0", deviceName: "Pad", surfaceWidth: 1024, surfaceHeight: 768))
 
   @Test func controlMessagesRoundTrip() throws {
+    let host = ControlMessage.HostInfo(
+      platform: .macos, name: "Studio Mac", appVersion: "0.2.0",
+      capabilities: [ControlMessage.Capability.keys, "futureCapability"])
     let messages: [ControlMessage] = [
-      hello, .helloAck(.init(accepted: true, udpPort: 1234, displayWidth: 1920, displayHeight: 1080)),
+      hello,
+      .helloAck(.init(accepted: true, udpPort: 1234, displayWidth: 1920, displayHeight: 1080, host: host)),
       .geometry(.init(surfaceWidth: 768, surfaceHeight: 1024)), .ping,
     ]
     for message in messages {
@@ -16,6 +20,22 @@ struct TransportTests {
       let bytes = framer.encode(message)
       #expect(try framer.append(bytes) == [message])
     }
+  }
+
+  @Test func helloAckWithoutHostStillDecodes() throws {
+    let message = ControlMessage.helloAck(.init(accepted: true))
+    var framer = ControlFramer()
+    #expect(try framer.append(framer.encode(message)) == [message])
+  }
+
+  @Test func unknownControlMessagesAreSkipped() throws {
+    let framer = ControlFramer()
+    let unknownBody = Array(#"{"type":"futureThing","x":1}"#.utf8)
+    let unknown = [UInt8(unknownBody.count), 0, 0, 0] + unknownBody
+    var decoder = ControlFramer()
+    let bytes = framer.encode(.ping) + unknown + framer.encode(.probe(sentAtNs: 7))
+    #expect(try decoder.append(bytes) == [.ping, .probe(sentAtNs: 7)])
+    #expect(decoder.bufferedByteCount == 0)
   }
 
   @Test func controlChunksAndPingGolden() throws {
@@ -76,7 +96,9 @@ struct TransportTests {
   @Test func receiverSessionPolicy() {
     var session = ReceiverSession()
     #expect(
-      session.hello(protocolVersion: PenSample.version, busy: false, acceptResult: true, now: 0) == .accepted)
+      session.hello(
+        protocolVersion: ControlMessage.ProtocolVersion.control, busy: false, acceptResult: true, now: 0)
+        == .accepted)
     session.setRemoteHost("ipad")
     var accepted = session.acceptsUDP(from: "other", sequence: 1)
     #expect(!accepted)
@@ -96,13 +118,15 @@ struct TransportTests {
   @Test func receiverSessionRejectsVersionAndBusy() {
     var version = ReceiverSession()
     #expect(
-      version.hello(protocolVersion: PenSample.version &+ 1, busy: false, acceptResult: true, now: 0)
-        == .rejected("Update the iPad app to the current version."))
+      version.hello(protocolVersion: PenSample.version, busy: false, acceptResult: true, now: 0)
+        == .rejected("This Mac runs Nib 0.2 (protocol 2). Update Nib on your iPad."))
     #expect(
-      version.hello(protocolVersion: PenSample.version, busy: false, acceptResult: false, now: 0)
+      version.hello(
+        protocolVersion: ControlMessage.ProtocolVersion.control, busy: false, acceptResult: false, now: 0)
         == .rejected("rejected"))
     #expect(
-      version.hello(protocolVersion: PenSample.version, busy: true, acceptResult: true, now: 0)
+      version.hello(
+        protocolVersion: ControlMessage.ProtocolVersion.control, busy: true, acceptResult: true, now: 0)
         == .rejected("busy"))
   }
 

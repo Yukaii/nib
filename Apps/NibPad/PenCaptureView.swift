@@ -51,7 +51,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     self.sink = sink
     let controls = EdgeControlsView(
       profile: { [weak sink] in
-        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
+        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forAppID: "")
       },
       send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) })
     self.edgeControls = controls
@@ -70,7 +70,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       view: self,
       send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) },
       profile: { [weak sink] in
-        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
+        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forAppID: "")
       },
       edgeControlContains: { [weak controls] point in controls?.containsControl(at: point) ?? false })
     if #available(iOS 16.0, *) {

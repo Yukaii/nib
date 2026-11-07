@@ -147,8 +147,8 @@ public struct ReceiverSession: Sendable, Equatable {
     protocolVersion: UInt8, busy: Bool, acceptResult: Bool, now: TimeInterval
   ) -> HelloDecision {
     guard !busy else { return .rejected("busy") }
-    guard protocolVersion == PenSample.version else {
-      return .rejected("Update the iPad app to the current version.")
+    guard protocolVersion == ControlMessage.ProtocolVersion.control else {
+      return .rejected("This Mac runs Nib 0.2 (protocol 2). Update Nib on your iPad.")
     }
     guard acceptResult else { return .rejected("rejected") }
     accepted = true
@@ -206,6 +206,8 @@ public final class PenLinkSender {
   }
   public var stateHandler: StateHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
+  public private(set) var hostInfo: ControlMessage.HostInfo?
+  public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
@@ -304,7 +306,7 @@ public final class PenLinkSender {
     newConnection.start(queue: queue)
     receiveControl(from: newConnection)
     sendControl(
-      .hello(hello ?? .init(appVersion: "0.1.0", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
+      .hello(hello ?? .init(appVersion: "", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
   }
 
   private func receiveControl(from expected: NWConnection) {
@@ -330,6 +332,8 @@ public final class PenLinkSender {
     lastReceivedAt = Date.timeIntervalSinceReferenceDate
     switch message {
     case .helloAck(let ack):
+      hostInfo = ack.host
+      onHostInfo(ack.host)
       guard ack.accepted, let connection else {
         transportLogger.info("session rejected: \(ack.reason ?? "unknown", privacy: .public)")
         if PenLinkRejectionPolicy.decision(reason: ack.reason) == .retryLater {
@@ -433,6 +437,8 @@ public final class PenLinkReceiver {
   /// Display size sent in the hello acknowledgement, in points.
   public var displayWidth: Double = 0
   public var displayHeight: Double = 0
+  /// Host metadata advertised to the iPad during the handshake.
+  public var hostInfo: ControlMessage.HostInfo?
 
   private let listener: NWListener
   private let queue = DispatchQueue(label: "dev.yukai.nib.receiver")
@@ -677,8 +683,10 @@ public final class PenLinkReceiver {
         disconnectSession(notify: false)
         return
       }
-      if hello.protocolVersion != PenSample.version {
-        sendControl(.helloAck(.init(accepted: false, reason: "Update the iPad app to the current version.")))
+      if hello.protocolVersion != ControlMessage.ProtocolVersion.control {
+        sendControl(
+          .helloAck(
+            .init(accepted: false, reason: "This Mac runs Nib 0.2 (protocol 2). Update Nib on your iPad.")))
         disconnectSession(notify: false)
         return
       }
@@ -737,7 +745,7 @@ public final class PenLinkReceiver {
         .helloAck(
           .init(
             accepted: true, udpPort: udpPort, displayWidth: displayWidth,
-            displayHeight: displayHeight)))
+            displayHeight: displayHeight, host: hostInfo)))
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):

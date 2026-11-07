@@ -1,7 +1,7 @@
 ---
 id: "0017"
 title: Protocol v2 — handshake with host info, capabilities and device ID
-status: doing
+status: review
 milestone: M3
 depends: ["0016"]
 ---
@@ -74,9 +74,14 @@ reason.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/handshake-v2-migration @ 6f1aead582866fbe17b40824ef0c9dbc64c63c5d
+Verify: verify: ok (Test run with 112 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added protocol v2 handshake fields, host metadata, capabilities, stable iPad device ID, and bundle-derived app versions.
+- Added forward-compatible control framing on TCP and USB, with malformed known messages still rejected.
+- Added lossless `bundleIDPrefixes` to `appIDPrefixes` settings migration and app ID front-app wiring.
+- Added host capability-aware iPad profile controls and device-ID-based Mac acceptance.
+- Added deterministic handshake and framer tests.
+Manual checks: Real iPad/Mac handshake, remembered-device behavior, and capability fallback not run (hardware/manual UI required).
+Not done / risks: USB and Wi-Fi runtime handshake were not exercised on hardware; existing Swift concurrency warnings in USB receive code remain.
 ```

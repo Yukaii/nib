@@ -32,7 +32,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
 
   init(
     view: UIView, send: @escaping (Gesture) -> Void,
-    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forBundleID: "") },
+    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forAppID: "") },
     edgeControlContains: @escaping (CGPoint) -> Bool = { _ in false }
   ) {
     self.view = view

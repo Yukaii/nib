@@ -1,24 +1,74 @@
 import Foundation
 
+public enum ProtocolVersion {
+  public static let control: UInt8 = 2
+}
+
 /// Reliable control-channel messages exchanged before and alongside the UDP sample stream.
 public enum ControlMessage: Codable, Equatable, Sendable {
+  public typealias ProtocolVersion = NibCore.ProtocolVersion
+
+  public enum Capability {
+    public static let tilt = "tilt"
+    public static let hover = "hover"
+    public static let eraser = "eraser"
+    public static let keys = "keys"
+    public static let scroll = "scroll"
+    public static let zoomModifierScroll = "zoomModifierScroll"
+    public static let zoomNative = "zoomNative"
+    public static let rotateNative = "rotateNative"
+    public static let undoRedo = "undoRedo"
+    public static let frontApp = "frontApp"
+  }
+
+  public struct HostInfo: Codable, Equatable, Sendable {
+    public var platform: HostPlatform
+    public var name: String
+    public var appVersion: String
+    public var capabilities: [String]
+
+    public init(platform: HostPlatform, name: String, appVersion: String, capabilities: [String]) {
+      self.platform = platform
+      self.name = name
+      self.appVersion = appVersion
+      self.capabilities = capabilities
+    }
+  }
+
   public struct Hello: Codable, Equatable, Sendable {
     public var protocolVersion: UInt8
     public var appVersion: String
+    public var deviceID: String
     public var deviceName: String
     public var surfaceWidth: Double
     public var surfaceHeight: Double
 
     public init(
-      protocolVersion: UInt8 = PenSample.version, appVersion: String, deviceName: String,
+      protocolVersion: UInt8 = ProtocolVersion.control, appVersion: String, deviceID: String = "",
+      deviceName: String,
       surfaceWidth: Double,
       surfaceHeight: Double
     ) {
       self.protocolVersion = protocolVersion
       self.appVersion = appVersion
+      self.deviceID = deviceID
       self.deviceName = deviceName
       self.surfaceWidth = surfaceWidth
       self.surfaceHeight = surfaceHeight
+    }
+
+    private enum CodingKeys: String, CodingKey {
+      case protocolVersion, appVersion, deviceID, deviceName, surfaceWidth, surfaceHeight
+    }
+
+    public init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      protocolVersion = try values.decode(UInt8.self, forKey: .protocolVersion)
+      appVersion = try values.decode(String.self, forKey: .appVersion)
+      deviceID = try values.decodeIfPresent(String.self, forKey: .deviceID) ?? ""
+      deviceName = try values.decode(String.self, forKey: .deviceName)
+      surfaceWidth = try values.decode(Double.self, forKey: .surfaceWidth)
+      surfaceHeight = try values.decode(Double.self, forKey: .surfaceHeight)
     }
   }
 
@@ -28,16 +78,18 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     public var udpPort: UInt16
     public var displayWidth: Double
     public var displayHeight: Double
+    public var host: HostInfo?
 
     public init(
       accepted: Bool, reason: String? = nil, udpPort: UInt16 = 0, displayWidth: Double = 0,
-      displayHeight: Double = 0
+      displayHeight: Double = 0, host: HostInfo? = nil
     ) {
       self.accepted = accepted
       self.reason = reason
       self.udpPort = udpPort
       self.displayWidth = displayWidth
       self.displayHeight = displayHeight
+      self.host = host
     }
   }
 
@@ -51,11 +103,30 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   }
 
   public struct FrontApp: Codable, Equatable, Sendable {
-    public var bundleID: String
+    public var appID: String
     public var name: String
-    public init(bundleID: String, name: String) {
-      self.bundleID = bundleID
+    public init(appID: String, name: String) {
+      self.appID = appID
       self.name = name
+    }
+    public init(bundleID: String, name: String) { self.init(appID: bundleID, name: name) }
+    public var bundleID: String {
+      get { appID }
+      set { appID = newValue }
+    }
+
+    private enum CodingKeys: String, CodingKey { case appID, bundleID, name }
+    public init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      appID =
+        try values.decodeIfPresent(String.self, forKey: .appID)
+        ?? values.decode(String.self, forKey: .bundleID)
+      name = try values.decode(String.self, forKey: .name)
+    }
+    public func encode(to encoder: Encoder) throws {
+      var values = encoder.container(keyedBy: CodingKeys.self)
+      try values.encode(appID, forKey: .appID)
+      try values.encode(name, forKey: .name)
     }
   }
 
@@ -156,10 +227,17 @@ public struct ControlFramer: Sendable {
       let total = 4 + Int(length)
       guard bytes.count >= total else { break }
       let body = bytes[4..<total]
+      bytes.removeFirst(total)
+      guard let object = try? JSONSerialization.jsonObject(with: Data(body)),
+        let dictionary = object as? [String: Any], let type = dictionary["type"] as? String
+      else { throw Error.malformed }
+      let knownTypes = [
+        "hello", "helloAck", "geometry", "ping", "probe", "probeReply", "gesture", "frontApp",
+      ]
+      guard knownTypes.contains(type) else { continue }
       do { messages.append(try decoder.decode(ControlMessage.self, from: Data(body))) } catch {
         throw Error.malformed
       }
-      bytes.removeFirst(total)
     }
     return messages
   }
