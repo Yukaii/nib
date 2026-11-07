@@ -1,7 +1,7 @@
 ---
 id: "0024"
 title: Pairing UI on Mac and iPad, Keychain keys, retire the allow list
-status: doing
+status: review
 milestone: M3
 depends: ["0022"]
 ---
@@ -58,9 +58,18 @@ devices reconnect silently, and either side can forget the other.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: main @ e3ff5aa
+Verify: verify: ok (Test run with 158 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added the shared KeychainPairingKeyStore with the required service, account, and accessibility policy.
+- Wired persistent pairing stores and stable IDs into the Mac receiver and iPad Wi-Fi/USB links.
+- Replaced the Mac allow/remember prompt with numeric pairing confirmation, paired iPad management, and Forget.
+- Added iPad pairing, cancel/timeout/failure messaging, Pair again, and Forget this Mac controls.
+Manual checks: not run (requires the user's iPad mini 7, Apple Pencil Pro, and Apple Silicon Mac).
+  1. On a fresh install, launch Nib on both devices over Wi-Fi. On the iPad choose the Mac, tap Pair, and confirm the same six-digit code on both screens. Draw a pressure stroke in Krita.
+  2. Quit and relaunch both apps. Confirm the iPad reconnects without a pairing prompt and pressure still reaches Krita.
+  3. On the Mac menu open Paired iPads, choose Forget for the iPad, reconnect it, and confirm the iPad asks to pair again.
+  4. On the iPad Companion panel choose Forget this Mac, reconnect, and confirm both screens ask to pair again.
+  5. Turn Wi-Fi off, connect the USB-C cable, and repeat pairing and a pressure stroke. Repeat cancellation on either side and confirm no key is stored; verify Keychain Access has no dev.yukai.nib.pairing item.
+Not done / risks: Keychain behavior and Wi-Fi/USB pairing need the manual hardware checks above. 
 ```

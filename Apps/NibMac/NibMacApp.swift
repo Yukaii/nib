@@ -22,6 +22,8 @@ private final class NibMacModel: ObservableObject {
   @Published private(set) var connected = false
   @Published private(set) var ipadName: String?
   @Published private(set) var receiverError: String?
+  @Published private(set) var pairingMessage: String?
+  @Published private(set) var pairedIPads: [String: String] = [:]
   @Published private(set) var launchAtLoginError: String?
   @Published var setupCompleted: Bool {
     didSet { defaults.set(setupCompleted, forKey: setupCompletedKey) }
@@ -48,6 +50,8 @@ private final class NibMacModel: ObservableObject {
   private let displayKey = "selectedDisplayID"
   private let smoothingKey = "smoothingEnabled"
   private let setupCompletedKey = "setupCompleted"
+  private let hostID: String
+  private let pairingStore: KeychainPairingKeyStore
   private let trustedAtLaunch: Bool
   @Published var smoothingEnabled = true
 
@@ -62,6 +66,18 @@ private final class NibMacModel: ObservableObject {
   var launchAtLoginEnabled: Bool { SMAppService.mainApp.status == .enabled }
 
   init() {
+    pairingStore = KeychainPairingKeyStore()
+    let defaults = UserDefaults.standard
+    if let existing = defaults.string(forKey: "nib.hostID") {
+      hostID = existing
+    } else {
+      let generated = UUID().uuidString
+      defaults.set(generated, forKey: "nib.hostID")
+      hostID = generated
+    }
+    let oldKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("acceptedDevice.") }
+    for key in oldKeys { defaults.removeObject(forKey: key) }
+    pairedIPads = defaults.dictionary(forKey: "nib.pairedIPads") as? [String: String] ?? [:]
     showsDiagnostics = UserDefaults.standard.bool(forKey: "showsDiagnostics")
     setupCompleted = UserDefaults.standard.bool(forKey: setupCompletedKey)
     trustedAtLaunch = TabletInjector.isTrusted
@@ -69,7 +85,7 @@ private final class NibMacModel: ObservableObject {
     injection = PenInjectionWorker(post: TabletInjector().post, smoothing: savedSmoothing)
     smoothingEnabled = savedSmoothing
     do {
-      receiver = try PenLinkReceiver()
+      receiver = try PenLinkReceiver(pairingStore: pairingStore, hostID: hostID)
     } catch {
       receiver = nil
       receiverError = "Nib could not start its network listener. Try again."
@@ -137,12 +153,13 @@ private final class NibMacModel: ObservableObject {
     receiver.onSample = { sample, arrivalNs in worker.enqueue(sample, arrivalNs: arrivalNs) }
     receiver.onGesture = { gesture in worker.enqueue(gesture) }
     receiver.onSession = { [weak self] event in self?.session(event) }
+    receiver.onPairingEvent = { [weak self] event in self?.pairing(event) }
   }
 
   func retryReceiver() {
     receiver?.stop()
     do {
-      let receiver = try PenLinkReceiver()
+      let receiver = try PenLinkReceiver(pairingStore: pairingStore, hostID: hostID)
       configure(receiver)
       self.receiver = receiver
       receiverError = nil
@@ -244,23 +261,44 @@ private final class NibMacModel: ObservableObject {
     receiver?.displayHeight = display.bounds.height
   }
 
-  private func accept(_ hello: ControlMessage.Hello) async -> Bool {
-    let rememberKey = "acceptedDevice.\(hello.deviceID)"
-    if defaults.bool(forKey: rememberKey) { return true }
-    // A menu-bar-only app is never frontmost; without this the prompt can
-    // open behind the user's drawing app.
-    NSApp.activate(ignoringOtherApps: true)
-    let alert = NSAlert()
-    alert.messageText = "Allow \u{201c}\(hello.deviceName)\u{201d} to control your pointer?"
-    alert.informativeText = "Nib will receive Apple Pencil input from this iPad."
-    alert.addButton(withTitle: "Allow")
-    alert.addButton(withTitle: "Deny")
-    let remember = NSButton(checkboxWithTitle: "Remember", target: nil, action: nil)
-    alert.accessoryView = remember
-    let allowed = alert.runModal() == .alertFirstButtonReturn
-    if allowed, remember.state == .on { defaults.set(true, forKey: rememberKey) }
-    if !allowed { status = "Rejected \(hello.deviceName)" }
-    return allowed
+  private func accept(_ hello: ControlMessage.Hello) async -> Bool { true }
+
+  private func pairing(_ event: PairingTransportEvent) {
+    switch event {
+    case .pairingRequired(let peerName):
+      pairingMessage = "Waiting for \(peerName) to start pairing."
+    case .showCode(let code, let peerName):
+      NSApp.activate(ignoringOtherApps: true)
+      let alert = NSAlert()
+      alert.messageText = "Pair with \(peerName)?"
+      alert.informativeText = "Make sure the iPad shows \(code)."
+      alert.addButton(withTitle: "Pair")
+      alert.addButton(withTitle: "Cancel")
+      if alert.runModal() == .alertFirstButtonReturn {
+        receiver?.confirmPairing()
+      } else {
+        receiver?.cancelPairing()
+      }
+    case .paired(let peerID):
+      pairedIPads[peerID] = pairedIPads[peerID] ?? "iPad"
+      defaults.set(pairedIPads, forKey: "nib.pairedIPads")
+      pairingMessage = nil
+    case .cancelled:
+      pairingMessage = "Pairing was cancelled. Choose Pair to try again."
+    case .timedOut:
+      pairingMessage = "Pairing took too long. Choose Pair to try again."
+    case .failed(let reason):
+      pairingMessage = "Pairing could not finish: \(reason)"
+    }
+  }
+
+  func forget(_ peerID: String) {
+    pairingStore.removeKey(for: peerID)
+    pairedIPads.removeValue(forKey: peerID)
+    defaults.set(pairedIPads, forKey: "nib.pairedIPads")
+    receiver?.stop()
+    receiver?.start()
+    status = "Waiting for iPad…"
   }
 
   private func session(_ event: PenLinkSessionEvent) {
@@ -276,6 +314,8 @@ private final class NibMacModel: ObservableObject {
       }
       connected = true
       ipadName = hello.deviceName
+      pairedIPads[hello.deviceID] = hello.deviceName
+      defaults.set(pairedIPads, forKey: "nib.pairedIPads")
       status = "\(hello.deviceName) · Connected via \(receiver?.transportIsUSB == true ? "USB" : "Wi-Fi")"
     case .geometryChanged(let geometry):
       injection.surfaceChanged(CGSize(width: geometry.surfaceWidth, height: geometry.surfaceHeight))
@@ -466,6 +506,9 @@ struct NibMacApp: App {
   var body: some Scene {
     MenuBarExtra("Nib", systemImage: "pencil.tip") {
       Text(model.status)
+      if let pairingMessage = model.pairingMessage {
+        Text(pairingMessage).foregroundStyle(.secondary)
+      }
       if !model.accessibilityTrusted {
         Button("Grant Accessibility Access…") { model.requestAccessibility() }
       }
@@ -490,6 +533,17 @@ struct NibMacApp: App {
             HStack {
               Text(display.name)
               if display.id == model.selectedDisplayID { Image(systemName: "checkmark") }
+            }
+          }
+        }
+      }
+      Menu("Paired iPads") {
+        if model.pairedIPads.isEmpty {
+          Text("No iPads paired yet")
+        } else {
+          ForEach(model.pairedIPads.keys.sorted(), id: \.self) { peerID in
+            Button("Forget \(model.pairedIPads[peerID] ?? "iPad")") {
+              model.forget(peerID)
             }
           }
         }

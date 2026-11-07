@@ -8,11 +8,15 @@ final class NetworkSink: PenSampleSink, GestureSink {
   private let settings: PadSettingsStore
   private let usb = UsbLinkListener()
   private let deviceID: String
+  private let pairingStore = KeychainPairingKeyStore()
+  private let initialHostID: String
+  private let defaults = UserDefaults.standard
   private(set) var linkState: PenLinkState = .searching
   private(set) var frontApp = ControlMessage.FrontApp(appID: "", name: "Default")
   private(set) var hostInfo: ControlMessage.HostInfo?
   var onHostsChanged: (([String]) -> Void)?
   var onLinkStateChanged: ((PenLinkState) -> Void)?
+  var onPairingEvent: ((PairingTransportEvent) -> Void)?
   private(set) var pressureResult: PressureCheckResult = .notEnoughData
   var selectedHost: String? { sender.selectedHost }
 
@@ -27,6 +31,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
       deviceID = generated
     }
     let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    initialHostID = defaults.string(forKey: "nib.hostPeerID") ?? "pending-host"
     sender.stateHandler = { [weak self] state in
       self?.linkState = state
       self?.onLinkStateChanged?(state)
@@ -34,6 +39,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     sender.hostsHandler = { [weak self] hosts in self?.onHostsChanged?(hosts) }
     sender.onFrontApp = { [weak self] app in self?.frontApp = app }
     sender.onHostInfo = { [weak self] info in self?.hostInfo = info }
+    sender.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event) }
     sender.start(
       hello: .init(
         appVersion: appVersion, deviceID: deviceID, deviceName: UIDevice.current.name, surfaceWidth: 0,
@@ -48,6 +54,9 @@ final class NetworkSink: PenSampleSink, GestureSink {
     }
     usb.onFrontApp = { [weak self] app in self?.frontApp = app }
     usb.onHostInfo = { [weak self] info in self?.hostInfo = info }
+    usb.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event) }
+    sender.configurePairing(store: pairingStore, hostID: initialHostID)
+    usb.configurePairing(store: pairingStore, hostID: initialHostID)
     usb.start(hello: hello)
     NotificationCenter.default.addObserver(
       forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -82,6 +91,39 @@ final class NetworkSink: PenSampleSink, GestureSink {
     UserDefaults.standard.set(name, forKey: "nib.selectedMac")
     sender.selectHost(name)
   }
+
+  func beginPairing() {
+    sender.beginPairing(deviceID: deviceID, deviceName: UIDevice.current.name)
+    usb.beginPairing(deviceID: deviceID, deviceName: UIDevice.current.name)
+  }
+
+  func confirmPairing() {
+    sender.confirmPairing()
+    usb.confirmPairing()
+  }
+
+  func cancelPairing() {
+    sender.cancelPairing()
+    usb.cancelPairing()
+  }
+
+  func pairAgain() {
+    sender.pairAgain()
+    usb.pairAgain()
+  }
+
+  func forgetMac() {
+    guard let hostID = defaults.string(forKey: "nib.hostPeerID") else { return }
+    pairingStore.removeKey(for: hostID)
+    defaults.removeObject(forKey: "nib.hostPeerID")
+    sender.pairAgain()
+    usb.pairAgain()
+  }
+
+  private func handlePairingEvent(_ event: PairingTransportEvent) {
+    if case .paired(let peerID) = event { defaults.set(peerID, forKey: "nib.hostPeerID") }
+    onPairingEvent?(event)
+  }
 }
 
 @main
@@ -93,6 +135,8 @@ struct NibPadApp: App {
   @State private var onboardingStep = 0
   @State private var hosts: [String] = []
   @State private var linkState: PenLinkState = .searching
+  @State private var pairingCode: String?
+  @State private var pairingPeer: String?
   @State private var pressureResult: PressureCheckResult = Self.storedPressureResult
   private let sink: NetworkSink
 
@@ -103,6 +147,9 @@ struct NibPadApp: App {
     sink.onHostsChanged = { hosts in NotificationCenter.default.post(name: .nibHostsChanged, object: hosts) }
     sink.onLinkStateChanged = { state in
       NotificationCenter.default.post(name: .nibLinkStateChanged, object: state)
+    }
+    sink.onPairingEvent = { event in
+      NotificationCenter.default.post(name: .nibPairingEvent, object: event)
     }
   }
 
@@ -116,7 +163,13 @@ struct NibPadApp: App {
         if !onboardingCompleted {
           OnboardingView(
             step: $onboardingStep, hosts: hosts, linkState: linkState,
+            pairingCode: pairingCode, pairingPeer: pairingPeer,
             chooseMac: { sink.chooseMac($0) },
+            pair: {
+              if pairingCode == nil { sink.beginPairing() } else { sink.confirmPairing() }
+            },
+            cancelPairing: { sink.cancelPairing() },
+            pairAgain: { sink.pairAgain() },
             finish: { result in
               pressureResult = result
               Self.storePressureResult(result)
@@ -139,7 +192,7 @@ struct NibPadApp: App {
               onboardingStep = 2
               onboardingCompleted = false
               panelOpen = false
-            }, pressureResult: pressureResult, showsHUD: $showsHUD
+            }, forgetMac: { sink.forgetMac() }, pressureResult: pressureResult, showsHUD: $showsHUD
           )
           .padding(20)
           .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in
@@ -152,6 +205,20 @@ struct NibPadApp: App {
       }
       .onReceive(NotificationCenter.default.publisher(for: .nibLinkStateChanged)) { note in
         linkState = note.object as? PenLinkState ?? .searching
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .nibPairingEvent)) { note in
+        guard let event = note.object as? PairingTransportEvent else { return }
+        switch event {
+        case .showCode(let code, let peer):
+          pairingCode = code
+          pairingPeer = peer
+        case .pairingRequired(let peer):
+          pairingPeer = peer
+          pairingCode = nil
+          linkState = .rejected("Pair with \(peer) to start.")
+        case .paired: pairingCode = nil
+        case .cancelled, .timedOut, .failed: pairingCode = nil
+        }
       }
     }
   }
@@ -185,4 +252,5 @@ extension NibPadApp {
 extension Notification.Name {
   static let nibHostsChanged = Notification.Name("Nib.hostsChanged")
   static let nibLinkStateChanged = Notification.Name("Nib.linkStateChanged")
+  static let nibPairingEvent = Notification.Name("Nib.pairingEvent")
 }
