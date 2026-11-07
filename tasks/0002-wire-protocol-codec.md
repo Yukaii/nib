@@ -50,9 +50,11 @@ wrap-aware sequence comparison.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/pen-sample-codec @ bbebcdc
+Verify: verify: ok (Test run with 12 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added PenSampleCodec.swift: encode(), init(decoding:) with full validation, isSequence wrap-aware compare
+- Added PenSampleCodecTests.swift: golden 40-byte vector, round-trips, all DecodeError cases incl. NaN/Inf, sequence wrap/boundary tests
+Manual checks: none required (no hardware/network path); not run
+Not done / risks: none; reserved buttons/flags bits accepted as-is per decision 0002
 ```
