@@ -56,11 +56,26 @@ Spec: `docs/decisions/0006-app-profiles-and-shortcuts.md`. 0012 added
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: BRANCH @ SHA
+Verify: verify: ok (Test run with 88 tests; NibMac + NibPad built)
 Done:
+- NibCore `KeyNames` (code → name, picker table of 61 keys, chord display in
+  ⌃⌥⇧⌘ order; modifier-only chords show just symbols) + tests.
+- `PadSettings`: `addProfile`, `deleteProfile` (Default protected),
+  `resetProfilesToPresets` (keeps pressure), `Profile.addButton/moveButton`
+  (max 8), `isDefault`; removed the `gestures` compatibility accessor.
+- `profile(forBundleID:)` now ignores empty prefixes and never matches Default
+  (a half-typed prefix would otherwise match every app).
+- Panel: Profiles section (active + front app, list, add, reset with
+  confirmation) opening `ProfileEditor` (new file) as a sheet: name, app
+  prefixes + "Use current front app", buttons (label, key grid with "None
+  (modifiers only)", ⌃⌥⇧⌘ toggles, Hold, reorder, delete), strip, gestures.
+  Profile deletion lives in the editor.
 Manual checks: open panel, edit the Krita profile's button key and label,
   relaunch NibPad, change persists; "Use current front app" fills the
-  bundle ID while Krita is front. (needs iPad)
-Not done / risks:
+  bundle ID while Krita is front. (needs iPad) — not run.
+Not done / risks: Hardware-keyboard "Press keys…" capture skipped (optional).
+  `NetworkSink` is not observable, so the front app shown in the panel is
+  refreshed when the panel re-renders (open, or any settings edit), not live.
+  Editor layout unseen on a device; built only.
 ```
