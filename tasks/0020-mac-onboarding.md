@@ -1,7 +1,7 @@
 ---
 id: "0020"
 title: Mac onboarding — setup window, Accessibility relaunch, pressure test
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -70,9 +70,13 @@ reopened from the menu. Launch at login is available.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/fix-mac-onboarding-review @ 84f30e04e1d4b69cf4456429ef6382fa6c498d17
+Verify: verify: ok (Test run with 116 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Replaced the setup WindowGroup with one single-instance Window and added the macOS 14 launch fallback that closes the completed-setup window on the first run loop; incomplete setup remains automatic, and the menu item reopens the same window.
+- Restart now stops the receiver and schedules `open --new` only after this process exits.
+- Accessibility trust and restart requirements now override persisted completion; added regression tests for revoked trust and pending restart.
+- Isolated launch-at-login errors from receiver errors and changed iPad copy to "Get Nib for iPad".
+Manual checks: Not run. The fresh defaults/tcc reset walkthrough, pressure stroke in the canvas, launch-at-login persistence, and actual launch-window behavior need a macOS session and iPad. Launch behavior was verified by code inspection plus the successful NibMac build: a single Window is used, completed setup is closed from the launch delegate, and incomplete setup is left open.
+Not done / risks: The macOS 15 `defaultLaunchBehavior` API cannot be conditionally composed by SwiftUI's SceneBuilder for a macOS 14 deployment target, so the launch delegate fallback is used on supported systems.
 ```
