@@ -17,10 +17,14 @@ Post events to `.cghidEventTap` from the Mac host (needs Accessibility
 permission):
 
 1. On first contact / hover: `tabletProximity` event (enter), pointer type
-   pen (or eraser), stable device id, capability mask with pressure + tilt.
+   pen (1) or eraser (3), stable device id, capability mask `0x05C7`
+   (IOLLEvent.h: device id, abs x/y, buttons, tilt x/y, pressure). IDs are
+   UInt16 in IOLLEvent.h. Eraser toggles re-enter proximity between strokes.
 2. While touching: `leftMouseDown` / `leftMouseDragged` / `leftMouseUp` with
    `mouseEventSubtype = tabletPoint` and `tabletEventPointPressure`,
-   `tabletEventTiltX/Y`, `mouseEventPressure`, plus matching device id.
+   `tabletEventTiltX/Y`, `mouseEventPressure`, `tabletEventPointButtons`,
+   plus matching device id. The builder repairs missing down/up
+   transitions and drops `.predicted` samples (cannot be retracted).
 3. Hover: `mouseMoved` with tablet-point subtype and pressure 0.
 4. On lift-out / timeout: `tabletProximity` (exit).
 
