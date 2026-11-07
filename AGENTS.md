@@ -15,7 +15,25 @@ Dreams-style tools) receive real tablet events.
 pressure. Tilt, hover and Pencil Pro squeeze come next. A change that loses
 pressure is a regression, whatever else it gains.
 
-Target hardware: iPad mini 6/7 (Pencil 2 / Pencil Pro), Apple Silicon Mac.
+Nib is a **free, open-source product** (MIT, GitHub Sponsors), not a
+prototype: Mac as a notarized DMG, iPad on the App Store (decision 0009).
+Windows and Linux hosts in Rust follow later (decision 0010).
+
+Supported hardware:
+
+- Any iPad (iPadOS 18+) with a **pressure-sensitive** Pencil: Pencil 1st gen,
+  Pencil 2, Pencil Pro. Pencil (USB-C) has no pressure: unsupported, and
+  onboarding says so. Hover, squeeze and barrel roll light up when present.
+- Mac: Apple Silicon, macOS 14+. Developed on iPad mini 7 + Pencil Pro.
+
+## Product quality bar
+
+- Every user-facing string is plain language. No raw link states, enum
+  names or log text outside an "Advanced" / diagnostics area.
+- Every failure the user can hit (no permission, no Mac found, rejected,
+  version mismatch, Pencil without pressure) has an on-screen next step.
+- First run must work from on-screen instructions alone, with no README.
+- Settings changes take effect live and persist; nothing needs a restart.
 
 ## Start here (every session)
 
@@ -50,13 +68,27 @@ Target hardware: iPad mini 6/7 (Pencil 2 / Pencil Pro), Apple Silicon Mac.
 AGENTS.md            workflow (this file)
 PLAN.md              milestones, current focus, decisions index
 tasks/               one file per open task; deleted when done
-docs/                architecture.md, decisions/
+docs/                architecture.md, protocol.md, decisions/
+protocol/vectors/    golden protocol test vectors (JSON + hex), shared by all hosts
 Packages/NibCore/    shared Swift package: wire protocol, mapping, Mac injector
 Apps/NibMac/         macOS menu-bar host app (receiver + event injection)
 Apps/NibPad/         iPadOS app (screen-off pen capture + sender)
+Hosts/               (M5) Rust workspace: nib-core + Windows/Linux hosts
 project.yml          XcodeGen spec for both apps
 scripts/             verify.sh, check-workflow.sh
 ```
+
+## Protocol rules
+
+The protocol is the contract between the iPad and every host (decision 0008).
+`docs/protocol.md` and `protocol/vectors/` are normative once they exist.
+
+- Any wire change updates the spec and the vectors in the same commit.
+- Prefer additive changes (new message type, field, capability); receivers
+  ignore what they do not know. Anything else bumps `controlVersion` and needs
+  a decision record.
+- Never put platform-specific values (key codes, bundle-only fields) on the
+  wire; hosts translate neutral values.
 
 Platform-specific code in NibCore sits behind `#if os(macOS)` / `#if
 os(iOS)` so `swift test` on the Mac covers everything testable.
@@ -158,4 +190,6 @@ fails a task twice, escalate the model rather than loosening the task.
 - Swift 6, `swift format` default style (verify runs `swift format lint`).
 - Tests use Swift Testing (`import Testing`, `@Test`, `#expect`).
 - Comments explain why, not what.
+- Rust (M5, `Hosts/`): stable toolchain, `cargo fmt`, `cargo clippy -D
+  warnings`, `cargo test`; verify runs them once `Hosts/` exists.
 - Commits: conventional with task id, e.g. `feat(0003): tablet event injector`.

@@ -23,4 +23,4 @@ Safari lose fidelity we need.
 
 - Needs Xcode signing to install on the iPad (free personal team works, 7-day
   re-sign). Documented in M3.
-- No Linux/Windows host. Out of scope.
+- No Linux/Windows host. Out of scope. (Superseded by 0010.)
