@@ -78,7 +78,7 @@ that checks the protocol version and exchanges surface/display geometry.
 Filled in by the worker:
 
 ```
-Branch/commit: t3/fix-transport-reconnect-heartbeat @ 98c75da5206739bc4db74fa4f65a2ddb91bf2e92
+Branch/commit: t3/fix-transport-reconnect-heartbeat @ 0703d364f983835a0767f6b3f6141fc58114531
 Verify: verify: ok (Test run with 33 tests; NibMac + NibPad built)
 Done:
 - Added Codable TCP control messages with length framing, incremental decoding, and size protection.
