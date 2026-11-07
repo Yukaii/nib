@@ -19,7 +19,7 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
   sample fields.
 - `Transport/` (decision 0004)
   - `ControlMessage` + `ControlFramer` — length-prefixed JSON over TCP:
-    hello / helloAck / geometry / ping / probe / gesture.
+    hello / helloAck / geometry / ping / probe / gesture / frontApp.
   - `SampleSequencer` — drops not-newer UDP samples.
   - `PenLink` — `PenLinkSender` (iPad: Bonjour browse, hello, UDP send,
     triple-send of state transitions, 1 s ping, 3 s timeout, reconnect) and
@@ -31,12 +31,15 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
   discover attached iPads, connect to port 47811, retry), `UsbLinkListener`
   (iPad: loopback-only, 1 s ping, 3 s timeout). USB wins over Wi-Fi; a busy
   Wi-Fi sender retries every 2 s so unplugging falls back automatically.
-- `Settings/` — `PadSettings` (pressure curve + gesture options, owned by
-  the iPad), `PadSettingsStore`, `PressureCurve` (applied on the iPad
-  before sending).
-- `Gesture` (control message) + `GesturePalmRejection` (iPad) +
-  `GestureEventBuilder` (Mac: pixel scroll with phases, modifier+scroll
-  zoom, ⌘Z / ⇧⌘Z).
+- `Settings/` (decision 0006) — `PadSettings` (pressure curve, edge
+  brightness, per-app `profiles`: buttons, strip, gesture options; owned by
+  the iPad), `PadSettingsStore`, `PressureCurve` (applied on the iPad before
+  sending), `KeyNames` (key picker table), `StripStepper`,
+  `ShortcutButtonGestureMapper`, `ActiveHoldTracker`.
+- `Gesture` (control message: scroll, zoom, undo, redo, `key(chord, tap|down|up)`)
+  + `GesturePalmRejection` (iPad) + `GestureEventBuilder` (Mac: pixel scroll
+  with phases, modifier+scroll zoom, keys; modifiers pressed/released with
+  real `flagsChanged` events, held keys released at session end).
 - `LinkStats` (rate, loss, gap/jitter p95, on demand) and
   `PlayoutScheduler` (adaptive jitter buffer, p95 + 2 ms, 2…40 ms).
 - `DisplayMapper` — aspect-locked "force proportions" mapping: the whole
@@ -61,13 +64,16 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
   dimmed screen + idle timer off, debug HUD (switch in the panel; pressure,
   angles, rate, link state, fading trace). Four-finger tap opens the
   companion panel (pressure curve with force test strip, gesture options,
-  HUD switch). `FingerGestureController`: two-finger scroll, pinch zoom,
+  HUD switch, profiles with `ProfileEditor`). `EdgeControlsView`: shortcut
+  buttons and a scroll/zoom/brush strip from the active profile; finger
+  touches routed by `PenCaptureView`, the Pencil always draws.
+  `FingerGestureController`: two-finger scroll, pinch zoom,
   2/3-finger tap undo/redo. `NetworkSink` routes to USB when live, else
   Wi-Fi; predicted samples are never sent.
 - `Apps/NibMac` — `MenuBarExtra` (`LSUIElement`): status, Accessibility
   onboarding, display picker (persisted), Smoothing toggle, live link
   line (Hz, loss, jitter, delay, post, RTT), `via USB`/`via Wi-Fi`,
-  Allow/Deny prompt per iPad (remembered by device name — not
+  sends `frontApp` on accept and app activation, Allow/Deny prompt per iPad (remembered by device name — not
   authentication). Logs to `dev.yukai.nib` (`log stream --info`).
 
 ## Build and checks
