@@ -8,6 +8,9 @@ struct CompanionPanel: View {
   let profileName: String
   let frontApp: ControlMessage.FrontApp
   let hostInfo: ControlMessage.HostInfo?
+  let showIntroduction: () -> Void
+  let changeMac: () -> Void
+  let pressureResult: PressureCheckResult
   @Binding var showsHUD: Bool
   @State private var testRaw: Double = 0.5
   @State private var editing: ProfileTarget?
@@ -21,7 +24,7 @@ struct CompanionPanel: View {
         HStack {
           VStack(alignment: .leading) {
             Text("Nib Companion").font(.title2.bold())
-            Text("Link: \(linkState)").font(.footnote).foregroundStyle(.secondary)
+            Text(plainStatus).font(.footnote).foregroundStyle(.secondary)
             if let hostInfo {
               Text(
                 "Connected to \(hostInfo.name) (\(hostInfo.platform.displayName), Nib \(hostInfo.appVersion))"
@@ -33,8 +36,16 @@ struct CompanionPanel: View {
           Button("Done") { NotificationCenter.default.post(name: .closeCompanionPanel, object: nil) }
         }
         pressureSection
+        if pressureResult == .noPressure {
+          Text(
+            "This Pencil doesn’t report pressure. Nib needs Apple Pencil (1st gen), Apple Pencil 2 or Apple Pencil Pro."
+          )
+          .font(.footnote).foregroundStyle(.orange)
+        }
         profilesSection
         Toggle("Debug HUD", isOn: $showsHUD)
+        Button("Change Mac") { changeMac() }
+        Button("Show introduction again") { showIntroduction() }
         HStack {
           Text("Edge brightness")
           Slider(value: edgeBrightness, in: 0...1)
@@ -47,6 +58,14 @@ struct CompanionPanel: View {
     .background(.black.opacity(0.92))
     .foregroundStyle(.white)
     .tint(.cyan)
+  }
+
+  private var plainStatus: String {
+    if linkState == "connected via USB" { return "Connected by cable" }
+    if linkState.hasPrefix("connected ") { return "Connected to \(linkState.dropFirst("connected ".count))" }
+    if linkState.hasPrefix("rejected: ") { return String(linkState.dropFirst("rejected: ".count)) }
+    if linkState == "connecting" { return "Connecting to your Mac…" }
+    return "Looking for your Mac…"
   }
 
   private var pressureSection: some View {

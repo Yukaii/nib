@@ -208,6 +208,7 @@ public struct ReceiverSession: Sendable, Equatable {
 @MainActor
 public final class PenLinkSender {
   public typealias StateHandler = @MainActor (PenLinkState) -> Void
+  public typealias HostsHandler = @MainActor ([String]) -> Void
   public private(set) var state: PenLinkState = .searching {
     didSet {
       transportLogger.info("sender state: \(String(describing: self.state), privacy: .public)")
@@ -215,12 +216,18 @@ public final class PenLinkSender {
     }
   }
   public var stateHandler: StateHandler?
+  public var hostsHandler: HostsHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
   public private(set) var hostInfo: ControlMessage.HostInfo?
   public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
+  private var resultsByName: [String: NWBrowser.Result] = [:]
+  public private(set) var discoveredHosts: [String] = [] {
+    didSet { hostsHandler?(discoveredHosts) }
+  }
+  public private(set) var selectedHost: String?
   private var connection: NWConnection?
   private var udpConnection: NWConnection?
   private var framer = ControlFramer()
@@ -233,9 +240,19 @@ public final class PenLinkSender {
 
   public init() {}
 
-  public func start(hello: ControlMessage.Hello) {
+  public func start(hello: ControlMessage.Hello, rememberedHost: String? = nil) {
     self.hello = hello
+    selectedHost = rememberedHost
     startBrowser()
+  }
+
+  /// Selects a Bonjour service by its user-visible Mac name. Passing nil clears
+  /// the choice and returns to the explicit selection state when several Macs exist.
+  public func selectHost(_ name: String?) {
+    selectedHost = name
+    connectionLost(reconnect: false)
+    state = .searching
+    connectToBestResult()
   }
 
   public func stop() {
@@ -250,6 +267,8 @@ public final class PenLinkSender {
     connection = nil
     udpConnection = nil
     latestResult = nil
+    resultsByName = [:]
+    discoveredHosts = []
     lastReceivedAt = nil
     state = .searching
   }
@@ -284,8 +303,14 @@ public final class PenLinkSender {
     newBrowser.browseResultsChangedHandler = { [weak self] results, _ in
       Task { @MainActor [weak self] in
         guard let self else { return }
-        self.latestResult = results.first
-        self.connect(to: results.first)
+        let named = results.compactMap { result -> (String, NWBrowser.Result)? in
+          guard case .service(let name, _, _, _) = result.endpoint else { return nil }
+          return (name, result)
+        }
+        self.resultsByName = Dictionary(uniqueKeysWithValues: named)
+        self.discoveredHosts = named.map(\.0).sorted()
+        self.latestResult = named.first(where: { $0.0 == self.selectedHost })?.1
+        self.connectToBestResult(results: named)
       }
     }
     newBrowser.stateUpdateHandler = { [weak self] newState in
@@ -295,6 +320,22 @@ public final class PenLinkSender {
     }
     state = .searching
     newBrowser.start(queue: queue)
+  }
+
+  private func connectToBestResult(results: [(String, NWBrowser.Result)]? = nil) {
+    let named = results ?? discoveredHosts.compactMap { name in resultsByName[name].map { (name, $0) } }
+    let choice = MacSelectionPolicy.choose(remembered: selectedHost, results: named.map(\.0))
+    let name: String
+    switch choice {
+    case .remembered(let remembered): name = remembered
+    case .single(let single): name = single
+    case .ask:
+      state = .searching
+      return
+    }
+    guard let result = named.first(where: { $0.0 == name })?.1 else { return }
+    latestResult = result
+    connect(to: result)
   }
 
   private func connect(to result: NWBrowser.Result?) {
