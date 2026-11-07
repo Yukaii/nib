@@ -1,6 +1,9 @@
 import NibCore
 import SwiftUI
 import UIKit
+import os
+
+private let padLogger = Logger(subsystem: "dev.yukai.nib", category: "pad")
 
 @MainActor
 protocol PenSampleSink: AnyObject {
@@ -90,6 +93,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     wasActive = true
     originalBrightness = UIScreen.main.brightness
     UIScreen.main.brightness = 0.0
+    padLogger.info("screen-off mode enabled")
     UIApplication.shared.isIdleTimerDisabled = true
   }
 
@@ -98,11 +102,19 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     wasActive = false
     UIApplication.shared.isIdleTimerDisabled = false
     if let originalBrightness { UIScreen.main.brightness = originalBrightness }
+    padLogger.info("screen-off mode disabled")
     self.originalBrightness = nil
   }
 
   @objc private func toggleHUD() {
     hud.isHidden.toggle()
+    if hud.isHidden {
+      UIScreen.main.brightness = 0
+      padLogger.info("HUD hidden")
+    } else {
+      UIScreen.main.brightness = originalBrightness ?? UIScreen.main.brightness
+      padLogger.info("HUD shown")
+    }
     inkPoints.removeAll()
     sampleTimes.removeAll()
     hud.clearTrace()

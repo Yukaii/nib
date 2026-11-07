@@ -54,9 +54,11 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   case helloAck(HelloAck)
   case geometry(Geometry)
   case ping
+  case probe(sentAtNs: UInt64)
+  case probeReply(sentAtNs: UInt64)
 
-  private enum CodingKeys: String, CodingKey { case type, hello, helloAck, geometry }
-  private enum Kind: String, Codable { case hello, helloAck, geometry, ping }
+  private enum CodingKeys: String, CodingKey { case type, hello, helloAck, geometry, sentAtNs }
+  private enum Kind: String, Codable { case hello, helloAck, geometry, ping, probe, probeReply }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -65,6 +67,8 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .helloAck: self = .helloAck(try container.decode(HelloAck.self, forKey: .helloAck))
     case .geometry: self = .geometry(try container.decode(Geometry.self, forKey: .geometry))
     case .ping: self = .ping
+    case .probe: self = .probe(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
+    case .probeReply: self = .probeReply(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
     }
   }
 
@@ -82,6 +86,12 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       try container.encode(value, forKey: .geometry)
     case .ping:
       try container.encode(Kind.ping, forKey: .type)
+    case .probe(let sentAtNs):
+      try container.encode(Kind.probe, forKey: .type)
+      try container.encode(sentAtNs, forKey: .sentAtNs)
+    case .probeReply(let sentAtNs):
+      try container.encode(Kind.probeReply, forKey: .type)
+      try container.encode(sentAtNs, forKey: .sentAtNs)
     }
   }
 }

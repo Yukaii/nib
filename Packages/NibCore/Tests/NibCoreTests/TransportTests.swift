@@ -104,4 +104,11 @@ struct TransportTests {
       version.hello(protocolVersion: PenSample.version, busy: true, acceptResult: true, now: 0)
         == .rejected("busy"))
   }
+
+  @Test func probesRoundTripThroughFramer() throws {
+    for message in [ControlMessage.probe(sentAtNs: 123), .probeReply(sentAtNs: 456)] {
+      var framer = ControlFramer()
+      #expect(try framer.append(framer.encode(message)) == [message])
+    }
+  }
 }
