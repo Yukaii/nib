@@ -39,12 +39,15 @@ Network.framework TLS-PSK would force OpenSSL on Windows/Linux.
   derived from a per-direction counter; for UDP, from the sample sequence).
   A frame that fails to open is dropped. The host accepts unpaired iPads only
   into the pairing flow.
+- **Availability is a non-goal** against an active LAN or USB attacker, who can
+  always flood or reset connections. Guarantees: no impersonation, no pairing
+  without both users confirming, and a bounded rate of pairing prompts (3
+  failed/cancelled pairings → 60 s refusal). No idle timers or busy queues
+  beyond that (simplified 2026-11-07 after the 0022 round-4 review).
 - **Keys at rest:** Keychain on both Apple platforms (the OS credential
   store on Windows/Linux). "Forget this iPad" / "Forget this Mac" delete them.
-- **USB** uses the same sessions, so there is one code path. The cable is not
-  treated as trusted.
-- The spec (`docs/protocol.md`) and vectors gain pairing and sealed-frame
-  examples with fixed keys and nonces.
+- **USB** uses the same sessions (the cable is not trusted). Spec and
+  vectors cover pairing and sealed frames with fixed keys and nonces.
 
 ## Consequences
 
@@ -52,6 +55,5 @@ Network.framework TLS-PSK would force OpenSSL on Windows/Linux.
 - 16-byte tag per sample (40 → 56 bytes + 8-byte header): negligible at 240 Hz.
 - Primitives exist in CryptoKit and in RustCrypto (`x25519-dalek`,
   `chacha20poly1305`, `hkdf`), so no OpenSSL.
-- We own a small handshake, so it needs careful review and test vectors.
-  It follows well-known patterns (ECDH + SAS + HKDF + AEAD) rather than
-  inventing primitives.
+- We own a small handshake (ECDH + SAS + HKDF + AEAD, no new primitives),
+  so it needs careful review and test vectors.
