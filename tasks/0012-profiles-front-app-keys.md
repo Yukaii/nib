@@ -83,7 +83,7 @@ Read `docs/decisions/0006-app-profiles-and-shortcuts.md` first; it is the spec.
 ## Handoff
 
 ```
-Branch/commit: t3/fix-gesture-modifier-handling @ f3f6402
+Branch/commit: t3/fix-gesture-modifier-handling @ c857459
 Verify: verify: ok (Test run with 79 tests; NibMac + NibPad built)
 Done:
 - Added Codable front-app and key gesture protocol messages over TCP and USB.
