@@ -72,7 +72,7 @@ unplugged. The menu line shows which transport is active.
 ## Handoff
 
 ```
-Branch/commit: t3/fix-usb-transport @ 5435def8961e7b4eee1bfa39125069fb2215d0dd
+Branch/commit: t3/fix-usb-transport @ c52b82e30944acfcc5d2e6ada4ca16ca505fc3ed
 Verify: verify: ok (Test run with 67 tests; NibMac + NibPad built)
 Done:
 - Merged the USB transport with the companion panel, pressure curve, and gesture paths; USB carries curved pressure, geometry, and gestures.
