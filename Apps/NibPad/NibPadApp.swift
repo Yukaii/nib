@@ -28,6 +28,11 @@ final class NetworkSink: PenSampleSink, GestureSink {
       self?.linkState = connected ? "connected via USB" : "searching"
     }
     usb.start(hello: hello)
+    NotificationCenter.default.addObserver(
+      forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.usb.resumeListening() }
+    }
   }
 
   func send(_ sample: PenSample) {

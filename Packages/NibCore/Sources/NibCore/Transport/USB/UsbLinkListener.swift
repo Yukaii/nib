@@ -1,5 +1,8 @@
 import Foundation
 import Network
+import os
+
+private let usbListenerLogger = Logger(subsystem: "dev.yukai.nib", category: "usb")
 
 /// iPad-side TCP listener used by usbmuxd. The listener is intentionally
 /// loopback-only: usbmuxd forwards a cable connection through localhost.
@@ -17,6 +20,8 @@ public final class UsbLinkListener {
   private var hello: ControlMessage.Hello?
   private var lastTrafficAt: TimeInterval?
   private var heartbeatTask: Task<Void, Never>?
+  private var retryTask: Task<Void, Never>?
+  private var listenerReady = false
 
   public init(port: UInt16 = 47811) {
     self.port = NWEndpoint.Port(rawValue: port)!
@@ -25,26 +30,71 @@ public final class UsbLinkListener {
   public func start(hello: ControlMessage.Hello) {
     self.hello = hello
     stop()
+    startListener()
+  }
+
+  /// iOS invalidates listening sockets while the app is suspended and the
+  /// listener does not recover on its own, so the app calls this when it
+  /// becomes active. An existing USB session is left alone.
+  public func resumeListening() {
+    guard hello != nil, !listenerReady else { return }
+    startListener()
+  }
+
+  private func startListener() {
+    listener?.cancel()
+    listener = nil
+    listenerReady = false
+    retryTask?.cancel()
+    retryTask = nil
     do {
       let tcp = NWProtocolTCP.Options()
       tcp.noDelay = true
       let parameters = NWParameters(tls: nil, tcp: tcp)
+      parameters.allowLocalEndpointReuse = true
       let newListener = try NWListener(using: parameters, on: port)
       newListener.newConnectionHandler = { [weak self] connection in
         Task { @MainActor [weak self] in self?.accept(connection) }
       }
+      newListener.stateUpdateHandler = { [weak self, weak newListener] state in
+        Task { @MainActor [weak self] in
+          guard let self, let newListener, self.listener === newListener else { return }
+          switch state {
+          case .ready: self.listenerReady = true
+          case .failed(let error):
+            usbListenerLogger.error("USB listener failed: \(String(describing: error), privacy: .public)")
+            self.listenerReady = false
+            self.scheduleListenerRetry()
+          case .cancelled: self.listenerReady = false
+          default: break
+          }
+        }
+      }
       newListener.start(queue: queue)
       listener = newListener
     } catch {
-      stateHandler?(false)
+      usbListenerLogger.error("USB listener could not start: \(String(describing: error), privacy: .public)")
+      scheduleListenerRetry()
+    }
+  }
+
+  private func scheduleListenerRetry() {
+    retryTask?.cancel()
+    retryTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(1))
+      guard let self, !Task.isCancelled else { return }
+      self.startListener()
     }
   }
 
   public func stop() {
     heartbeatTask?.cancel()
     heartbeatTask = nil
+    retryTask?.cancel()
+    retryTask = nil
     listener?.cancel()
     listener = nil
+    listenerReady = false
     connection?.cancel()
     connection = nil
     lastTrafficAt = nil
