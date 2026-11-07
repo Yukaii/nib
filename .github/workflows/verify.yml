@@ -1,0 +1,45 @@
+name: verify
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+# The workflow only checks code out and runs the build; it needs nothing else.
+permissions:
+  contents: read
+
+# A new push on the same branch supersedes the previous run.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        # Don't pin an Xcode version: verify.sh needs whatever Swift 6
+        # toolchain the runner ships, so pick the newest installed Xcode
+        # instead of letting the run depend on the image default.
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort | tail -1)/Contents/Developer"
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: Packages/NibCore/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Packages/NibCore/Package.resolved', 'Packages/NibCore/Package.swift', 'Packages/NibCore/Sources/**/*.swift', 'Packages/NibCore/Tests/**/*.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Run verify
+        run: scripts/verify.sh
