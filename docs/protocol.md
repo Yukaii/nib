@@ -150,7 +150,9 @@ fields.
 modifier-only chord. Key names are W3C `KeyboardEvent.code` values, such as
 `KeyZ`, `Digit1`, `Space`, `BracketLeft`, `ArrowUp`, and `F5`.
 
-Modifiers are `primary`, `control`, `alt`, `shift`, and `meta`. `primary` maps
+Modifiers are `primary`, `control`, `alt`, `shift`, and `meta`. `modifiers` is
+a set: receivers MUST ignore order and duplicates; senders SHOULD emit them in
+the order listed here. `primary` maps
 to Command on macOS and Ctrl on other hosts. `meta` maps to Command, Windows,
 or Super respectively; `alt` maps to Option on macOS. A host ignores a key it
 cannot map. It MUST release held keys and modifiers when a session ends.
@@ -203,5 +205,9 @@ newer. Hosts should preserve the same user-facing meaning.
 
 The vectors in `protocol/vectors/` cover every current control and gesture
 case, all sample kinds and boundary features, invalid packets, and the W3C key
-translation table. A conforming implementation should decode and re-encode
-the valid vectors byte-for-byte after sorting JSON object keys.
+translation table. A conforming implementation MUST decode every valid
+vector's `framedHex` / `hex` to the values in `json` / `fields`, MUST reject
+every invalid vector as stated, and MUST encode samples byte-for-byte. Control
+JSON need not re-encode byte-for-byte: number formatting differs between JSON
+libraries (`1024` vs `1024.0`). The Swift reference encoder does match the
+vectors exactly (sorted object keys, canonical modifier order).

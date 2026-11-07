@@ -17,7 +17,7 @@ public enum HostPlatform: String, Codable, Sendable {
 public enum Gesture: Codable, Equatable, Sendable {
   public enum Phase: String, Codable, Sendable { case began, changed, ended, cancelled }
 
-  public enum Modifier: String, Codable, Sendable {
+  public enum Modifier: String, Codable, CaseIterable, Sendable {
     case primary, control, alt, shift, meta
 
     public init(from decoder: Decoder) throws {
@@ -59,7 +59,8 @@ public enum Gesture: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
       var values = encoder.container(keyedBy: CodingKeys.self)
       try values.encodeIfPresent(key, forKey: .key)
-      try values.encode(modifiers, forKey: .modifiers)
+      // A Set has no stable order; a canonical order keeps frames byte-stable.
+      try values.encode(Modifier.allCases.filter(modifiers.contains), forKey: .modifiers)
     }
   }
 

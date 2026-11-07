@@ -63,7 +63,7 @@ private enum ProtocolVectors {
   let expectedNames: Set<String> = [
     "hello", "helloAck", "geometry", "ping", "probe", "probeReply", "frontApp",
     "gesture-scroll", "gesture-zoom", "gesture-rotate", "gesture-undo", "gesture-redo",
-    "gesture-key", "gesture-key-modifier-only",
+    "gesture-key", "gesture-key-modifier-only", "gesture-key-multi-modifier",
   ]
   #expect(Set(vectors.compactMap { $0["name"] as? String }) == expectedNames)
   #expect(vectors.count == expectedNames.count)
