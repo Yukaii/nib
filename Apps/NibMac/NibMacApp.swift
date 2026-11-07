@@ -4,6 +4,9 @@ import Combine
 import CoreGraphics
 import NibCore
 import SwiftUI
+import os
+
+private let macLogger = Logger(subsystem: "dev.yukai.nib", category: "mac")
 
 @MainActor
 private final class NibMacModel: ObservableObject {
@@ -17,11 +20,14 @@ private final class NibMacModel: ObservableObject {
   @Published var displays: [Display] = []
   @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID()
   @Published var accessibilityTrusted = TabletInjector.isTrusted
+  @Published var linkDiagnostics = "link —"
 
   private var receiver: PenLinkReceiver
   private var injection: PenInjectionController
   private var screenObserver: NSObjectProtocol?
   private var accessibilityTimer: Timer?
+  private var diagnosticsTimer: Timer?
+  private var diagnosticsLogCounter = 0
   private let defaults = UserDefaults.standard
   private let displayKey = "selectedDisplayID"
 
@@ -51,8 +57,15 @@ private final class NibMacModel: ObservableObject {
     accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       Task { @MainActor in
         guard let self else { return }
-        self.accessibilityTrusted = self.injection.refreshTrust()
+        let trusted = self.injection.refreshTrust()
+        if trusted != self.accessibilityTrusted {
+          macLogger.info("Accessibility state changed: \(trusted ? "granted" : "required", privacy: .public)")
+        }
+        self.accessibilityTrusted = trusted
       }
+    }
+    diagnosticsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+      Task { @MainActor in self?.refreshDiagnostics() }
     }
   }
 
@@ -79,6 +92,7 @@ private final class NibMacModel: ObservableObject {
   func stop() {
     receiver.stop()
     accessibilityTimer?.invalidate()
+    diagnosticsTimer?.invalidate()
     if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
   }
 
@@ -103,6 +117,7 @@ private final class NibMacModel: ObservableObject {
   }
 
   private func configureDisplay(_ display: Display) {
+    macLogger.info("display changed: \(display.name, privacy: .public)")
     injection.displayChanged(display.bounds)
     receiver.displayWidth = display.bounds.width
     receiver.displayHeight = display.bounds.height
@@ -130,14 +145,43 @@ private final class NibMacModel: ObservableObject {
   private func session(_ event: PenLinkSessionEvent) {
     switch event {
     case .connected(let hello):
+      macLogger.info("session connected: \(hello.deviceName, privacy: .public)")
       injection.surfaceChanged(CGSize(width: hello.surfaceWidth, height: hello.surfaceHeight))
       status = "connected to \(hello.deviceName)"
     case .geometryChanged(let geometry):
       injection.surfaceChanged(CGSize(width: geometry.surfaceWidth, height: geometry.surfaceHeight))
     case .disconnected:
+      macLogger.info("session disconnected")
       injection.sessionEnded()
       status = "waiting for iPad"
     }
+  }
+
+  private func refreshDiagnostics() {
+    guard receiverStateConnected else {
+      linkDiagnostics = "link —"
+      return
+    }
+    let stats = receiver.linkStatsSnapshot()
+    let rtt = receiver.latestRTTMs.map { String(format: "%.0f ms", $0) } ?? "—"
+    linkDiagnostics = String(
+      format: "%.0f Hz · loss %.1f%% · gap p95 %.0f ms · jitter p95 %.0f ms · RTT %@",
+      stats.sampleRateHz, stats.lossPercent, stats.interArrivalP95Ms, stats.delayVariationP95Ms, rtt)
+    diagnosticsLogCounter += 1
+    if diagnosticsLogCounter >= 5 {
+      diagnosticsLogCounter = 0
+      macLogger.info("\(self.linkDiagnostics, privacy: .public)")
+    }
+  }
+
+  private var receiverStateConnected: Bool {
+    if case .connected = receiverState { return true }
+    return false
+  }
+
+  private var receiverState: PenLinkState {
+    // The receiver has no public state; a session is reflected by the menu status.
+    status.hasPrefix("connected to ") ? .connected(status) : .searching
   }
 }
 
@@ -148,6 +192,7 @@ struct NibMacApp: App {
   var body: some Scene {
     MenuBarExtra("Nib", systemImage: "pencil.tip") {
       Text("Nib — \(model.status)")
+      Text(model.linkDiagnostics)
       Divider()
       if model.accessibilityTrusted {
         Text(model.accessibilityLabel)

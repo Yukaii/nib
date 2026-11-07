@@ -66,9 +66,16 @@ debug HUD on the iPad is readable.
 Filled in by the worker:
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/link-diagnostics @ 0a7017dfe2fb44273243da11da5917ce2f20ff06
+Verify: verify: ok (Test run with 43 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added pure two-second LinkStats measurements for rate, sequence loss, inter-arrival gaps, and delay variation, with deterministic tests.
+- Added probe/probeReply control messages and ten-sample median RTT measurement while preserving ping behavior.
+- Added receiver diagnostics exposure, one-second NibMac menu refresh, five-second info logging, and transport/session logs.
+- Added iPad HUD brightness restore/dim behavior and app logging.
+Manual checks: Not run (requires iPad, Accessibility permission, and Krita). Steps: draw for 30 s and read the NibMac menu line; run `log stream --predicate 'subsystem == "dev.yukai.nib"'`; three-finger tap to show the HUD at normal brightness, then tap again to dim.
+Review fixes (orchestrator): stats snapshot no longer computed per sample
+  (sorted the 2 s window 240×/s on the main actor); record() O(1)
+  amortized; added the bursty-frames test from Acceptance.
+Not done / risks: RTT and link diagnostics are measured on the existing main-actor delivery path; delivery timing and network parameters were intentionally left unchanged for task 0008.
 ```

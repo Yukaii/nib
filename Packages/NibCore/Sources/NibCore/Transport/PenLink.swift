@@ -1,5 +1,8 @@
 import Foundation
 import Network
+import os
+
+private let transportLogger = Logger(subsystem: "dev.yukai.nib", category: "transport")
 
 public enum PenLinkState: Sendable, Equatable {
   case searching, connecting
@@ -83,7 +86,12 @@ public struct ReceiverSession: Sendable, Equatable {
 @MainActor
 public final class PenLinkSender {
   public typealias StateHandler = @MainActor (PenLinkState) -> Void
-  public private(set) var state: PenLinkState = .searching { didSet { stateHandler?(state) } }
+  public private(set) var state: PenLinkState = .searching {
+    didSet {
+      transportLogger.info("sender state: \(String(describing: self.state), privacy: .public)")
+      stateHandler?(self.state)
+    }
+  }
   public var stateHandler: StateHandler?
 
   private var browser: NWBrowser?
@@ -204,6 +212,7 @@ public final class PenLinkSender {
     switch message {
     case .helloAck(let ack):
       guard ack.accepted, let connection else {
+        transportLogger.info("session rejected: \(ack.reason ?? "unknown", privacy: .public)")
         state = .rejected(ack.reason ?? "rejected")
         connectionLost(reconnect: false)
         return
@@ -227,6 +236,9 @@ public final class PenLinkSender {
       }
       state = .connected(name)
       startHeartbeat()
+    case .probe(let sentAtNs):
+      sendControl(.probeReply(sentAtNs: sentAtNs))
+    case .probeReply: break
     // Pings are never echoed: both sides send their own every second, and
     // echoing would make each one ping-pong forever.
     default: break
@@ -301,6 +313,9 @@ public final class PenLinkReceiver {
   private var heartbeatTask: Task<Void, Never>?
   private var sessionConnected = false
   private var busyFramers: [ObjectIdentifier: ControlFramer] = [:]
+  private var linkStats = LinkStats()
+  private var rttSamples: [Double] = []
+  public private(set) var latestRTTMs: Double?
 
   public init(accept: @escaping AcceptHandler = { _ in true }) throws {
     self.accept = accept
@@ -313,13 +328,20 @@ public final class PenLinkReceiver {
 
   public func start() {
     listener.stateUpdateHandler = { [weak self] state in
-      if case .failed = state { Task { @MainActor [weak self] in self?.onSession?(.disconnected) } }
+      if case .failed(let error) = state {
+        transportLogger.error("receiver listener failed: \(String(describing: error), privacy: .public)")
+        Task { @MainActor [weak self] in self?.onSession?(.disconnected) }
+      }
     }
     listener.start(queue: queue)
     do {
       let udp = try NWListener(using: .udp)
       udp.stateUpdateHandler = { [weak self] state in
-        if case .failed = state { Task { @MainActor [weak self] in self?.onSession?(.disconnected) } }
+        if case .failed(let error) = state {
+          transportLogger.error(
+            "receiver UDP listener failed: \(String(describing: error), privacy: .public)")
+          Task { @MainActor [weak self] in self?.onSession?(.disconnected) }
+        }
       }
       udp.newConnectionHandler = { [weak self] newConnection in
         Task { @MainActor [weak self] in self?.acceptUDP(newConnection) }
@@ -329,6 +351,11 @@ public final class PenLinkReceiver {
     } catch {
       onSession?(.disconnected)
     }
+  }
+
+  /// Computed on demand (percentiles sort the window); never per sample.
+  public func linkStatsSnapshot(nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> LinkStats.Snapshot {
+    linkStats.snapshot(nowNs: nowNs)
   }
 
   public func stop() {
@@ -458,6 +485,10 @@ public final class PenLinkReceiver {
         return
       }
       sessionConnected = true
+      linkStats = LinkStats()
+      rttSamples.removeAll()
+      latestRTTMs = nil
+      transportLogger.info("session accepted from \(hello.deviceName, privacy: .public)")
       sendControl(
         .helloAck(
           .init(
@@ -472,6 +503,18 @@ public final class PenLinkReceiver {
     case .ping:
       guard sessionConnected else { return }
       session.received(at: now)
+    case .probe(let sentAtNs):
+      guard sessionConnected else { return }
+      session.received(at: now)
+      sendControl(.probeReply(sentAtNs: sentAtNs))
+    case .probeReply(let sentAtNs):
+      guard sessionConnected else { return }
+      let nowNs = DispatchTime.now().uptimeNanoseconds
+      guard nowNs >= sentAtNs else { return }
+      let rtt = Double(nowNs - sentAtNs) / 1_000_000
+      rttSamples.append(rtt)
+      if rttSamples.count > 10 { rttSamples.removeFirst() }
+      latestRTTMs = rttSamples.sorted()[rttSamples.count / 2]
     case .helloAck: break
     }
   }
@@ -492,6 +535,7 @@ public final class PenLinkReceiver {
           return
         }
         self.sendControl(.ping)
+        self.sendControl(.probe(sentAtNs: DispatchTime.now().uptimeNanoseconds))
       }
     }
   }
@@ -517,6 +561,9 @@ public final class PenLinkReceiver {
           self.session.acceptsUDP(from: String(describing: host), sequence: sample.sequence)
         {
           self.session.received(at: Date.timeIntervalSinceReferenceDate)
+          self.linkStats.record(
+            sequence: sample.sequence, senderTimestampNs: sample.timestamp,
+            arrivalNs: DispatchTime.now().uptimeNanoseconds)
           self.onSample?(sample)
         }
         if error == nil, self.sessionConnected { self.receiveUDP(udp) }
@@ -530,8 +577,12 @@ public final class PenLinkReceiver {
     connection?.cancel()
     connection = nil
     session.disconnect()
+    linkStats = LinkStats()
+    rttSamples.removeAll()
+    latestRTTMs = nil
     sessionConnected = false
     framer = ControlFramer()
     if notify { onSession?(.disconnected) }
+    if notify { transportLogger.info("session disconnected") }
   }
 }
