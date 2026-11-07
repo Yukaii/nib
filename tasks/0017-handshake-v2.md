@@ -74,7 +74,7 @@ reason.
 ## Handoff
 
 ```
-Branch/commit: t3/handshake-v2-migration @ 6f1aead582866fbe17b40824ef0c9dbc64c63c5d
+Branch/commit: t3/handshake-v2-migration @ c8dbc4e9d41ac18552f134fe31102cae7a06bf52
 Verify: verify: ok (Test run with 112 tests; NibMac + NibPad built)
 Done:
 - Added protocol v2 handshake fields, host metadata, capabilities, stable iPad device ID, and bundle-derived app versions.
