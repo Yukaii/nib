@@ -81,9 +81,17 @@ pressure, so drawing on the iPad draws in Krita on the Mac.
 Filled in by the worker:
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/mac-host-wiring @ b802ccc
+Verify: verify: ok (Test run with 40 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added aspect-locked DisplayMapper with display-edge clamping and geometry tests.
+- Added PenInjectionController wiring mapped samples through TabletEventBuilder and TabletInjector, including session cleanup and Accessibility trust gating.
+- Wired NibMac receiver, iPad consent prompt, remembered device-name decisions, display picker, display-change updates, status, and Accessibility onboarding.
+- Added pressure-path tests that inspect posted tablet event pressure fields.
+- Updated architecture documentation and helloAck display dimensions.
+Manual checks: Grant Accessibility, run NibPad, allow the iPad, draw in Krita with a pressure brush, switch display, and quit NibPad mid-stroke; not run (no iPad/Krita session available).
+Review fixes (orchestrator): @StateObject so the menu updates; trust
+  check cached (refreshed by the 1 s timer) instead of per sample; app
+  activates before the Allow prompt.
+Not done / risks: Remembered device names are a convenience policy only and are not authentication; real-device latency and pressure behavior still require the M1 exit check.
 ```
