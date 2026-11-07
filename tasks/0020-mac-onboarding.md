@@ -1,7 +1,7 @@
 ---
 id: "0020"
 title: Mac onboarding — setup window, Accessibility relaunch, pressure test
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -70,9 +70,13 @@ reopened from the menu. Launch at login is available.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/mac-onboarding @ 012f5d0335d3f029131c058a7c211d432e961638
+Verify: verify: ok (Test run with 109 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added pure MacOnboardingStep state resolution with Swift Testing coverage.
+- Added the setup window flow for Accessibility, restart, iPad install/QR, connection, and pressure canvas.
+- Added persistent setup completion, live iPad status, receiver retry/error UI, relaunch, and launch-at-login controls.
+- Removed the NibMac PenLinkReceiver try! path.
+Manual checks: Not run. Fresh defaults/tcc reset walkthrough, pressure stroke in the canvas, and launch-at-login persistence need a real macOS session and iPad.
+Not done / risks: WindowGroup launch behavior should be checked on macOS 14 with setupCompleted true/false; no hardware or Accessibility manual checks were available in this run.
 ```
