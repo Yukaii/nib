@@ -92,20 +92,43 @@ public struct PadSettings: Codable, Equatable, Sendable {
   public struct Profile: Codable, Equatable, Sendable, Identifiable {
     public var id: UUID
     public var name: String
-    public var bundleIDPrefixes: [String]
+    public var appIDPrefixes: [String]
     public var buttons: [ShortcutButton]
     public var strip: Strip
     public var gestures: Gestures
     public init(
-      id: UUID = UUID(), name: String, bundleIDPrefixes: [String] = [], buttons: [ShortcutButton] = [],
+      id: UUID = UUID(), name: String, appIDPrefixes: [String] = [], buttons: [ShortcutButton] = [],
       strip: Strip = Strip(), gestures: Gestures = Gestures()
     ) {
       self.id = id
       self.name = name
-      self.bundleIDPrefixes = bundleIDPrefixes
+      self.appIDPrefixes = appIDPrefixes
       self.buttons = buttons
       self.strip = strip
       self.gestures = gestures
+    }
+    private enum CodingKeys: String, CodingKey {
+      case id, name, appIDPrefixes, bundleIDPrefixes, buttons, strip, gestures
+    }
+    public init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      id = try values.decode(UUID.self, forKey: .id)
+      name = try values.decode(String.self, forKey: .name)
+      appIDPrefixes =
+        try values.decodeIfPresent([String].self, forKey: .appIDPrefixes)
+        ?? values.decodeIfPresent([String].self, forKey: .bundleIDPrefixes) ?? []
+      buttons = try values.decodeIfPresent([ShortcutButton].self, forKey: .buttons) ?? []
+      strip = try values.decodeIfPresent(Strip.self, forKey: .strip) ?? Strip()
+      gestures = try values.decodeIfPresent(Gestures.self, forKey: .gestures) ?? Gestures()
+    }
+    public func encode(to encoder: Encoder) throws {
+      var values = encoder.container(keyedBy: CodingKeys.self)
+      try values.encode(id, forKey: .id)
+      try values.encode(name, forKey: .name)
+      try values.encode(appIDPrefixes, forKey: .appIDPrefixes)
+      try values.encode(buttons, forKey: .buttons)
+      try values.encode(strip, forKey: .strip)
+      try values.encode(gestures, forKey: .gestures)
     }
     public var canAddButton: Bool { buttons.count < PadSettings.maxButtons }
     /// Appends a blank button (no key yet); returns false at the button limit.
@@ -136,11 +159,11 @@ public struct PadSettings: Codable, Equatable, Sendable {
     self.edgeBrightness = min(max(edgeBrightness, 0), 1)
     self.profiles = Self.presets(defaultGestures: gestures)
   }
-  public func profile(forBundleID bundleID: String) -> Profile {
+  public func profile(forAppID appID: String) -> Profile {
     // Default (first) is never bound to apps, and an empty prefix, which a
     // half-typed text field can produce, must not match everything.
     profiles.dropFirst().first(where: {
-      $0.bundleIDPrefixes.contains(where: { !$0.isEmpty && bundleID.hasPrefix($0) })
+      $0.appIDPrefixes.contains(where: { !$0.isEmpty && appID.hasPrefix($0) })
     }) ?? profiles.first ?? Profile(name: "Default")
   }
   public func isDefault(_ id: UUID) -> Bool { profiles.first?.id == id }
@@ -150,7 +173,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
     var profile = profiles.first ?? Profile(name: "Default")
     profile.id = UUID()
     profile.name = "New profile"
-    profile.bundleIDPrefixes = []
+    profile.appIDPrefixes = []
     profiles.append(profile)
     return profile.id
   }
@@ -206,15 +229,15 @@ public struct PadSettings: Codable, Equatable, Sendable {
     return [
       Profile(name: "Default", buttons: base + [pan], gestures: defaultGestures),
       Profile(
-        name: "Krita", bundleIDPrefixes: ["org.kde.krita"],
+        name: "Krita", appIDPrefixes: ["org.kde.krita"],
         buttons: base + [pan, .init(label: "Pick", chord: .init(modifiers: [.control]), hold: true)],
         gestures: .init(zoomModifier: .control)),
       Profile(
-        name: "Photoshop", bundleIDPrefixes: ["com.adobe.Photoshop"],
+        name: "Photoshop", appIDPrefixes: ["com.adobe.Photoshop"],
         buttons: base + [pan, .init(label: "Alt", chord: .init(modifiers: [.alt]), hold: true)],
         gestures: .init(zoomModifier: .alt)),
       Profile(
-        name: "Affinity", bundleIDPrefixes: ["com.seriflabs."], buttons: base,
+        name: "Affinity", appIDPrefixes: ["com.seriflabs."], buttons: base,
         gestures: .init(zoomModifier: .primary)),
     ]
   }

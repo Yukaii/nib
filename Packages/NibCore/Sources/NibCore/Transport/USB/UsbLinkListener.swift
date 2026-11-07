@@ -12,6 +12,8 @@ public final class UsbLinkListener {
   public private(set) var isConnected = false
   public var stateHandler: StateHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
+  public private(set) var hostInfo: ControlMessage.HostInfo?
+  public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
 
   private let port: NWEndpoint.Port
   private let queue = DispatchQueue(label: "dev.yukai.nib.usb-listener")
@@ -132,7 +134,7 @@ public final class UsbLinkListener {
           .hello(
             self.hello
               ?? .init(
-                appVersion: "0.1.0", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
+                appVersion: "", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
       }
     }
     newConnection.start(queue: queue)
@@ -151,6 +153,8 @@ public final class UsbLinkListener {
               guard case .control(let message) = frame else { continue }
               switch message {
               case .helloAck(let ack):
+                self.hostInfo = ack.host
+                self.onHostInfo(ack.host)
                 self.setConnected(ack.accepted)
                 if ack.accepted { self.startHeartbeat() }
               case .probe(let sentAtNs): self.send(.probeReply(sentAtNs: sentAtNs))

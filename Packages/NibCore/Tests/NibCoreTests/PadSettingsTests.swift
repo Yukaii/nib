@@ -25,9 +25,9 @@ import Testing
 
 @Test func profileMatchesBundlePrefixes() {
   let settings = PadSettings()
-  #expect(settings.profile(forBundleID: "org.kde.krita").name == "Krita")
-  #expect(settings.profile(forBundleID: "com.seriflabs.affinityphoto2").name == "Affinity")
-  #expect(settings.profile(forBundleID: "com.apple.finder").name == "Default")
+  #expect(settings.profile(forAppID: "org.kde.krita").name == "Krita")
+  #expect(settings.profile(forAppID: "com.seriflabs.affinityphoto2").name == "Affinity")
+  #expect(settings.profile(forAppID: "com.apple.finder").name == "Default")
 }
 
 @Test func deletingProfilesKeepsDefault() {
@@ -77,7 +77,7 @@ import Testing
   let id = settings.addProfile()
   #expect(settings.profiles.last?.id == id)
   #expect(settings.profiles.last?.buttons == settings.profiles[0].buttons)
-  #expect(settings.profiles.last?.bundleIDPrefixes == [])
+  #expect(settings.profiles.last?.appIDPrefixes == [])
   settings.profiles[0].name = "Mine"
   settings.resetProfilesToPresets()
   #expect(settings.profiles.map(\.name) == ["Default", "Krita", "Photoshop", "Affinity"])
@@ -86,12 +86,12 @@ import Testing
 
 @Test func emptyAndDefaultPrefixesNeverMatch() {
   var settings = PadSettings()
-  settings.profiles[1].bundleIDPrefixes = ["org.kde.krita", ""]
-  #expect(settings.profile(forBundleID: "com.apple.finder").name == "Default")
-  settings.profiles[0].bundleIDPrefixes = ["com.apple."]
-  settings.profiles[1].bundleIDPrefixes = []
-  #expect(settings.profile(forBundleID: "com.apple.finder").name == "Default")
-  #expect(settings.profile(forBundleID: "org.kde.krita").name == "Default")
+  settings.profiles[1].appIDPrefixes = ["org.kde.krita", ""]
+  #expect(settings.profile(forAppID: "com.apple.finder").name == "Default")
+  settings.profiles[0].appIDPrefixes = ["com.apple."]
+  settings.profiles[1].appIDPrefixes = []
+  #expect(settings.profile(forAppID: "com.apple.finder").name == "Default")
+  #expect(settings.profile(forAppID: "org.kde.krita").name == "Default")
 }
 
 @Test func edgeBrightnessAllowsFullRangeAndClamps() throws {

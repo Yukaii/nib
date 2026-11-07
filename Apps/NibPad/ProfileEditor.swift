@@ -7,6 +7,7 @@ struct ProfileEditor: View {
   @Bindable var store: PadSettingsStore
   let profileID: UUID
   let frontApp: ControlMessage.FrontApp
+  let hostInfo: ControlMessage.HostInfo?
   @Environment(\.dismiss) private var dismiss
   @State private var confirmsDelete = false
 
@@ -53,7 +54,7 @@ struct ProfileEditor: View {
 
   /// Blank prefixes are dropped on close; they would otherwise be dead entries.
   private func finish() {
-    profile.wrappedValue.bundleIDPrefixes.removeAll {
+    profile.wrappedValue.appIDPrefixes.removeAll {
       $0.trimmingCharacters(in: .whitespaces).isEmpty
     }
     dismiss()
@@ -63,29 +64,29 @@ struct ProfileEditor: View {
 
   private var appsSection: some View {
     Section {
-      ForEach(profile.wrappedValue.bundleIDPrefixes.indices, id: \.self) { index in
+      ForEach(profile.wrappedValue.appIDPrefixes.indices, id: \.self) { index in
         HStack {
           TextField("Bundle ID prefix", text: prefixBinding(index))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
           Button(role: .destructive) {
-            profile.wrappedValue.bundleIDPrefixes.remove(at: index)
+            profile.wrappedValue.appIDPrefixes.remove(at: index)
           } label: {
             Image(systemName: "minus.circle")
           }
           .buttonStyle(.borderless)
         }
       }
-      Button("Add prefix") { profile.wrappedValue.bundleIDPrefixes.append("") }
+      Button("Add prefix") { profile.wrappedValue.appIDPrefixes.append("") }
         .buttonStyle(.borderless)
       Button("Use current front app (\(frontAppTitle))") {
-        let id = frontApp.bundleID
-        if !profile.wrappedValue.bundleIDPrefixes.contains(id) {
-          profile.wrappedValue.bundleIDPrefixes.append(id)
+        let id = frontApp.appID
+        if !profile.wrappedValue.appIDPrefixes.contains(id) {
+          profile.wrappedValue.appIDPrefixes.append(id)
         }
       }
       .buttonStyle(.borderless)
-      .disabled(frontApp.bundleID.isEmpty)
+      .disabled(frontApp.appID.isEmpty)
     } header: {
       Text("Apps")
     } footer: {
@@ -94,18 +95,18 @@ struct ProfileEditor: View {
   }
 
   private var frontAppTitle: String {
-    frontApp.bundleID.isEmpty ? "none reported" : frontApp.name
+    frontApp.appID.isEmpty ? "none reported" : frontApp.name
   }
 
   private func prefixBinding(_ index: Int) -> Binding<String> {
     Binding(
       get: {
-        let prefixes = profile.wrappedValue.bundleIDPrefixes
+        let prefixes = profile.wrappedValue.appIDPrefixes
         return prefixes.indices.contains(index) ? prefixes[index] : ""
       },
       set: {
-        guard profile.wrappedValue.bundleIDPrefixes.indices.contains(index) else { return }
-        profile.wrappedValue.bundleIDPrefixes[index] = $0
+        guard profile.wrappedValue.appIDPrefixes.indices.contains(index) else { return }
+        profile.wrappedValue.appIDPrefixes[index] = $0
       })
   }
 
@@ -119,7 +120,8 @@ struct ProfileEditor: View {
           canMoveUp: index > 0,
           canMoveDown: index < profile.wrappedValue.buttons.count - 1,
           move: { profile.wrappedValue.moveButton(at: index, by: $0) },
-          delete: { profile.wrappedValue.buttons.remove(at: index) })
+          delete: { profile.wrappedValue.buttons.remove(at: index) },
+          hideMeta: hostInfo?.platform == .macos)
       }
       Button("Add button") { profile.wrappedValue.addButton() }
         .buttonStyle(.borderless)
@@ -167,11 +169,15 @@ struct ProfileEditor: View {
     Section("Gestures") {
       Toggle("Two-finger scroll", isOn: profile.gestures.twoFingerScroll)
       Toggle("Pinch zoom", isOn: profile.gestures.pinchZoom)
-      Picker("Zoom method", selection: profile.gestures.zoomMethod) {
-        Text("Native trackpad").tag(PadSettings.ZoomMethod.nativeGesture)
-        Text("Modifier + scroll").tag(PadSettings.ZoomMethod.modifierScroll)
+      if supports(ControlMessage.Capability.zoomNative) {
+        Picker("Zoom method", selection: profile.gestures.zoomMethod) {
+          Text("Native trackpad").tag(PadSettings.ZoomMethod.nativeGesture)
+          Text("Modifier + scroll").tag(PadSettings.ZoomMethod.modifierScroll)
+        }
       }
-      Toggle("Two-finger rotate", isOn: profile.gestures.rotate)
+      if supports(ControlMessage.Capability.rotateNative) {
+        Toggle("Two-finger rotate", isOn: profile.gestures.rotate)
+      }
       Picker("Zoom modifier", selection: profile.gestures.zoomModifier) {
         Text("⌘").tag(PadSettings.ZoomModifier.primary)
         Text("⌥").tag(PadSettings.ZoomModifier.alt)
@@ -182,6 +188,10 @@ struct ProfileEditor: View {
       Toggle("Tap undo / redo", isOn: profile.gestures.tapUndoRedo)
     }
   }
+
+  private func supports(_ capability: String) -> Bool {
+    hostInfo?.capabilities.contains(capability) ?? true
+  }
 }
 
 private struct ButtonRow: View {
@@ -190,6 +200,7 @@ private struct ButtonRow: View {
   let canMoveDown: Bool
   let move: (Int) -> Void
   let delete: () -> Void
+  let hideMeta: Bool
 
   private static let modifiers: [(NibCore.Gesture.Modifier, String)] = [
     (.primary, "⌘ Primary"), (.control, "⌃ Control"), (.alt, "⌥ Alt"),
@@ -215,7 +226,7 @@ private struct ButtonRow: View {
         Button(role: .destructive, action: delete) { Image(systemName: "trash") }
       }
       HStack {
-        ForEach(Self.modifiers, id: \.0) { modifier, symbol in
+        ForEach(Self.modifiers.filter { !(hideMeta && $0.0 == .meta) }, id: \.0) { modifier, symbol in
           Toggle(symbol, isOn: modifierBinding(modifier)).toggleStyle(.button)
         }
         Spacer()

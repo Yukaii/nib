@@ -89,7 +89,7 @@ private final class NibMacModel: ObservableObject {
         let name = app.localizedName
       else { return }
       Task { @MainActor in
-        self?.sendFrontApp(bundleID: bundleID, name: name)
+        self?.sendFrontApp(appID: bundleID, name: name)
       }
     }
     refreshDisplays()
@@ -118,6 +118,17 @@ private final class NibMacModel: ObservableObject {
   }
 
   private func configure(_ receiver: PenLinkReceiver) {
+    receiver.hostInfo = .init(
+      platform: .macos,
+      name: Host.current().localizedName ?? "Mac",
+      appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+      capabilities: [
+        ControlMessage.Capability.tilt, ControlMessage.Capability.hover,
+        ControlMessage.Capability.eraser, ControlMessage.Capability.keys,
+        ControlMessage.Capability.scroll, ControlMessage.Capability.zoomModifierScroll,
+        ControlMessage.Capability.zoomNative, ControlMessage.Capability.rotateNative,
+        ControlMessage.Capability.undoRedo, ControlMessage.Capability.frontApp,
+      ])
     receiver.accept = { [weak self] hello in
       guard let self else { return false }
       return await self.accept(hello)
@@ -234,7 +245,7 @@ private final class NibMacModel: ObservableObject {
   }
 
   private func accept(_ hello: ControlMessage.Hello) async -> Bool {
-    let rememberKey = "acceptedDevice.\(hello.deviceName)"
+    let rememberKey = "acceptedDevice.\(hello.deviceID)"
     if defaults.bool(forKey: rememberKey) { return true }
     // A menu-bar-only app is never frontmost; without this the prompt can
     // open behind the user's drawing app.
@@ -261,7 +272,7 @@ private final class NibMacModel: ObservableObject {
         let bundleID = app.bundleIdentifier,
         let name = app.localizedName
       {
-        sendFrontApp(bundleID: bundleID, name: name)
+        sendFrontApp(appID: bundleID, name: name)
       }
       connected = true
       ipadName = hello.deviceName
@@ -277,9 +288,9 @@ private final class NibMacModel: ObservableObject {
     }
   }
 
-  private func sendFrontApp(bundleID: String, name: String) {
-    guard bundleID != Bundle.main.bundleIdentifier else { return }
-    receiver?.sendControl(.frontApp(.init(bundleID: bundleID, name: name)))
+  private func sendFrontApp(appID: String, name: String) {
+    guard appID != Bundle.main.bundleIdentifier else { return }
+    receiver?.sendControl(.frontApp(.init(appID: appID, name: name)))
   }
 
   private func refreshDiagnostics() {

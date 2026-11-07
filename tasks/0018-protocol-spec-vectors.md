@@ -1,7 +1,7 @@
 ---
 id: "0018"
 title: Language-neutral protocol spec and golden test vectors
-status: todo
+status: doing
 milestone: M3
 depends: ["0016", "0017"]
 ---

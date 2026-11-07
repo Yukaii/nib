@@ -8,6 +8,7 @@ final class EdgeControlsView: UIView {
     case strip
   }
   private let profile: () -> PadSettings.Profile
+  private let hostInfo: () -> ControlMessage.HostInfo?
   private let send: (Gesture) -> Void
   private var renderedProfile: PadSettings.Profile?
   private var buttons: [ShortcutButtonView] = []
@@ -17,10 +18,15 @@ final class EdgeControlsView: UIView {
   private var activeTouchIDs: Set<ObjectIdentifier> = []
   var hasVisibleControls: Bool { !buttons.isEmpty || !stripView.isHidden }
 
-  init(profile: @escaping () -> PadSettings.Profile, send: @escaping (Gesture) -> Void) {
+  init(
+    profile: @escaping () -> PadSettings.Profile,
+    hostInfo: @escaping () -> ControlMessage.HostInfo? = { nil },
+    send: @escaping (Gesture) -> Void
+  ) {
     self.profile = profile
+    self.hostInfo = hostInfo
     self.send = send
-    stripView = EdgeStripView(profile: profile, send: send)
+    stripView = EdgeStripView(profile: profile, hostInfo: hostInfo, send: send)
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     stripView.isUserInteractionEnabled = false
@@ -139,12 +145,18 @@ private final class ShortcutButtonView: UIButton {
 @MainActor
 private final class EdgeStripView: UIView {
   private let profile: () -> PadSettings.Profile
+  private let hostInfo: () -> ControlMessage.HostInfo?
   private let send: (Gesture) -> Void
   private var activeMode: PadSettings.StripMode = .off
   private var lastY: CGFloat = 0
   private var stepper = StripStepper()
-  init(profile: @escaping () -> PadSettings.Profile, send: @escaping (Gesture) -> Void) {
+  init(
+    profile: @escaping () -> PadSettings.Profile,
+    hostInfo: @escaping () -> ControlMessage.HostInfo? = { nil },
+    send: @escaping (Gesture) -> Void
+  ) {
     self.profile = profile
+    self.hostInfo = hostInfo
     self.send = send
     super.init(frame: .zero)
     isUserInteractionEnabled = false
@@ -213,6 +225,6 @@ private final class EdgeStripView: UIView {
     }
   }
   private func zoomMethod(_ method: PadSettings.ZoomMethod) -> Gesture.ZoomMethod {
-    method == .nativeGesture ? .nativeGesture : .modifierScroll
+    GestureCapabilityPolicy.zoomMethod(method, host: hostInfo())
   }
 }

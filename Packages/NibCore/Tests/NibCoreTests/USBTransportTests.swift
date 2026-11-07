@@ -27,6 +27,16 @@ struct USBTransportTests {
     #expect(decoded == messages)
   }
 
+  @Test func streamSkipsUnknownControlMessages() throws {
+    let body = Array(#"{"type":"futureThing","x":1}"#.utf8)
+    let length = UInt32(body.count)
+    let unknown = [StreamFramer.controlType, UInt8(length), 0, 0, 0] + body
+    var framer = StreamFramer()
+    let bytes = StreamFramer.encode(.control(.ping)) + unknown + StreamFramer.encode(.control(.ping))
+    #expect(try framer.append(bytes) == [.control(.ping), .control(.ping)])
+    #expect(framer.bufferedByteCount == 0)
+  }
+
   @Test func streamRejectsUnknownAndWaitsForTruncatedSample() throws {
     var framer = StreamFramer()
     #expect(throws: StreamFramer.Error.unknownType(0x7f)) { try framer.append([0x7f]) }

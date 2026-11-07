@@ -143,12 +143,22 @@ public struct ReceiverSession: Sendable, Equatable {
 
   public init() {}
 
+  public static func versionMismatchReason(remoteProtocol: UInt8, hostAppVersion: String) -> String {
+    let update =
+      remoteProtocol < ControlMessage.ProtocolVersion.control
+      ? "Update Nib on your iPad" : "Update Nib on your Mac"
+    return
+      "This Mac runs Nib \(hostAppVersion) (protocol \(ControlMessage.ProtocolVersion.control)). \(update)."
+  }
+
   public mutating func hello(
-    protocolVersion: UInt8, busy: Bool, acceptResult: Bool, now: TimeInterval
+    protocolVersion: UInt8, busy: Bool, acceptResult: Bool, now: TimeInterval,
+    hostAppVersion: String = "unknown"
   ) -> HelloDecision {
     guard !busy else { return .rejected("busy") }
-    guard protocolVersion == PenSample.version else {
-      return .rejected("Update the iPad app to the current version.")
+    guard protocolVersion == ControlMessage.ProtocolVersion.control else {
+      return .rejected(
+        Self.versionMismatchReason(remoteProtocol: protocolVersion, hostAppVersion: hostAppVersion))
     }
     guard acceptResult else { return .rejected("rejected") }
     accepted = true
@@ -206,6 +216,8 @@ public final class PenLinkSender {
   }
   public var stateHandler: StateHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
+  public private(set) var hostInfo: ControlMessage.HostInfo?
+  public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
@@ -304,7 +316,7 @@ public final class PenLinkSender {
     newConnection.start(queue: queue)
     receiveControl(from: newConnection)
     sendControl(
-      .hello(hello ?? .init(appVersion: "0.1.0", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
+      .hello(hello ?? .init(appVersion: "", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
   }
 
   private func receiveControl(from expected: NWConnection) {
@@ -330,6 +342,8 @@ public final class PenLinkSender {
     lastReceivedAt = Date.timeIntervalSinceReferenceDate
     switch message {
     case .helloAck(let ack):
+      hostInfo = ack.host
+      onHostInfo(ack.host)
       guard ack.accepted, let connection else {
         transportLogger.info("session rejected: \(ack.reason ?? "unknown", privacy: .public)")
         if PenLinkRejectionPolicy.decision(reason: ack.reason) == .retryLater {
@@ -433,6 +447,8 @@ public final class PenLinkReceiver {
   /// Display size sent in the hello acknowledgement, in points.
   public var displayWidth: Double = 0
   public var displayHeight: Double = 0
+  /// Host metadata advertised to the iPad during the handshake.
+  public var hostInfo: ControlMessage.HostInfo?
 
   private let listener: NWListener
   private let queue = DispatchQueue(label: "dev.yukai.nib.receiver")
@@ -671,14 +687,10 @@ public final class PenLinkReceiver {
     switch message {
     case .hello(let hello):
       let decision = session.hello(
-        protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now)
+        protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now,
+        hostAppVersion: hostInfo?.appVersion ?? "unknown")
       if case .rejected(let reason) = decision, reason != "rejected" && reason != "busy" {
         sendControl(.helloAck(.init(accepted: false, reason: reason)))
-        disconnectSession(notify: false)
-        return
-      }
-      if hello.protocolVersion != PenSample.version {
-        sendControl(.helloAck(.init(accepted: false, reason: "Update the iPad app to the current version.")))
         disconnectSession(notify: false)
         return
       }
@@ -737,7 +749,7 @@ public final class PenLinkReceiver {
         .helloAck(
           .init(
             accepted: true, udpPort: udpPort, displayWidth: displayWidth,
-            displayHeight: displayHeight)))
+            displayHeight: displayHeight, host: hostInfo)))
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):

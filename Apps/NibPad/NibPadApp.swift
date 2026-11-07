@@ -7,11 +7,22 @@ final class NetworkSink: PenSampleSink, GestureSink {
   private let sender = PenLinkSender()
   private let settings: PadSettingsStore
   private let usb = UsbLinkListener()
+  private let deviceID: String
   private(set) var linkState = "searching"
-  private(set) var frontApp = ControlMessage.FrontApp(bundleID: "", name: "Default")
+  private(set) var frontApp = ControlMessage.FrontApp(appID: "", name: "Default")
+  private(set) var hostInfo: ControlMessage.HostInfo?
 
   init(settings: PadSettingsStore) {
     self.settings = settings
+    let defaults = UserDefaults.standard
+    if let stored = defaults.string(forKey: "nib.deviceID") {
+      deviceID = stored
+    } else {
+      let generated = UUID().uuidString
+      defaults.set(generated, forKey: "nib.deviceID")
+      deviceID = generated
+    }
+    let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     sender.stateHandler = { [weak self] state in
       self?.linkState =
         switch state {
@@ -22,14 +33,19 @@ final class NetworkSink: PenSampleSink, GestureSink {
         }
     }
     sender.onFrontApp = { [weak self] app in self?.frontApp = app }
+    sender.onHostInfo = { [weak self] info in self?.hostInfo = info }
     sender.start(
-      hello: .init(appVersion: "0.1.0", deviceName: UIDevice.current.name, surfaceWidth: 0, surfaceHeight: 0))
+      hello: .init(
+        appVersion: appVersion, deviceID: deviceID, deviceName: UIDevice.current.name, surfaceWidth: 0,
+        surfaceHeight: 0))
     let hello = ControlMessage.Hello(
-      appVersion: "0.1.0", deviceName: UIDevice.current.name, surfaceWidth: 0, surfaceHeight: 0)
+      appVersion: appVersion, deviceID: deviceID, deviceName: UIDevice.current.name, surfaceWidth: 0,
+      surfaceHeight: 0)
     usb.stateHandler = { [weak self] connected in
       self?.linkState = connected ? "connected via USB" : "searching"
     }
     usb.onFrontApp = { [weak self] app in self?.frontApp = app }
+    usb.onHostInfo = { [weak self] info in self?.hostInfo = info }
     usb.start(hello: hello)
     NotificationCenter.default.addObserver(
       forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -50,7 +66,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     if usb.isConnected { usb.send(message) } else { sender.send(gesture) }
   }
   var padSettings: PadSettings { settings.settings }
-  var activeProfile: PadSettings.Profile { settings.settings.profile(forBundleID: frontApp.bundleID) }
+  var activeProfile: PadSettings.Profile { settings.settings.profile(forAppID: frontApp.appID) }
 
   func updateGeometry(width: Double, height: Double) {
     if usb.isConnected {
@@ -84,7 +100,7 @@ struct NibPadApp: App {
         if panelOpen {
           CompanionPanel(
             store: settings, linkState: sink.linkState, profileName: sink.activeProfile.name,
-            frontApp: sink.frontApp, showsHUD: $showsHUD
+            frontApp: sink.frontApp, hostInfo: sink.hostInfo, showsHUD: $showsHUD
           )
           .padding(20)
           .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in

@@ -1,7 +1,7 @@
 ---
 id: "0021"
 title: iPad onboarding — welcome, choose a Mac, pressure check, gesture guide
-status: todo
+status: doing
 milestone: M3
 depends: ["0017"]
 ---

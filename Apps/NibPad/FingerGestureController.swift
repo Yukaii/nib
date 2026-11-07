@@ -6,6 +6,7 @@ protocol GestureSink: AnyObject {
   func send(_ gesture: Gesture)
   var padSettings: PadSettings { get }
   var activeProfile: PadSettings.Profile { get }
+  var hostInfo: ControlMessage.HostInfo? { get }
 }
 
 /// Owns UIKit recognizers so the capture view only reports Pencil contact state.
@@ -14,6 +15,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   private weak var view: UIView?
   private let send: (Gesture) -> Void
   private let profile: () -> PadSettings.Profile
+  private let hostInfo: () -> ControlMessage.HostInfo?
   private var palm = GesturePalmRejection()
   private let edgeControlContains: (CGPoint) -> Bool
   // A gesture that began must always end on the Mac, even if palm rejection
@@ -32,12 +34,14 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
 
   init(
     view: UIView, send: @escaping (Gesture) -> Void,
-    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forBundleID: "") },
+    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forAppID: "") },
+    hostInfo: @escaping () -> ControlMessage.HostInfo? = { nil },
     edgeControlContains: @escaping (CGPoint) -> Bool = { _ in false }
   ) {
     self.view = view
     self.send = send
     self.profile = profile
+    self.hostInfo = hostInfo
     self.edgeControlContains = edgeControlContains
     pan = UIPanGestureRecognizer()
     pinch = UIPinchGestureRecognizer()
@@ -89,15 +93,11 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
     }
   }
 
-  private func zoomMethod(_ value: PadSettings.ZoomMethod) -> Gesture.ZoomMethod {
-    value == .nativeGesture ? .nativeGesture : .modifierScroll
-  }
-
   private func sendZoom(_ delta: Double, phase: Gesture.Phase, profile: PadSettings.Profile) {
     send(
       .zoom(
         scaleDelta: delta, phase: phase, modifier: modifier(for: profile.gestures.zoomModifier),
-        method: zoomMethod(profile.gestures.zoomMethod)))
+        method: GestureCapabilityPolicy.zoomMethod(profile.gestures.zoomMethod, host: hostInfo())))
   }
 
   // The three recognizers only measure; `TwoFingerArbiter` decides what the
@@ -133,7 +133,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
       suppressed = palm.suppresses(at: CACurrentMediaTime())
       arbiter.panEnabled = current.gestures.twoFingerScroll
       arbiter.zoomEnabled = current.gestures.pinchZoom
-      arbiter.rotateEnabled = current.gestures.rotate
+      arbiter.rotateEnabled = GestureCapabilityPolicy.rotateEnabled(current.gestures.rotate, host: hostInfo())
     }
     if suppressed || palm.suppresses(at: CACurrentMediaTime()) {
       suppressed = true
