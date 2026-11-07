@@ -56,7 +56,7 @@ Spec: `docs/decisions/0006-app-profiles-and-shortcuts.md`. 0012 added
 ## Handoff
 
 ```
-Branch/commit: BRANCH @ SHA
+Branch/commit: t3/ipad-profile-editor @ 67b37b8
 Verify: verify: ok (Test run with 88 tests; NibMac + NibPad built)
 Done:
 - NibCore `KeyNames` (code → name, picker table of 61 keys, chord display in
