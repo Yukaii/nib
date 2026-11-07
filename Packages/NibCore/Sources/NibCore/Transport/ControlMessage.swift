@@ -56,9 +56,10 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   case ping
   case probe(sentAtNs: UInt64)
   case probeReply(sentAtNs: UInt64)
+  case gesture(Gesture)
 
-  private enum CodingKeys: String, CodingKey { case type, hello, helloAck, geometry, sentAtNs }
-  private enum Kind: String, Codable { case hello, helloAck, geometry, ping, probe, probeReply }
+  private enum CodingKeys: String, CodingKey { case type, hello, helloAck, geometry, sentAtNs, gesture }
+  private enum Kind: String, Codable { case hello, helloAck, geometry, ping, probe, probeReply, gesture }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -69,6 +70,7 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .ping: self = .ping
     case .probe: self = .probe(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
     case .probeReply: self = .probeReply(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
+    case .gesture: self = .gesture(try container.decode(Gesture.self, forKey: .gesture))
     }
   }
 
@@ -92,6 +94,9 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .probeReply(let sentAtNs):
       try container.encode(Kind.probeReply, forKey: .type)
       try container.encode(sentAtNs, forKey: .sentAtNs)
+    case .gesture(let gesture):
+      try container.encode(Kind.gesture, forKey: .type)
+      try container.encode(gesture, forKey: .gesture)
     }
   }
 }

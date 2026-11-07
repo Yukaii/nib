@@ -49,6 +49,9 @@ private final class NibMacModel: ObservableObject {
     receiver.onSample = { sample, arrivalNs in
       worker.enqueue(sample, arrivalNs: arrivalNs)
     }
+    receiver.onGesture = { gesture in
+      worker.enqueue(gesture)
+    }
     receiver.onSession = { [weak self] event in
       self?.session(event)
     }

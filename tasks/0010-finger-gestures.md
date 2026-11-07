@@ -91,9 +91,13 @@ The Pencil keeps drawing as before.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/finger-gesture-events @ c1829e7ff2b00d45ac5057cc7fe1182b7e98f2b2
+Verify: verify: ok (Test run with 55 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added Codable TCP gesture messages and sender/receiver callbacks for scroll, zoom, undo, and redo.
+- Added pure palm rejection timing policy and iPad recognizers with Pencil suppression.
+- Added macOS Quartz event builder and ordered, Accessibility-gated injection worker handling.
+- Added deterministic round-trip, palm policy, and CGEvent tests.
+Manual checks: Not run; requires an iPad, Accessibility permission, and Krita. Steps: connect NibPad to NibMac, then verify two-finger pan, pinch zoom, two-finger undo, three-finger redo, and Pencil drawing with a resting palm in Krita.
+Not done / risks: Gesture settings use PadSettings() defaults until task 0009 supplies its store. Hardware/Krita behavior remains for manual validation.
 ```

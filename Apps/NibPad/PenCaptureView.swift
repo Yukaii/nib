@@ -29,6 +29,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private var originalBrightness: CGFloat?
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
+  private var fingerGestures: FingerGestureController!
   private var lastSample: PenSample?
   private var isTouching = false
   private var pendingProximityExit: Task<Void, Never>?
@@ -46,11 +47,11 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     backgroundColor = .black
     addSubview(hud)
     hud.isHidden = true
-    let hudTap = UITapGestureRecognizer(target: self, action: #selector(toggleHUD))
-    hudTap.numberOfTouchesRequired = 3
-    hudTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-    hudTap.delegate = self
-    addGestureRecognizer(hudTap)
+    fingerGestures = FingerGestureController(
+      view: self,
+      send: { [weak sink] gesture in
+        (sink as? GestureSink)?.send(gesture)
+      })
     if #available(iOS 16.0, *) {
       let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
       hoverRecognizer = hover
@@ -153,9 +154,11 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       switch kind {
       case .down:
         isTouching = true
+        fingerGestures.pencilBegan()
         cancelProximityExit()
       case .up, .cancel:
         isTouching = false
+        fingerGestures.pencilEnded()
         scheduleProximityExit()
       default:
         break
