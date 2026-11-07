@@ -131,3 +131,41 @@ private enum ProtocolVectors {
   }
   #expect(vectors == expected)
 }
+
+@Test func pairingVectorMatchesCryptoReference() throws {
+  let url = ProtocolVectors.root.appendingPathComponent("protocol/vectors/pairing.json")
+  let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+  func data(_ key: String) throws -> Data { Data(try ProtocolVectors.bytes(try #require(object[key]))) }
+  let device = try PairingKeyPair(privateKey: data("devicePrivateKey"))
+  let host = try PairingKeyPair(privateKey: data("hostPrivateKey"))
+  let expectedDevicePublic = try data("devicePublicKey")
+  let expectedHostPublic = try data("hostPublicKey")
+  #expect(device.publicKey == expectedDevicePublic)
+  #expect(host.publicKey == expectedHostPublic)
+  let deviceNonce = try data("deviceNonce")
+  let hostNonce = try data("hostNonce")
+  let transcript = try PairingTranscript(
+    devicePublicKey: device.publicKey, hostPublicKey: host.publicKey,
+    deviceNonce: deviceNonce, hostNonce: hostNonce)
+  let expectedHash = try data("transcriptHash")
+  #expect(transcript.hash == expectedHash)
+  let expectedCode = try #require(object["code"] as? String)
+  #expect(PairingCrypto.numericCode(for: transcript) == expectedCode)
+  let expectedPairKey = try data("pairKey")
+  #expect(
+    try PairingCrypto.pairKey(
+      privateKey: device.privateKey, peerPublicKey: host.publicKey, transcript: transcript) == expectedPairKey
+  )
+  let pairKey = expectedPairKey
+  let commitment = PairingCrypto.commitment(publicKey: device.publicKey, nonce: deviceNonce)
+  let expectedCommitment = try data("commitment")
+  #expect(commitment == expectedCommitment)
+  #expect(PairingCrypto.verifyCommitment(commitment, publicKey: device.publicKey, nonce: deviceNonce))
+  let deviceProof = PairingCrypto.helloProof(pairKey: pairKey, identifier: "device-001", nonce: deviceNonce)
+  let hostProof = PairingCrypto.hostProof(
+    pairKey: pairKey, hostID: "host-001", deviceNonce: deviceNonce, hostNonce: hostNonce)
+  let expectedDeviceProof = try data("deviceProof")
+  let expectedHostProof = try data("hostProof")
+  #expect(deviceProof == expectedDeviceProof)
+  #expect(hostProof == expectedHostProof)
+}

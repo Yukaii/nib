@@ -93,6 +93,60 @@ for samples over Wi-Fi and display dimensions are points. `host` is optional
 metadata with `platform` (`macos`, `windows`, or `linux`), `name`, `appVersion`,
 and a string capability list.
 
+### Pairing and authenticated hello
+
+An iPad and Mac pair before either accepts pen input. Pairing uses the same
+control messages over Wi-Fi and USB; a cable is not trusted by itself. The
+four pairing messages, in order, are:
+
+```json
+{"type":"pairRequest","pairRequest":{"deviceID":"…","deviceName":"iPad Pro","publicKey":"base64","commitment":"base64"}}
+{"type":"pairResponse","pairResponse":{"hostID":"…","hostName":"Studio Mac","publicKey":"base64","nonce":"base64"}}
+{"type":"pairReveal","pairReveal":{"nonce":"base64"}}
+{"type":"pairResult","pairResult":{"accepted":true}}
+```
+
+`publicKey` is a 32-byte X25519 public key, `nonce` is a fresh 32-byte random
+value, and `commitment` is `SHA256(UTF8("nib-commit") ‖ devicePublicKey ‖
+deviceNonce)`, all encoded as base64. The iPad sends only the commitment
+first; the host replies with its key and nonce; only then does the iPad
+reveal its nonce. The host verifies the reveal against the commitment with a
+constant-time comparison before deriving anything or showing a code. A
+mismatch fails pairing and stores nothing.
+
+The transcript is the byte concatenation, in this exact order: device public
+key, host public key, device nonce, host nonce. The displayed six-digit code
+is `SHA256(UTF8("nib-pair") ‖ transcript)`, interpreted as the first four
+bytes big-endian, modulo 1,000,000, and zero-padded. Both users must confirm
+the same code. A cancel or a timeout (60 seconds) discards the ephemeral keys
+and nonces and stores nothing.
+
+The stored pairing key is
+`HKDF-SHA256(ikm: X25519 shared secret, salt: SHA256(transcript),
+info: UTF8("nib-pair-key"), output: 32 bytes)`. It is stored by the peer ID
+(`deviceID` on the host, `hostID` on the iPad).
+
+After pairing, `hello` includes fresh base64 `nonce` and `proof` fields:
+
+```json
+{"type":"hello","hello":{"protocolVersion":2,"appVersion":"0.3.0","deviceID":"…","deviceName":"iPad Pro","surfaceWidth":1024,"surfaceHeight":768,"nonce":"base64","proof":"base64"}}
+```
+
+The device proof is `HMAC-SHA256(pairKey, UTF8("nib-hello") ‖
+UTF8(deviceID) ‖ deviceNonce)`. The accepting host includes its fresh base64
+`nonce` and `proof` in `helloAck`:
+
+```json
+{"type":"helloAck","helloAck":{"accepted":true,"udpPort":47812,"displayWidth":2560,"displayHeight":1664,"nonce":"base64","proof":"base64"}}
+```
+
+The host proof is `HMAC-SHA256(pairKey, UTF8("nib-hello-ack") ‖
+UTF8(hostID) ‖ deviceNonce ‖ hostNonce)` with a distinct label, so a recorded
+ack cannot be replayed against a fresh device nonce. Each side verifies the
+other proof with a constant-time HMAC comparison. Missing or invalid proofs
+are rejected with a next step to pair again. Frame and sample encryption
+begins in the subsequent encrypted-sessions version.
+
 ### geometry
 
 `{"type":"geometry","geometry":{"surfaceWidth":768,"surfaceHeight":1024}}`
