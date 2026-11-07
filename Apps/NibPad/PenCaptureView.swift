@@ -29,6 +29,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private var panelOpen = false
   var onPanelToggle: (() -> Void)?
   private var originalBrightness: CGFloat?
+  private var hudVisible = false
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
   private var fingerGestures: FingerGestureController!
@@ -99,7 +100,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     guard !wasActive else { return }
     wasActive = true
     originalBrightness = UIScreen.main.brightness
-    UIScreen.main.brightness = 0.0
+    applyBrightness()
     padLogger.info("screen-off mode enabled")
     UIApplication.shared.isIdleTimerDisabled = true
   }
@@ -131,20 +132,27 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
             kind: .proximityExit, sequence: nextSequence(), timestamp: timestamp(),
             x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0, buttons: buttons))
       }
-      UIScreen.main.brightness = originalBrightness ?? UIScreen.main.brightness
       inkPoints.removeAll()
       sampleTimes.removeAll()
       hud.clearTrace()
-    } else if wasActive {
-      UIScreen.main.brightness = 0
     }
+    applyBrightness()
   }
 
   func setHUDVisible(_ visible: Bool) {
     hud.isHidden = !visible
-    if visible {
-      UIScreen.main.brightness = originalBrightness ?? UIScreen.main.brightness
-    } else if wasActive && !panelOpen {
+    hudVisible = visible
+    applyBrightness()
+  }
+
+  /// One place decides brightness: dark only while drawing blind. With the
+  /// panel or HUD showing, use the user's brightness, but never so low that
+  /// the overlay is unreadable.
+  private func applyBrightness() {
+    guard wasActive else { return }
+    if panelOpen || hudVisible {
+      UIScreen.main.brightness = max(originalBrightness ?? 0.5, 0.5)
+    } else {
       UIScreen.main.brightness = 0
     }
   }
