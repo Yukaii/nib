@@ -1,0 +1,184 @@
+[
+  {
+    "name": "hello",
+    "json": {
+      "type": "hello",
+      "hello": {
+        "protocolVersion": 2,
+        "appVersion": "0.3.0",
+        "deviceID": "550e8400-e29b-41d4-a716-446655440000",
+        "deviceName": "iPad Pro",
+        "surfaceWidth": 1024,
+        "surfaceHeight": 768
+      }
+    },
+    "framedHex": "b50000007b2268656c6c6f223a7b2261707056657273696f6e223a22302e332e30222c226465766963654944223a2235353065383430302d653239622d343164342d613731362d343436363535343430303030222c226465766963654e616d65223a22695061642050726f222c2270726f746f636f6c56657273696f6e223a322c2273757266616365486569676874223a3736382c22737572666163655769647468223a313032347d2c2274797065223a2268656c6c6f227d"
+  },
+  {
+    "name": "helloAck",
+    "json": {
+      "type": "helloAck",
+      "helloAck": {
+        "accepted": true,
+        "udpPort": 47812,
+        "displayWidth": 2560,
+        "displayHeight": 1664,
+        "host": {
+          "platform": "macos",
+          "name": "Studio Mac",
+          "appVersion": "0.3.0",
+          "capabilities": [
+            "tilt",
+            "hover",
+            "eraser",
+            "keys",
+            "scroll",
+            "zoomModifierScroll",
+            "zoomNative",
+            "rotateNative",
+            "undoRedo",
+            "frontApp"
+          ]
+        }
+      }
+    },
+    "framedHex": "2e0100007b2268656c6c6f41636b223a7b226163636570746564223a747275652c22646973706c6179486569676874223a313636342c22646973706c61795769647468223a323536302c22686f7374223a7b2261707056657273696f6e223a22302e332e30222c226361706162696c6974696573223a5b2274696c74222c22686f766572222c22657261736572222c226b657973222c227363726f6c6c222c227a6f6f6d4d6f6469666965725363726f6c6c222c227a6f6f6d4e6174697665222c22726f746174654e6174697665222c22756e646f5265646f222c2266726f6e74417070225d2c226e616d65223a2253747564696f204d6163222c22706c6174666f726d223a226d61636f73227d2c22756470506f7274223a34373831327d2c2274797065223a2268656c6c6f41636b227d"
+  },
+  {
+    "name": "geometry",
+    "json": {
+      "type": "geometry",
+      "geometry": {
+        "surfaceWidth": 768,
+        "surfaceHeight": 1024
+      }
+    },
+    "framedHex": "480000007b2267656f6d65747279223a7b2273757266616365486569676874223a313032342c22737572666163655769647468223a3736387d2c2274797065223a2267656f6d65747279227d"
+  },
+  {
+    "name": "ping",
+    "json": {
+      "type": "ping"
+    },
+    "framedHex": "0f0000007b2274797065223a2270696e67227d"
+  },
+  {
+    "name": "probe",
+    "json": {
+      "type": "probe",
+      "sentAtNs": 123456789
+    },
+    "framedHex": "250000007b2273656e7441744e73223a3132333435363738392c2274797065223a2270726f6265227d"
+  },
+  {
+    "name": "probeReply",
+    "json": {
+      "type": "probeReply",
+      "sentAtNs": 123456789
+    },
+    "framedHex": "2a0000007b2273656e7441744e73223a3132333435363738392c2274797065223a2270726f62655265706c79227d"
+  },
+  {
+    "name": "gesture-scroll",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "scroll",
+        "dx": 1.25,
+        "dy": -2.5,
+        "phase": "began"
+      }
+    },
+    "framedHex": "520000007b2267657374757265223a7b226478223a312e32352c226479223a2d322e352c227068617365223a22626567616e222c2274797065223a227363726f6c6c227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "gesture-zoom",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "zoom",
+        "scaleDelta": 1.1,
+        "phase": "changed",
+        "modifier": "primary",
+        "method": "modifierScroll"
+      }
+    },
+    "framedHex": "7e0000007b2267657374757265223a7b226d6574686f64223a226d6f6469666965725363726f6c6c222c226d6f646966696572223a227072696d617279222c227068617365223a226368616e676564222c227363616c6544656c7461223a312e312c2274797065223a227a6f6f6d227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "gesture-rotate",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "rotate",
+        "degreesDelta": 15,
+        "phase": "changed"
+      }
+    },
+    "framedHex": "520000007b2267657374757265223a7b226465677265657344656c7461223a31352c227068617365223a226368616e676564222c2274797065223a22726f74617465227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "gesture-undo",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "undo"
+      }
+    },
+    "framedHex": "2c0000007b2267657374757265223a7b2274797065223a22756e646f227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "gesture-redo",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "redo"
+      }
+    },
+    "framedHex": "2c0000007b2267657374757265223a7b2274797065223a227265646f227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "gesture-key",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "key",
+        "chord": {
+          "key": "KeyZ",
+          "modifiers": [
+            "primary"
+          ]
+        },
+        "action": "tap"
+      }
+    },
+    "framedHex": "690000007b2267657374757265223a7b22616374696f6e223a22746170222c2263686f7264223a7b226b6579223a224b65795a222c226d6f64696669657273223a5b227072696d617279225d7d2c2274797065223a226b6579227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "gesture-key-modifier-only",
+    "json": {
+      "type": "gesture",
+      "gesture": {
+        "type": "key",
+        "chord": {
+          "modifiers": [
+            "primary"
+          ]
+        },
+        "action": "down"
+      }
+    },
+    "framedHex": "5d0000007b2267657374757265223a7b22616374696f6e223a22646f776e222c2263686f7264223a7b226d6f64696669657273223a5b227072696d617279225d7d2c2274797065223a226b6579227d2c2274797065223a2267657374757265227d"
+  },
+  {
+    "name": "frontApp",
+    "json": {
+      "type": "frontApp",
+      "frontApp": {
+        "appID": "org.kde.krita",
+        "name": "Krita"
+      }
+    },
+    "framedHex": "470000007b2266726f6e74417070223a7b226170704944223a226f72672e6b64652e6b72697461222c226e616d65223a224b72697461227d2c2274797065223a2266726f6e74417070227d"
+  }
+]

@@ -1,0 +1,307 @@
+[
+  {
+    "code": "KeyA",
+    "name": "A",
+    "macKeyCode": 0
+  },
+  {
+    "code": "KeyB",
+    "name": "B",
+    "macKeyCode": 11
+  },
+  {
+    "code": "KeyC",
+    "name": "C",
+    "macKeyCode": 8
+  },
+  {
+    "code": "KeyD",
+    "name": "D",
+    "macKeyCode": 2
+  },
+  {
+    "code": "KeyE",
+    "name": "E",
+    "macKeyCode": 14
+  },
+  {
+    "code": "KeyF",
+    "name": "F",
+    "macKeyCode": 3
+  },
+  {
+    "code": "KeyG",
+    "name": "G",
+    "macKeyCode": 5
+  },
+  {
+    "code": "KeyH",
+    "name": "H",
+    "macKeyCode": 4
+  },
+  {
+    "code": "KeyI",
+    "name": "I",
+    "macKeyCode": 34
+  },
+  {
+    "code": "KeyJ",
+    "name": "J",
+    "macKeyCode": 38
+  },
+  {
+    "code": "KeyK",
+    "name": "K",
+    "macKeyCode": 40
+  },
+  {
+    "code": "KeyL",
+    "name": "L",
+    "macKeyCode": 37
+  },
+  {
+    "code": "KeyM",
+    "name": "M",
+    "macKeyCode": 46
+  },
+  {
+    "code": "KeyN",
+    "name": "N",
+    "macKeyCode": 45
+  },
+  {
+    "code": "KeyO",
+    "name": "O",
+    "macKeyCode": 31
+  },
+  {
+    "code": "KeyP",
+    "name": "P",
+    "macKeyCode": 35
+  },
+  {
+    "code": "KeyQ",
+    "name": "Q",
+    "macKeyCode": 12
+  },
+  {
+    "code": "KeyR",
+    "name": "R",
+    "macKeyCode": 15
+  },
+  {
+    "code": "KeyS",
+    "name": "S",
+    "macKeyCode": 1
+  },
+  {
+    "code": "KeyT",
+    "name": "T",
+    "macKeyCode": 17
+  },
+  {
+    "code": "KeyU",
+    "name": "U",
+    "macKeyCode": 32
+  },
+  {
+    "code": "KeyV",
+    "name": "V",
+    "macKeyCode": 9
+  },
+  {
+    "code": "KeyW",
+    "name": "W",
+    "macKeyCode": 13
+  },
+  {
+    "code": "KeyX",
+    "name": "X",
+    "macKeyCode": 7
+  },
+  {
+    "code": "KeyY",
+    "name": "Y",
+    "macKeyCode": 16
+  },
+  {
+    "code": "KeyZ",
+    "name": "Z",
+    "macKeyCode": 6
+  },
+  {
+    "code": "Digit0",
+    "name": "0",
+    "macKeyCode": 29
+  },
+  {
+    "code": "Digit1",
+    "name": "1",
+    "macKeyCode": 18
+  },
+  {
+    "code": "Digit2",
+    "name": "2",
+    "macKeyCode": 19
+  },
+  {
+    "code": "Digit3",
+    "name": "3",
+    "macKeyCode": 20
+  },
+  {
+    "code": "Digit4",
+    "name": "4",
+    "macKeyCode": 21
+  },
+  {
+    "code": "Digit5",
+    "name": "5",
+    "macKeyCode": 23
+  },
+  {
+    "code": "Digit6",
+    "name": "6",
+    "macKeyCode": 22
+  },
+  {
+    "code": "Digit7",
+    "name": "7",
+    "macKeyCode": 26
+  },
+  {
+    "code": "Digit8",
+    "name": "8",
+    "macKeyCode": 28
+  },
+  {
+    "code": "Digit9",
+    "name": "9",
+    "macKeyCode": 25
+  },
+  {
+    "code": "Space",
+    "name": "Space",
+    "macKeyCode": 49
+  },
+  {
+    "code": "Tab",
+    "name": "Tab",
+    "macKeyCode": 48
+  },
+  {
+    "code": "Escape",
+    "name": "Esc",
+    "macKeyCode": 53
+  },
+  {
+    "code": "Delete",
+    "name": "Delete",
+    "macKeyCode": 51
+  },
+  {
+    "code": "Enter",
+    "name": "Return",
+    "macKeyCode": 36
+  },
+  {
+    "code": "BracketLeft",
+    "name": "[",
+    "macKeyCode": 33
+  },
+  {
+    "code": "BracketRight",
+    "name": "]",
+    "macKeyCode": 30
+  },
+  {
+    "code": "Minus",
+    "name": "-",
+    "macKeyCode": 27
+  },
+  {
+    "code": "Equal",
+    "name": "=",
+    "macKeyCode": 24
+  },
+  {
+    "code": "ArrowLeft",
+    "name": "←",
+    "macKeyCode": 123
+  },
+  {
+    "code": "ArrowRight",
+    "name": "→",
+    "macKeyCode": 124
+  },
+  {
+    "code": "ArrowDown",
+    "name": "↓",
+    "macKeyCode": 125
+  },
+  {
+    "code": "ArrowUp",
+    "name": "↑",
+    "macKeyCode": 126
+  },
+  {
+    "code": "F1",
+    "name": "F1",
+    "macKeyCode": 122
+  },
+  {
+    "code": "F2",
+    "name": "F2",
+    "macKeyCode": 120
+  },
+  {
+    "code": "F3",
+    "name": "F3",
+    "macKeyCode": 99
+  },
+  {
+    "code": "F4",
+    "name": "F4",
+    "macKeyCode": 118
+  },
+  {
+    "code": "F5",
+    "name": "F5",
+    "macKeyCode": 96
+  },
+  {
+    "code": "F6",
+    "name": "F6",
+    "macKeyCode": 97
+  },
+  {
+    "code": "F7",
+    "name": "F7",
+    "macKeyCode": 98
+  },
+  {
+    "code": "F8",
+    "name": "F8",
+    "macKeyCode": 100
+  },
+  {
+    "code": "F9",
+    "name": "F9",
+    "macKeyCode": 101
+  },
+  {
+    "code": "F10",
+    "name": "F10",
+    "macKeyCode": 109
+  },
+  {
+    "code": "F11",
+    "name": "F11",
+    "macKeyCode": 103
+  },
+  {
+    "code": "F12",
+    "name": "F12",
+    "macKeyCode": 111
+  }
+]

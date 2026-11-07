@@ -199,6 +199,7 @@ public struct ControlFramer: Sendable {
 
   public init() {
     encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
     decoder = JSONDecoder()
   }
 

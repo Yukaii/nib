@@ -1,0 +1,159 @@
+[
+  {
+    "name": "hover",
+    "hex": "424e0100000000006400000000000000cdcccc3dcdcc4c3e000000000000003f0000803f7b000000",
+    "fields": {
+      "kind": "hover",
+      "sequence": 0,
+      "timestamp": 100,
+      "x": 0.1,
+      "y": 0.2,
+      "pressure": 0.0,
+      "altitude": 0.5,
+      "azimuth": 1.0,
+      "hoverDistance": 123,
+      "buttons": [],
+      "flags": []
+    }
+  },
+  {
+    "name": "down",
+    "hex": "424e010101000000c800000000000000cdcc4c3e9a99993ecdcccc3e3333333f9a99993f00000000",
+    "fields": {
+      "kind": "down",
+      "sequence": 1,
+      "timestamp": 200,
+      "x": 0.2,
+      "y": 0.3,
+      "pressure": 0.4,
+      "altitude": 0.7,
+      "azimuth": 1.2,
+      "hoverDistance": 0,
+      "buttons": [],
+      "flags": []
+    }
+  },
+  {
+    "name": "move",
+    "hex": "424e0102020000002c010000000000009a99993ecdcccc3e9a99193fcdcc4c3f0000004000000000",
+    "fields": {
+      "kind": "move",
+      "sequence": 2,
+      "timestamp": 300,
+      "x": 0.3,
+      "y": 0.4,
+      "pressure": 0.6,
+      "altitude": 0.8,
+      "azimuth": 2.0,
+      "hoverDistance": 0,
+      "buttons": [],
+      "flags": []
+    }
+  },
+  {
+    "name": "up",
+    "hex": "424e0103030000009001000000000000cdcccc3e0000003f000000006666663f0000404000000000",
+    "fields": {
+      "kind": "up",
+      "sequence": 3,
+      "timestamp": 400,
+      "x": 0.4,
+      "y": 0.5,
+      "pressure": 0.0,
+      "altitude": 0.9,
+      "azimuth": 3.0,
+      "hoverDistance": 0,
+      "buttons": [],
+      "flags": []
+    }
+  },
+  {
+    "name": "cancel",
+    "hex": "424e010404000000f4010000000000000000003f9a99193f000000000000803f0000804000000000",
+    "fields": {
+      "kind": "cancel",
+      "sequence": 4,
+      "timestamp": 500,
+      "x": 0.5,
+      "y": 0.6,
+      "pressure": 0.0,
+      "altitude": 1.0,
+      "azimuth": 4.0,
+      "hoverDistance": 0,
+      "buttons": [],
+      "flags": []
+    }
+  },
+  {
+    "name": "proximityExit",
+    "hex": "424e01050500000058020000000000009a99193f3333333f000000009a99993f0000a04041010000",
+    "fields": {
+      "kind": "proximityExit",
+      "sequence": 5,
+      "timestamp": 600,
+      "x": 0.6,
+      "y": 0.7,
+      "pressure": 0.0,
+      "altitude": 1.2,
+      "azimuth": 5.0,
+      "hoverDistance": 321,
+      "buttons": [],
+      "flags": []
+    }
+  },
+  {
+    "name": "eraser",
+    "hex": "424e01020a000000bc020000000000003333333fcdcc4c3f0000003fcdcccc3e0000204000000100",
+    "fields": {
+      "kind": "move",
+      "sequence": 10,
+      "timestamp": 700,
+      "x": 0.7,
+      "y": 0.8,
+      "pressure": 0.5,
+      "altitude": 0.4,
+      "azimuth": 2.5,
+      "hoverDistance": 0,
+      "buttons": [
+        "eraser"
+      ],
+      "flags": []
+    }
+  },
+  {
+    "name": "predicted",
+    "hex": "424e01020b00000020030000000000003333333fcdcc4c3f0000003fcdcccc3e0000204000000001",
+    "fields": {
+      "kind": "move",
+      "sequence": 11,
+      "timestamp": 800,
+      "x": 0.7,
+      "y": 0.8,
+      "pressure": 0.5,
+      "altitude": 0.4,
+      "azimuth": 2.5,
+      "hoverDistance": 0,
+      "buttons": [],
+      "flags": [
+        "predicted"
+      ]
+    }
+  },
+  {
+    "name": "sequence-wrap",
+    "hex": "424e0102ffffffff84030000000000003333333fcdcc4c3f0000003fcdcccc3e0000204000000000",
+    "fields": {
+      "kind": "move",
+      "sequence": 4294967295,
+      "timestamp": 900,
+      "x": 0.7,
+      "y": 0.8,
+      "pressure": 0.5,
+      "altitude": 0.4,
+      "azimuth": 2.5,
+      "hoverDistance": 0,
+      "buttons": [],
+      "flags": []
+    }
+  }
+]
