@@ -10,7 +10,7 @@ depends: ["0022", "0024"]
 
 After `helloAck`, every control frame and every pen sample, over Wi-Fi and
 USB, is sealed with ChaCha20-Poly1305 under per-session, per-direction keys
-derived from the pairing key. Pressure still reaches Krita with no audible
+derived from the pairing key. Pressure still reaches Krita with no noticeable
 latency change.
 
 ## Context
