@@ -59,7 +59,7 @@ checkbox and the device-ID allow list go away.
 - [ ] `docs/protocol.md` gains a Pairing section, and `protocol/vectors/`
   gains a `pairing.json` (fixed X25519 private keys → public keys, code,
   pairKey, proofs), checked by `ProtocolVectorTests`.
-- [ ] No `acceptedDevice.` key in `Apps/`.
+- [ ] (Moved to 0024: retiring `acceptedDevice.`; Apps/ stay unchanged here.)
 - [ ] `scripts/verify.sh` passes. Manual checks are written in Handoff
   (pair over Wi-Fi, forget on either side, re-pair, pair over USB). Say
   whether you ran them.

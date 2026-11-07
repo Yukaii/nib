@@ -47,6 +47,10 @@ latency change.
 - [ ] `protocol/vectors/session.json` (fixed pairKey + nonces → keys; one
   sealed control frame; one sealed sample) checked by `ProtocolVectorTests`.
   `docs/protocol.md` describes the sealed layouts byte by byte.
+- [ ] Replay (0022 review): session keys use the fresh host nonce, so a
+  replayed `hello` gets a session in which no frame or sample opens. Test it
+  end to end through `PenLinkReceiver` handling, not only the pure functions.
+  Until this lands, 0022 authenticates only the start of a connection.
 - [ ] The benchmark result is pasted in Handoff and is within budget.
 - [ ] `scripts/verify.sh` passes. Manual checks written in Handoff (Krita
   pressure stroke over Wi-Fi and USB; `nib-receive` cannot read samples
