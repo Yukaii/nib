@@ -19,6 +19,8 @@ import Testing
   #expect(settings.pressure == .init(softness: 0.6, minimum: 0.1, maximum: 0.9))
   #expect(settings.profiles.map(\.name) == ["Default", "Krita", "Photoshop", "Affinity"])
   #expect(settings.profiles[0].gestures.zoomModifier == .option)
+  #expect(settings.profiles[0].gestures.zoomMethod == .nativeGesture)
+  #expect(settings.profiles[0].gestures.rotate)
 }
 
 @Test func profileMatchesBundlePrefixes() {

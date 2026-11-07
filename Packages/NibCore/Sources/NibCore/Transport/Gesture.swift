@@ -36,15 +36,19 @@ public enum Gesture: Codable, Equatable, Sendable {
   }
 
   public enum KeyAction: String, Codable, Sendable { case tap, down, up }
+  public enum ZoomMethod: String, Codable, Sendable { case nativeGesture, modifierScroll }
 
   case scroll(dx: Double, dy: Double, phase: Phase)
-  case zoom(scaleDelta: Double, phase: Phase, modifier: Modifier)
+  case zoom(scaleDelta: Double, phase: Phase, modifier: Modifier, method: ZoomMethod = .modifierScroll)
+  case rotate(degreesDelta: Double, phase: Phase)
   case undo
   case redo
   case key(KeyChord, action: KeyAction)
 
-  private enum CodingKeys: String, CodingKey { case type, dx, dy, scaleDelta, phase, modifier, chord, action }
-  private enum Kind: String, Codable { case scroll, zoom, undo, redo, key }
+  private enum CodingKeys: String, CodingKey {
+    case type, dx, dy, scaleDelta, degreesDelta, phase, modifier, method, chord, action
+  }
+  private enum Kind: String, Codable { case scroll, zoom, rotate, undo, redo, key }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -58,7 +62,12 @@ public enum Gesture: Codable, Equatable, Sendable {
       self = .zoom(
         scaleDelta: try values.decode(Double.self, forKey: .scaleDelta),
         phase: try values.decode(Phase.self, forKey: .phase),
-        modifier: try values.decode(Modifier.self, forKey: .modifier))
+        modifier: try values.decode(Modifier.self, forKey: .modifier),
+        method: try values.decodeIfPresent(ZoomMethod.self, forKey: .method) ?? .modifierScroll)
+    case .rotate:
+      self = .rotate(
+        degreesDelta: try values.decode(Double.self, forKey: .degreesDelta),
+        phase: try values.decode(Phase.self, forKey: .phase))
     case .undo: self = .undo
     case .redo: self = .redo
     case .key:
@@ -76,11 +85,16 @@ public enum Gesture: Codable, Equatable, Sendable {
       try values.encode(dx, forKey: .dx)
       try values.encode(dy, forKey: .dy)
       try values.encode(phase, forKey: .phase)
-    case .zoom(let scaleDelta, let phase, let modifier):
+    case .zoom(let scaleDelta, let phase, let modifier, let method):
       try values.encode(Kind.zoom, forKey: .type)
       try values.encode(scaleDelta, forKey: .scaleDelta)
       try values.encode(phase, forKey: .phase)
       try values.encode(modifier, forKey: .modifier)
+      try values.encode(method, forKey: .method)
+    case .rotate(let degreesDelta, let phase):
+      try values.encode(Kind.rotate, forKey: .type)
+      try values.encode(degreesDelta, forKey: .degreesDelta)
+      try values.encode(phase, forKey: .phase)
     case .undo: try values.encode(Kind.undo, forKey: .type)
     case .redo: try values.encode(Kind.redo, forKey: .type)
     case .key(let chord, let action):
