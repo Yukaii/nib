@@ -91,11 +91,16 @@ public struct PadSettings: Codable, Equatable, Sendable {
     }
   }
   public var pressure: Pressure
+  /// Screen brightness used while edge controls are visible during drawing.
+  public var edgeBrightness: Double
   /// The first profile is always Default: the fallback for unbound apps.
   public var profiles: [Profile]
   public static let maxButtons = 8
-  public init(pressure: Pressure = .linear, gestures: Gestures = Gestures()) {
+  public init(
+    pressure: Pressure = .linear, gestures: Gestures = Gestures(), edgeBrightness: Double = 0.08
+  ) {
     self.pressure = pressure
+    self.edgeBrightness = min(max(edgeBrightness, 0), 0.3)
     self.profiles = Self.presets(defaultGestures: gestures)
   }
   public func profile(forBundleID bundleID: String) -> Profile {
@@ -125,10 +130,12 @@ public struct PadSettings: Codable, Equatable, Sendable {
   }
   /// Restores the four built-in profiles; pressure calibration is kept.
   public mutating func resetProfilesToPresets() { profiles = Self.presets() }
-  private enum CodingKeys: String, CodingKey { case pressure, profiles, gestures }
+  private enum CodingKeys: String, CodingKey { case pressure, edgeBrightness, profiles, gestures }
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     pressure = try values.decodeIfPresent(Pressure.self, forKey: .pressure) ?? .linear
+    edgeBrightness = min(
+      max(try values.decodeIfPresent(Double.self, forKey: .edgeBrightness) ?? 0.08, 0), 0.3)
     if let decoded = try values.decodeIfPresent([Profile].self, forKey: .profiles) {
       profiles = decoded.isEmpty ? Self.presets() : decoded
     } else {
@@ -139,6 +146,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
   public func encode(to encoder: Encoder) throws {
     var values = encoder.container(keyedBy: CodingKeys.self)
     try values.encode(pressure, forKey: .pressure)
+    try values.encode(edgeBrightness, forKey: .edgeBrightness)
     try values.encode(profiles, forKey: .profiles)
   }
   private static func chord(_ code: UInt16, _ modifiers: Set<Gesture.Modifier> = []) -> Gesture.KeyChord {

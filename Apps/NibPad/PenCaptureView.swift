@@ -35,11 +35,13 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
   private var fingerGestures: FingerGestureController!
+  private let edgeControls: EdgeControlsView
   private var lastSample: PenSample?
   private var isTouching = false
   private var pendingProximityExit: Task<Void, Never>?
   private var inkPoints: [(point: CGPoint, time: TimeInterval)] = []
   private var sampleTimes: [TimeInterval] = []
+  private var edgeTouchRoutes: [ObjectIdentifier: EdgeControlsView.Route] = [:]
   private static let traceLifetime: TimeInterval = 1.0
   // Hover ends the moment the Pencil touches the glass, and a lifted Pencil
   // may resume hovering a few frames later; only a lasting absence is an exit.
@@ -47,11 +49,18 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
 
   init(sink: PenSampleSink = LoggingSink()) {
     self.sink = sink
+    let controls = EdgeControlsView(
+      profile: { [weak sink] in
+        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
+      },
+      send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) })
+    self.edgeControls = controls
     super.init(frame: .zero)
     isMultipleTouchEnabled = true
     backgroundColor = .black
     addSubview(hud)
     hud.isHidden = true
+    addSubview(controls)
     let panelTap = UITapGestureRecognizer(target: self, action: #selector(togglePanel))
     panelTap.numberOfTouchesRequired = 4
     panelTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
@@ -62,7 +71,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) },
       profile: { [weak sink] in
         (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
-      })
+      },
+      edgeControlContains: { [weak controls] point in controls?.containsControl(at: point) ?? false })
     if #available(iOS 16.0, *) {
       let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
       hoverRecognizer = hover
@@ -86,6 +96,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   override func layoutSubviews() {
     super.layoutSubviews()
     hud.frame = bounds
+    edgeControls.frame = bounds
+    edgeControls.refresh()
     sink.updateGeometry(width: Double(bounds.width), height: Double(bounds.height))
   }
 
@@ -94,7 +106,11 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     if window != nil { activateScreenOffMode() } else { restoreScreen() }
   }
 
-  @objc private func willResignActive() { restoreScreen() }
+  @objc private func willResignActive() {
+    edgeControls.releaseAll()
+    edgeTouchRoutes.removeAll()
+    restoreScreen()
+  }
 
   @objc private func didBecomeActive() {
     if window != nil { activateScreenOffMode() }
@@ -126,6 +142,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     guard panelOpen != open else { return }
     panelOpen = open
     if open {
+      edgeControls.releaseAll()
+      edgeTouchRoutes.removeAll()
       // Sends stop while the panel is open; release the pen on the Mac first so
       // a stroke or hover in progress cannot leave the button held.
       cancelProximityExit()
@@ -154,8 +172,12 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   /// the overlay is unreadable.
   private func applyBrightness() {
     guard wasActive else { return }
+    edgeControls.refresh()
     if panelOpen || hudVisible {
       UIScreen.main.brightness = max(originalBrightness ?? 0.5, 0.5)
+    } else if edgeControls.hasVisibleControls {
+      let brightness = (sink as? GestureSink)?.padSettings.edgeBrightness ?? 0.08
+      UIScreen.main.brightness = CGFloat(min(max(brightness, 0), 0.3))
     } else {
       UIScreen.main.brightness = 0
     }
@@ -174,19 +196,44 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   }
 
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    edgeControls.refresh()
+    for touch in touches where touch.type == .direct {
+      let id = ObjectIdentifier(touch)
+      if let route = edgeControls.route(at: touch.location(in: edgeControls)) {
+        edgeTouchRoutes[id] = route
+        edgeControls.touchBegan(route, touchID: id, point: touch.location(in: edgeControls))
+      }
+    }
     handle(touches, kind: .down, event: event)
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for touch in touches where touch.type == .direct {
+      let id = ObjectIdentifier(touch)
+      if let route = edgeTouchRoutes[id] {
+        edgeControls.touchMoved(route, point: touch.location(in: edgeControls))
+      }
+    }
     handle(touches, kind: .move, event: event)
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    finishEdgeTouches(touches, cancelled: false)
     handle(touches, kind: .up, event: event)
   }
 
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    finishEdgeTouches(touches, cancelled: true)
     handle(touches, kind: .cancel, event: event)
+  }
+
+  private func finishEdgeTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+    for touch in touches where touch.type == .direct {
+      let id = ObjectIdentifier(touch)
+      if let route = edgeTouchRoutes.removeValue(forKey: id) {
+        edgeControls.touchEnded(route, touchID: id, cancelled: cancelled)
+      }
+    }
   }
 
   private func handle(_ touches: Set<UITouch>, kind: PenSample.Kind, event: UIEvent?) {

@@ -28,6 +28,12 @@ struct CompanionPanel: View {
         pressureSection
         profilesSection
         Toggle("Debug HUD", isOn: $showsHUD)
+        HStack {
+          Text("Edge brightness")
+          Slider(value: edgeBrightness, in: 0...0.3)
+          Text(store.settings.edgeBrightness, format: .percent.precision(.fractionLength(0)))
+            .frame(width: 44, alignment: .trailing)
+        }
       }
       .padding(24)
     }
@@ -144,6 +150,11 @@ struct CompanionPanel: View {
     Binding(
       get: { store.settings.pressure.maximum },
       set: { store.settings.pressure.maximum = max($0, store.settings.pressure.minimum + 0.01) })
+  }
+  private var edgeBrightness: Binding<Double> {
+    Binding(
+      get: { store.settings.edgeBrightness },
+      set: { store.settings.edgeBrightness = min(max($0, 0), 0.3) })
   }
 }
 
