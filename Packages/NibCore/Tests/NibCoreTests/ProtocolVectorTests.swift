@@ -131,3 +131,68 @@ private enum ProtocolVectors {
   }
   #expect(vectors == expected)
 }
+
+@Test func pairingVectorMatchesCryptoReference() throws {
+  let url = ProtocolVectors.root.appendingPathComponent("protocol/vectors/pairing.json")
+  let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+  func data(_ key: String) throws -> Data { Data(try ProtocolVectors.bytes(try #require(object[key]))) }
+  func string(_ key: String) throws -> String { try #require(object[key] as? String) }
+  let deviceID = try string("deviceID")
+  let hostID = try string("hostID")
+  let device = try PairingKeyPair(privateKey: data("devicePrivateKey"))
+  let host = try PairingKeyPair(privateKey: data("hostPrivateKey"))
+  let expectedDevicePublic = try data("devicePublicKey")
+  let expectedHostPublic = try data("hostPublicKey")
+  #expect(device.publicKey == expectedDevicePublic)
+  #expect(host.publicKey == expectedHostPublic)
+  let deviceNonce = try data("deviceNonce")
+  let hostNonce = try data("hostNonce")
+  let helloDeviceNonce = try data("helloDeviceNonce")
+  let helloHostNonce = try data("helloHostNonce")
+  #expect(helloDeviceNonce != deviceNonce)
+  #expect(helloHostNonce != hostNonce)
+  let transcript = try PairingTranscript(
+    deviceID: deviceID, hostID: hostID, devicePublicKey: device.publicKey,
+    hostPublicKey: host.publicKey,
+    deviceNonce: deviceNonce, hostNonce: hostNonce)
+  let expectedHash = try data("transcriptHash")
+  #expect(transcript.hash == expectedHash)
+  let expectedCode = try string("code")
+  #expect(PairingCrypto.numericCode(for: transcript) == expectedCode)
+  let expectedPairKey = try data("pairKey")
+  #expect(
+    try PairingCrypto.pairKey(
+      privateKey: device.privateKey, peerPublicKey: host.publicKey, transcript: transcript) == expectedPairKey
+  )
+  let pairKey = expectedPairKey
+  let commitment = PairingCrypto.commitment(
+    deviceID: deviceID, publicKey: device.publicKey, nonce: deviceNonce)
+  let expectedCommitment = try data("commitment")
+  #expect(commitment == expectedCommitment)
+  #expect(
+    PairingCrypto.verifyCommitment(
+      commitment, deviceID: deviceID, publicKey: device.publicKey, nonce: deviceNonce))
+  let deviceProof = PairingCrypto.helloProof(
+    pairKey: pairKey, identifier: deviceID, nonce: helloDeviceNonce)
+  let hostProof = PairingCrypto.hostProof(
+    pairKey: pairKey, hostID: hostID, deviceNonce: helloDeviceNonce, hostNonce: helloHostNonce)
+  let expectedDeviceProof = try data("deviceProof")
+  let expectedHostProof = try data("hostProof")
+  #expect(deviceProof == expectedDeviceProof)
+  #expect(hostProof == expectedHostProof)
+  // Negative vectors: wrong reveal, tampered transcript, proof under the wrong key.
+  let wrongReveal = try data("wrongRevealNonce")
+  #expect(
+    !PairingCrypto.verifyCommitment(
+      commitment, deviceID: deviceID, publicKey: device.publicKey, nonce: wrongReveal))
+  #expect((object["wrongRevealValid"] as? Bool) == false)
+  let tamperedCode = try string("tamperedCode")
+  #expect(tamperedCode != expectedCode)
+  #expect((object["tamperedDiffers"] as? Bool) == true)
+  #expect(
+    !PairingCrypto.verifyHelloProof(
+      deviceProof, pairKey: Data(repeating: 0, count: 32), identifier: deviceID,
+      nonce: helloDeviceNonce))
+  #expect((object["wrongKeyValid"] as? Bool) == false)
+  #expect(PairingCrypto.areLabelsPrefixFree())
+}

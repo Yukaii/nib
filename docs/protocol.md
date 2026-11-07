@@ -32,8 +32,9 @@ USB mode does not use Bonjour. The Mac connects through usbmuxd to TCP port
 
 The sender opens one TCP control connection, sends `hello`, and waits for
 `helloAck`. The receiver invokes its user acceptance step before accepting a
-hello. One session is allowed at a time; another sender receives `reason:
-"busy"`.
+hello. One session is allowed at a time. A new connection while a session or
+pairing machine is active receives `helloAck{accepted:false, reason:"busy"}`
+and is closed immediately; it is not queued or counted as a pairing attempt.
 
 Both peers send `ping` every second. Any control traffic, including a ping or
 probe, refreshes the session. No traffic for 3 seconds ends the session. The
@@ -92,6 +93,105 @@ other fields may be zero or absent. On acceptance, `udpPort` is the UDP port
 for samples over Wi-Fi and display dimensions are points. `host` is optional
 metadata with `platform` (`macos`, `windows`, or `linux`), `name`, `appVersion`,
 and a string capability list.
+
+### Pairing and authenticated hello
+
+An iPad and Mac pair before either accepts pen input. Pairing uses the same
+control messages over Wi-Fi and USB; a cable is not trusted by itself. The
+four pairing messages, in order, are:
+
+```json
+{"type":"pairRequest","pairRequest":{"deviceID":"…","deviceName":"iPad Pro","publicKey":"base64","commitment":"base64"}}
+{"type":"pairResponse","pairResponse":{"hostID":"…","hostName":"Studio Mac","publicKey":"base64","nonce":"base64"}}
+{"type":"pairReveal","pairReveal":{"nonce":"base64"}}
+{"type":"pairResult","pairResult":{"accepted":true}}
+```
+
+`publicKey` is a 32-byte X25519 public key, `nonce` is a fresh 32-byte random
+value (verifiers require exactly 32 bytes), and `commitment` is
+`SHA256(UTF8("nib-commit") ‖ len(deviceID) ‖ UTF8(deviceID) ‖
+devicePublicKey ‖ deviceNonce)`, all encoded as base64. `len` is a 2-byte
+big-endian length. The deviceID binds the commitment to one iPad so a relay
+cannot relabel it. The iPad sends only the commitment first; the host replies
+with its key and nonce; only then does the iPad reveal its nonce. The host
+verifies the reveal against the commitment with a constant-time comparison
+before deriving anything or showing a code. A mismatch fails pairing, clears
+all ephemeral secrets, enters a terminal failed phase, and stores nothing.
+
+The transcript is the byte concatenation, in this exact order: `len(deviceID)
+‖ deviceID ‖ len(hostID) ‖ hostID ‖ devicePublicKey ‖ hostPublicKey ‖
+deviceNonce ‖ hostNonce`, where `len` is a 2-byte big-endian length and keys
+and nonces are raw 32 bytes. Both IDs are bound so a relay cannot relabel and
+overwrite another iPad's key. The displayed six-digit code is
+`SHA256(UTF8("nib-pair-code") ‖ transcript)`, interpreted as the first four
+bytes big-endian, modulo 1,000,000, and zero-padded. Both users must confirm
+the same code. A second `pairRequest` mid-flow is ignored, not a failure; an
+early, duplicate or late `pairResult` from a terminal phase is ignored and
+never re-fires. A cancel or a timeout (60 seconds) discards the ephemeral keys
+and nonces and stores nothing.
+
+The stored pairing key is
+`HKDF-SHA256(ikm: X25519 shared secret, salt: SHA256(transcript),
+info: UTF8("nib-pair-key"), output: 32 bytes)`. It is stored by the peer ID
+(`deviceID` on the host, `hostID` on the iPad).
+
+Labels are prefix-free: none of `nib-hello`, `nib-ack`, `nib-commit`,
+`nib-pair-code`, `nib-pair-key` is a prefix of another, so HMAC/SHA256 domains
+never collide.
+
+First pairing stays on one connection: an unpaired iPad's unauthenticated
+`hello` gets `helloAck{accepted:false, reason:"Pair with this Mac",
+pairingRequired:true}` and the host keeps the connection open in a
+pairing-only state. In that state only `hello`, `pairRequest`, `pairReveal`,
+`pairResult` and `ping` are processed; no samples, gestures or UDP gate are
+active. There is no pairing-only idle expiry: the existing 60-second pairing
+machine timeout is the only pairing deadline, and a user-initiated invite may
+wait as long as the user needs before tapping Pair. After the user confirms on
+both sides, the iPad sends a fresh authenticated `hello` on the same
+connection. USB uses the same flow over the USB stream.
+
+When an iPad already holds a key but receives an unauthenticated
+`pairingRequired` hint, it keeps the key and surfaces “Mac asks to pair again.”
+The user must explicitly choose Pair again; that action deletes the old key and
+starts pairing. Until then normal reconnect with backoff continues. The device
+keeps pairing-only gating enabled: it accepts only `helloAck`, `pairResponse`,
+`pairResult` and `ping`, and ignores pen, geometry, probe, gesture and app
+messages.
+
+After pairing, `hello` includes fresh base64 `nonce` and `proof` fields:
+
+```json
+{"type":"hello","hello":{"protocolVersion":2,"appVersion":"0.3.0","deviceID":"…","deviceName":"iPad Pro","surfaceWidth":1024,"surfaceHeight":768,"nonce":"base64","proof":"base64"}}
+```
+
+The device proof is `HMAC-SHA256(pairKey, UTF8("nib-hello") ‖
+UTF8(deviceID) ‖ deviceNonce)`. The accepting host includes its fresh base64
+`nonce` and `proof` in `helloAck`:
+
+```json
+{"type":"helloAck","helloAck":{"accepted":true,"udpPort":47812,"displayWidth":2560,"displayHeight":1664,"nonce":"base64","proof":"base64"}}
+```
+
+The host proof is `HMAC-SHA256(pairKey, UTF8("nib-ack") ‖
+UTF8(hostID) ‖ deviceNonce ‖ hostNonce)` with a distinct label, so a recorded
+ack cannot be replayed against a fresh device nonce. Each side verifies the
+other proof with a constant-time HMAC comparison and requires exactly 32-byte
+nonces. Missing or invalid proofs are rejected with a next step to pair again.
+When a key is held, the device applies `hostInfo` and acts on a rejection
+reason only after proof verification; an unauthenticated rejection is shown
+but never deletes a stored key. Frame and sample encryption begins in the
+subsequent encrypted-sessions version.
+
+After 3 failed, cancelled, or timed-out pairing machines within 5 minutes, the
+host refuses new `pairRequest`s for 60 seconds with
+`pairResult{accepted:false, reason:"Too many pairing attempts. Try again in a
+minute."}`. Busy rejections, connection attempts, and USB plug-ins do not
+count. The host stores only the bounded recent failure history needed for this
+decision.
+
+Availability against an active LAN or USB attacker is a non-goal: an attacker
+can flood or reset connections. Pairing still guarantees no impersonation or
+pairing without both users confirming, subject to the bounded failure limiter.
 
 ### geometry
 

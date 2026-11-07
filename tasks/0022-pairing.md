@@ -1,7 +1,7 @@
 ---
 id: "0022"
 title: Pairing by numeric comparison, stored keys, authenticated hello
-status: doing
+status: review
 milestone: M3
 depends: ["0021"]
 ---
@@ -71,10 +71,17 @@ checkbox and the device-ID allow list go away.
 
 ## Handoff
 
-```
-Branch/commit:
-Verify:
+```text
+Branch/commit: t3/simplify-pairing-hardening @ 3d2ecf3
+Verify: verify: ok (Test run with 158 tests; NibMac + NibPad built)
 Done:
-Manual checks:
+- Removed all pairing-only idle expiry and retained the existing 60-second PairingDriver timeout; Wi-Fi and USB pairing-only links stay available while a user compares codes.
+- Busy connections receive an immediate helloAck{accepted:false, reason:"busy"}, close without a holding framer, and do not affect the bounded limiter; only failed, cancelled, and timed-out machines count.
+- Captured Wi-Fi and USB connection generations across dispatcher Task hops; stale queued messages are ignored. USB control traffic now uses StreamLinkDispatcher while the sample callback remains on the transport queue.
+- Added the device-side “Mac asks to pair again” event and explicit pairAgain() action that deletes the stored key only after the user chooses it, then begins pairing.
+- Updated protocol rules for active-attacker availability, busy handling, no idle expiry, limiter accounting, device gating, and the untrusted pairingRequired hint. Apps/NibMac and Apps/NibPad are unchanged. Source lines: 5,636 before round 5, 5,487 after (−149).
+Manual checks: Wi-Fi pair, USB pair, reconnect/backoff, cancel, timeout, and Pair again UI not run (no hardware/app UI in this worker round); deterministic NibCore tests cover the link/driver paths.
 Not done / risks:
+- The app-facing UI and Keychain stores remain task 0024 work.
+- Usbmux busy rejection calls deviceConnectionEnded after the rejection send; no hardware usbmux loop was available for a manual check.
 ```
