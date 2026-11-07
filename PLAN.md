@@ -37,7 +37,7 @@ for the v2 handshake.
 - [ ] 0017 Protocol v2: handshake (host info, capabilities, device ID, versions)
 - [ ] 0018 Language-neutral protocol spec + golden test vectors
 - [x] 0019 CI: GitHub Actions runs verify; FUNDING.yml
-- [ ] 0020 Mac onboarding: setup window, Accessibility + auto-relaunch,
+- [x] 0020 Mac onboarding: setup window, Accessibility + auto-relaunch,
   pressure test canvas, launch at login
 - [ ] 0021 iPad onboarding: welcome, choose a Mac, pressure check, gesture guide
 - [ ] Pairing: code confirmation + encrypted channel (TLS-PSK), keyed by device ID

@@ -434,11 +434,14 @@ private struct SetupView: View {
 
 private final class NibMacAppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
-    // macOS 14 has no defaultLaunchBehavior API. Window closes immediately
-    // for completed setups, while an incomplete setup remains open.
+    // macOS 14 has no defaultLaunchBehavior API, so SwiftUI opens the setup
+    // Window at launch; close it when setup is done. Only that window: the
+    // status item lives in NSApp.windows too, and closing it hides the icon.
     guard UserDefaults.standard.bool(forKey: "setupCompleted") else { return }
     DispatchQueue.main.async {
-      for window in NSApp.windows { window.close() }
+      for window in NSApp.windows where window.identifier?.rawValue.hasPrefix("setup") == true {
+        window.close()
+      }
     }
   }
 }
