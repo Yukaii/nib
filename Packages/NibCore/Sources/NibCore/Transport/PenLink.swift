@@ -87,6 +87,21 @@ private final class LockedFlag: @unchecked Sendable {
   }
 }
 
+private final class LockedSessionCipher: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: SessionCipher?
+  func set(_ value: SessionCipher?) {
+    lock.lock()
+    self.value = value
+    lock.unlock()
+  }
+  func get() -> SessionCipher? {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+}
+
 private final class SampleSink: @unchecked Sendable {
   private let lock = NSLock()
   private var handler: ((PenSample, UInt64) -> Void)?
@@ -305,6 +320,7 @@ public final class PenLinkSender {
   private var udpConnection: NWConnection?
   private var framer = ControlFramer()
   private var controlDispatcher: ControlLinkDispatcher?
+  private var sessionCipher: SessionCipher?
   private var hello: ControlMessage.Hello?
   private var lastReceivedAt: TimeInterval?
   private var lastGeometry: (Double, Double)?
@@ -344,6 +360,7 @@ public final class PenLinkSender {
     udpConnection?.cancel()
     connection = nil
     controlDispatcher = nil
+    sessionCipher = nil
     udpConnection = nil
     latestResult = nil
     resultsByName = [:]
@@ -440,10 +457,22 @@ public final class PenLinkSender {
 
   public func send(_ sample: PenSample) {
     guard let udpConnection else { return }
-    let payload = Data(sample.encode())
     let count = [.down, .up, .cancel, .proximityExit].contains(sample.kind) ? 3 : 1
-    for _ in 0..<count {
-      udpConnection.send(content: payload, completion: .contentProcessed { _ in })
+    let sessionCipher = self.sessionCipher
+    queue.async {
+      let payload: Data
+      if let sessionCipher {
+        guard
+          let sealed = try? sessionCipher.sealSample(
+            Data(sample.encode()), sequence: sample.sequence)
+        else { return }
+        payload = sealed
+      } else {
+        payload = Data(sample.encode())
+      }
+      for _ in 0..<count {
+        udpConnection.send(content: payload, completion: .contentProcessed { _ in })
+      }
     }
   }
 
@@ -610,6 +639,14 @@ public final class PenLinkSender {
       case .connected(let info):
         hostInfo = info
         onHostInfo(info)
+        if let parameters = deviceLink.sessionParameters,
+          let cipher = try? SessionCipher(
+            pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
+            hostNonce: parameters.hostNonce, role: .device)
+        {
+          sessionCipher = cipher
+          controlDispatcher?.configureSession(cipher)
+        }
         guard connection != nil else {
           connectionLost()
           return
@@ -651,8 +688,7 @@ public final class PenLinkSender {
   }
 
   public func sendControl(_ message: ControlMessage) {
-    guard let connection else { return }
-    connection.send(content: Data(ControlFramer().encode(message)), completion: .contentProcessed { _ in })
+    controlDispatcher?.send(message)
   }
 
   private func startHeartbeat() {
@@ -732,6 +768,7 @@ public final class PenLinkReceiver {
   private var udpListener: NWListener?
   private var framer = ControlFramer()
   private var controlDispatcher: ControlLinkDispatcher?
+  private let sessionCipher = LockedSessionCipher()
   private var hostLink: HostLink
   private var pairingDriver: PairingDriver?
   private var pairingStoreRef: PairingKeyStore?
@@ -1158,6 +1195,22 @@ public final class PenLinkReceiver {
       // still current before sending the ack.
       guard connection === asking else { return }
       sendControl(.helloAck(ack))
+      if let parameters = hostLink.sessionParameters,
+        let cipher = try? SessionCipher(
+          pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
+          hostNonce: parameters.hostNonce, role: .host)
+      {
+        sessionCipher.set(cipher)
+        #if os(macOS)
+          if usbMode {
+            usbDispatcher?.configureSession(cipher)
+          } else {
+            controlDispatcher?.configureSession(cipher)
+          }
+        #else
+          controlDispatcher?.configureSession(cipher)
+        #endif
+      }
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):
@@ -1195,15 +1248,13 @@ public final class PenLinkReceiver {
   }
 
   public func sendControl(_ message: ControlMessage) {
-    guard let connection else { return }
     #if os(macOS)
       if usbMode {
-        connection.send(
-          content: Data(StreamFramer.encode(.control(message))), completion: .contentProcessed { _ in })
+        usbDispatcher?.send(message)
         return
       }
     #endif
-    connection.send(content: Data(ControlFramer().encode(message)), completion: .contentProcessed { _ in })
+    controlDispatcher?.send(message)
   }
 
   private func startHeartbeat() {
@@ -1236,7 +1287,20 @@ public final class PenLinkReceiver {
     udp.receiveMessage { [weak self] data, _, _, error in
       guard let self else { return }
       let arrival = DispatchTime.now().uptimeNanoseconds
-      if let data, data.count == PenSample.byteCount,
+      let cipher = self.sessionCipher.get()
+      if let data,
+        let cipher,
+        let opened = try? cipher.openSample(data),
+        let sample = try? PenSample(decoding: Array(opened.plaintext)),
+        opened.sequence == sample.sequence,
+        case .hostPort(let host, _) = udp.currentPath?.remoteEndpoint,
+        self.udpGate.accepts(host: String(describing: host), sequence: sample.sequence)
+      {
+        self.lastPacketAt.set(Date.timeIntervalSinceReferenceDate)
+        self.lockedStats.record(sequence: sample.sequence, sender: sample.timestamp, arrival: arrival)
+        self.sampleSink.send(sample, arrivalNs: arrival)
+      } else if let data, cipher == nil,
+        data.count == PenSample.byteCount,
         let sample = try? PenSample(decoding: Array(data)),
         case .hostPort(let host, _) = udp.currentPath?.remoteEndpoint,
         self.udpGate.accepts(host: String(describing: host), sequence: sample.sequence)
@@ -1272,6 +1336,7 @@ public final class PenLinkReceiver {
       }
     #endif
     hostLink.session.disconnect()
+    sessionCipher.set(nil)
     udpGate.disable()
     sampleGate.set(false)
     lastPacketAt.set(nil)

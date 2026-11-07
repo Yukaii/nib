@@ -218,15 +218,13 @@ public final class UsbLinkListener {
   }
 
   public func send(_ sample: PenSample) {
-    guard isConnected, let connection else { return }
-    connection.send(
-      content: Data(StreamFramer.encode(.sample(sample))), completion: .contentProcessed { _ in })
+    guard isConnected else { return }
+    let dispatcher = streamDispatcher
+    queue.async { dispatcher?.send(sample) }
   }
 
   public func send(_ message: ControlMessage) {
-    guard let connection else { return }
-    connection.send(
-      content: Data(StreamFramer.encode(.control(message))), completion: .contentProcessed { _ in })
+    streamDispatcher?.send(message)
   }
 
   private func accept(_ newConnection: NWConnection) {
@@ -318,6 +316,13 @@ public final class UsbLinkListener {
       case .connected(let info):
         hostInfo = info
         onHostInfo(info)
+        if let parameters = deviceLink.sessionParameters,
+          let cipher = try? SessionCipher(
+            pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
+            hostNonce: parameters.hostNonce, role: .device)
+        {
+          streamDispatcher?.configureSession(cipher)
+        }
         setConnected(true)
         if isConnected { startHeartbeat() }
       }

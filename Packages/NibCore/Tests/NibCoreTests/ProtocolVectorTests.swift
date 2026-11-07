@@ -196,3 +196,39 @@ private enum ProtocolVectors {
   #expect((object["wrongKeyValid"] as? Bool) == false)
   #expect(PairingCrypto.areLabelsPrefixFree())
 }
+
+@Test func sessionVectorMatchesCryptoReference() throws {
+  let url = ProtocolVectors.root.appendingPathComponent("protocol/vectors/session.json")
+  let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+  func data(_ key: String) throws -> Data { Data(try ProtocolVectors.bytes(try #require(object[key]))) }
+  let pairKey = try data("pairKey")
+  let ipadNonce = try data("ipadNonce")
+  let hostNonce = try data("hostNonce")
+  let material = try SessionKeyMaterial(pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce)
+  let ipadToHostKey = try data("ipadToHostKey")
+  let hostToIpadKey = try data("hostToIpadKey")
+  let epoch = try data("epoch")
+  let controlPlaintext = try data("controlPlaintext")
+  let controlBody = try data("controlBody")
+  let controlFrame = try data("controlFrame")
+  let samplePlaintext = try data("samplePlaintext")
+  let sampleDatagram = try data("sampleDatagram")
+  #expect(material.ipadToHost == ipadToHostKey)
+  #expect(material.hostToIpad == hostToIpadKey)
+  #expect(material.epoch == epoch)
+  var device = try SessionCipher(
+    pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .device)
+  var host = try SessionCipher(
+    pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .host)
+  let control = try device.sealControl(controlPlaintext)
+  #expect(control == controlBody)
+  var controlLength = UInt32(control.count).littleEndian
+  let framedControl = Data(withUnsafeBytes(of: &controlLength) { Data($0) }) + control
+  #expect(framedControl == controlFrame)
+  #expect(try host.openControl(control) == controlPlaintext)
+  let sample = try device.sealSample(samplePlaintext, sequence: 7)
+  #expect(sample == sampleDatagram)
+  let opened = try host.openSample(sample)
+  #expect(opened.sequence == 7)
+  #expect(opened.plaintext == samplePlaintext)
+}

@@ -18,6 +18,7 @@ public struct HostLink: Sendable {
   private var store: PairingKeyStore?
   private var hostID: String?
   private var fallbackKey: Data?
+  public private(set) var sessionParameters: SessionParameters?
 
   public init(
     store: PairingKeyStore? = nil, hostID: String? = nil, fallbackKey: Data? = nil
@@ -27,6 +28,7 @@ public struct HostLink: Sendable {
     self.fallbackKey = fallbackKey
     self.session = ReceiverSession(
       pairingKey: nil, hostID: hostID)
+    self.sessionParameters = nil
   }
 
   public func pairingKey(for deviceID: String) -> Data? {
@@ -66,6 +68,7 @@ public struct HostLink: Sendable {
       return .needsAccept(hello)
     }
     session.updatePairingKey(pairingKey(for: hello.deviceID), hostID: hostID)
+    sessionParameters = nil
     let key = pairingKey(for: hello.deviceID)
     // Unpaired: invite to pair on this same connection, keep it open.
     guard let key else {
@@ -103,8 +106,15 @@ public struct HostLink: Sendable {
     if session.requiresPairingAuthentication {
       let deviceNonceData =
         (hello.nonce.flatMap { Data(base64Encoded: $0) }) ?? PairingCrypto.randomNonce()
+      let hostNonceData = PairingCrypto.randomNonce()
+      if let key = pairingKey(for: hello.deviceID),
+        let parameters = try? SessionParameters(
+          pairKey: key, ipadNonce: deviceNonceData, hostNonce: hostNonceData)
+      {
+        sessionParameters = parameters
+      }
       return session.authenticatedHelloAck(
-        deviceNonce: deviceNonceData, hostNonce: PairingCrypto.randomNonce(), accepted: true,
+        deviceNonce: deviceNonceData, hostNonce: hostNonceData, accepted: true,
         udpPort: udpPort, displayWidth: displayWidth, displayHeight: displayHeight, host: host)
     } else {
       return .init(
@@ -167,6 +177,7 @@ public struct DeviceLink: Sendable {
   /// Set when the host invites pairing on this connection.
   public var pairingRequired = false
   public private(set) var knownHostID: String?
+  public private(set) var sessionParameters: SessionParameters?
 
   public init(
     store: PairingKeyStore? = nil, hostID: String? = nil, baseHello: ControlMessage.Hello? = nil
@@ -174,6 +185,7 @@ public struct DeviceLink: Sendable {
     self.store = store
     self.hostID = hostID
     self.baseHello = baseHello
+    self.sessionParameters = nil
   }
 
   public mutating func updateStore(store: PairingKeyStore?, hostID: String?) {
@@ -185,6 +197,7 @@ public struct DeviceLink: Sendable {
   public mutating func connectionLost() {
     pairingRequired = false
     lastDeviceNonce = nil
+    sessionParameters = nil
   }
 
   public func allows(_ message: ControlMessage) -> Bool {
@@ -253,6 +266,12 @@ public struct DeviceLink: Sendable {
           session.verifiesHelloAck(ack, deviceNonce: deviceNonce)
         else {
           return .invalidProof
+        }
+        if let hostNonceString = ack.nonce, let hostNonce = Data(base64Encoded: hostNonceString),
+          let key = storedKey(), let deviceNonce = lastDeviceNonce
+        {
+          sessionParameters = try? SessionParameters(
+            pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce)
         }
         return .connected(hostInfo: ack.host)
       } else {

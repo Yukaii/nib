@@ -1,7 +1,7 @@
 ---
 id: "0023"
 title: Encrypted sessions — seal control frames and samples
-status: doing
+status: review
 milestone: M3
 depends: ["0022", "0024"]
 ---
@@ -63,9 +63,13 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3-c2d4d5d4 @ <filled after commit>
+Verify: verify: ok (Test run with 165 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added CryptoKit HKDF session keys, directional ChaCha20-Poly1305 control sealing, and epoch-based sample sealing.
+- Wired Wi-Fi TCP/UDP and USB dispatchers after authenticated helloAck while preserving plaintext no-store sessions.
+- Added tamper, replay/gap, sequence-wrap, dispatcher, benchmark, and protocol-vector coverage.
+- Updated protocol.md and protocol/vectors/session.json with byte layouts and deterministic values.
+Manual checks: Not run — requires an iPad mini 7 + Apple Silicon Mac. Pair, draw a pressure stroke in Krita over Wi-Fi, repeat over USB, and verify an unkeyed `nib-receive` cannot decode samples.
+Not done / risks: On-device Wi-Fi/USB pressure verification remains; sequence max is a rekey boundary and is rejected to prevent nonce reuse.
 ```
