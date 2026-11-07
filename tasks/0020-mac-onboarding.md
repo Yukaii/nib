@@ -70,7 +70,7 @@ reopened from the menu. Launch at login is available.
 ## Handoff
 
 ```
-Branch/commit: t3/fix-mac-onboarding-review @ 1606fdbe49b4b6b412f851138da86246fd1eb28f
+Branch/commit: t3/fix-mac-onboarding-review @ 84f30e04e1d4b69cf4456429ef6382fa6c498d17
 Verify: verify: ok (Test run with 116 tests; NibMac + NibPad built)
 Done:
 - Replaced the setup WindowGroup with one single-instance Window and added the macOS 14 launch fallback that closes the completed-setup window on the first run loop; incomplete setup remains automatic, and the menu item reopens the same window.
