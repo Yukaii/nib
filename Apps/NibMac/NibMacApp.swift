@@ -178,7 +178,7 @@ private final class NibMacModel: ObservableObject {
     let inject = injection.snapshot()
     linkDiagnostics = String(
       format:
-        "%.0f Hz · loss %.1f%% · gap p95 %.0f ms · jitter p95 %.0f ms · delay %.0f ms · inject p95 %.0f ms · RTT %@",
+        "%.0f Hz · loss %.1f%% · gap p95 %.0f ms · jitter p95 %.0f ms · delay %.0f ms · post p95 %.1f ms · RTT %@",
       stats.sampleRateHz, stats.lossPercent, stats.interArrivalP95Ms, stats.delayVariationP95Ms,
       inject.playoutDelayMs, inject.injectP95Ms, rtt)
     diagnosticsLogCounter += 1

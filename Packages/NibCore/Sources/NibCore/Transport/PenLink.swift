@@ -28,10 +28,6 @@ private final class UDPGate: @unchecked Sendable {
   func accepts(host incoming: String, sequence: UInt32) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    if host == nil {
-      host = incoming
-      accepted = true
-    }
     guard accepted, host == incoming else { return false }
     return sequencer.accept(
       .init(kind: .move, sequence: sequence, timestamp: 0, x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0))
@@ -588,7 +584,12 @@ public final class PenLinkReceiver {
         return
       }
       sessionConnected = true
-      udpGate.configure(host: session.remoteHost)
+      // Only the accepted control connection's host may send samples.
+      var tcpHost = session.remoteHost
+      if tcpHost == nil, case .hostPort(let host, _) = connection?.currentPath?.remoteEndpoint {
+        tcpHost = String(describing: host)
+      }
+      udpGate.configure(host: tcpHost)
       lastPacketAt.set(now)
       lockedStats.reset()
       linkStats = LinkStats()
@@ -651,9 +652,6 @@ public final class PenLinkReceiver {
     guard sessionConnected else {
       udp.cancel()
       return
-    }
-    if case .hostPort(let host, _) = udp.currentPath?.remoteEndpoint {
-      udpGate.configure(host: String(describing: host))
     }
     udp.start(queue: queue)
     receiveUDP(udp)

@@ -48,4 +48,18 @@ struct PlayoutSchedulerTests {
     #expect(scheduler.playoutDelayMs >= 2)
     #expect(scheduler.playoutDelayMs <= 40)
   }
+
+  @Test func singleOutlierDoesNotSetTheDelay() {
+    // p95, not max: one late packet among 120 must not hold every sample back.
+    var scheduler = PlayoutScheduler()
+    for index in 0..<120 {
+      let sender = UInt64(index) * 4_166_667
+      let lateness: UInt64 = index == 50 ? 30_000_000 : 0
+      let sample = PenSample(
+        kind: .move, sequence: UInt32(index), timestamp: sender, x: 0, y: 0, pressure: 0.5,
+        altitude: 1, azimuth: 0)
+      _ = scheduler.enqueue(sample, arrivalNs: sender + lateness)
+    }
+    #expect(scheduler.playoutDelayMs < 5)
+  }
 }

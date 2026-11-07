@@ -18,6 +18,9 @@ public struct PlayoutScheduler: Sendable {
   private var queue: [TimedSample] = []
   private var observations: [Observation] = []
   private var lastSenderNs: UInt64?
+  private var samplesSinceDelayUpdate = 0
+  // Recomputing the p95 sorts the 2 s window; ~100 ms granularity is enough.
+  private static let delayUpdateInterval = 24
   public private(set) var playoutDelayMs: Double = 2
 
   public init(mode: Mode = .smoothing) { self.mode = mode }
@@ -43,10 +46,14 @@ public struct PlayoutScheduler: Sendable {
     observations.removeAll { arrivalNs > $0.arrivalNs && arrivalNs - $0.arrivalNs > Self.windowNs }
     offsetNs =
       observations.map { $0.arrivalNs >= $0.senderNs ? $0.arrivalNs - $0.senderNs : 0 }.min() ?? offset
-    let base = offsetNs ?? offset
-    let residuals = observations.map { Int64($0.arrivalNs) - Int64($0.senderNs) - Int64(base) }
-    let p95 = percentile(residuals.map { Double(max(0, $0)) / 1_000_000 }, 0.95)
-    playoutDelayMs = min(40, max(2, p95 + 2))
+    samplesSinceDelayUpdate += 1
+    if samplesSinceDelayUpdate >= Self.delayUpdateInterval || observations.count == 1 {
+      samplesSinceDelayUpdate = 0
+      let base = offsetNs ?? offset
+      let residuals = observations.map { Int64($0.arrivalNs) - Int64($0.senderNs) - Int64(base) }
+      let p95 = percentile(residuals.map { Double(max(0, $0)) / 1_000_000 }, 0.95)
+      playoutDelayMs = min(40, max(2, p95 + 2))
+    }
     queue.append(.init(sample: sample, arrivalNs: arrivalNs))
     return []
   }
@@ -69,6 +76,6 @@ public struct PlayoutScheduler: Sendable {
   private func percentile(_ values: [Double], _ fraction: Double) -> Double {
     guard !values.isEmpty else { return 0 }
     let sorted = values.sorted()
-    return sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * fraction.rounded()))]
+    return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * fraction).rounded()))]
   }
 }

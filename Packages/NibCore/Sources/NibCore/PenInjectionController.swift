@@ -78,10 +78,10 @@
     private var controller: PenInjectionController
     private var scheduler: PlayoutScheduler
     private var timer: DispatchSourceTimer?
-    private var postTimes: [Double] = []
-    // Snapshot reads occur on the main actor while the worker updates this cache on its queue.
+    // Written on the worker queue, read by snapshot() on the main actor; guarded by statsLock.
     private let statsLock = NSLock()
-    private var latestSnapshot = Snapshot(injectP95Ms: 0, playoutDelayMs: 2)
+    private var postTimes: [Double] = []
+    private var latestDelayMs: Double = 2
 
     public init(
       surfaceSize: CGSize = .zero, displayRect: CGRect = .zero,
@@ -127,8 +127,13 @@
     }
     public func snapshot() -> Snapshot {
       statsLock.lock()
-      defer { statsLock.unlock() }
-      return latestSnapshot
+      let times = postTimes
+      let delay = latestDelayMs
+      statsLock.unlock()
+      // Sorted here, once per menu refresh, not on every 1 ms drain tick.
+      let sorted = times.sorted()
+      let p95 = sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * 0.95))]
+      return Snapshot(injectP95Ms: p95, playoutDelayMs: delay)
     }
 
     private func drainTimer() {
@@ -154,17 +159,17 @@
     }
 
     private func post(_ samples: [PenSample], nowNs: UInt64) {
+      guard !samples.isEmpty else { return }
+      var durations: [Double] = []
       for sample in samples {
         let started = DispatchTime.now().uptimeNanoseconds
         _ = controller.handle(sample)
-        let ended = DispatchTime.now().uptimeNanoseconds
-        postTimes.append(Double(ended - started) / 1_000_000)
-        if postTimes.count > 120 { postTimes.removeFirst() }
+        durations.append(Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)
       }
-      let sorted = postTimes.sorted()
-      let p95 = sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count - 1) * 0.95))]
       statsLock.lock()
-      latestSnapshot = Snapshot(injectP95Ms: p95, playoutDelayMs: scheduler.playoutDelayMs)
+      postTimes.append(contentsOf: durations)
+      if postTimes.count > 240 { postTimes.removeFirst(postTimes.count - 240) }
+      latestDelayMs = scheduler.playoutDelayMs
       statsLock.unlock()
     }
   }
