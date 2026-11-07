@@ -73,7 +73,7 @@ screen. When the link drops while drawing, a dim status tells them why.
 ## Handoff
 
 ```
-Branch/commit: t3/ipad-onboarding-review-fixes @ 84d09a2
+Branch/commit: t3/ipad-onboarding-review-fixes @ 1e035a3
 Verify: verify: ok (Test run with 135 tests; NibMac + NibPad built)
 Done:
 - Deduplicated Bonjour service names safely and preserved live sessions when browse results change; single-Mac auto-selection is persisted.
