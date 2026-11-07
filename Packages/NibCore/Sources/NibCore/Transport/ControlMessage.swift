@@ -343,6 +343,39 @@ public struct ControlFramer: Sendable {
     return messages
   }
 
+  /// Decodes at most one frame. This is used by the session boundary so a
+  /// plaintext helloAck cannot make the framer inspect the sealed bytes that
+  /// follow it in the same socket read.
+  public mutating func appendOne(_ chunk: [UInt8]) throws -> ControlMessage? {
+    bytes.append(contentsOf: chunk)
+    guard bytes.count >= 4 else { return nil }
+    let length = UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24
+    guard length <= Self.maximumMessageSize else { throw Error.oversized(Int(length)) }
+    guard length >= 2 else { throw Error.invalidLength(length) }
+    let total = 4 + Int(length)
+    guard bytes.count >= total else { return nil }
+    let body = Data(bytes[4..<total])
+    bytes.removeFirst(total)
+    guard let object = try? JSONSerialization.jsonObject(with: body),
+      let dictionary = object as? [String: Any], let type = dictionary["type"] as? String
+    else { throw Error.malformed }
+    guard ControlMessage.isKnownType(type) else { return nil }
+    do { return try decoder.decode(ControlMessage.self, from: body) } catch {
+      if type == "gesture", let gesture = dictionary["gesture"] as? [String: Any],
+        let gestureType = gesture["type"] as? String, !Gesture.isKnownType(gestureType)
+      {
+        return nil
+      }
+      throw Error.malformed
+    }
+  }
+
+  public mutating func takeBufferedBytes() -> Data {
+    let result = Data(bytes)
+    bytes.removeAll(keepingCapacity: true)
+    return result
+  }
+
   public static func encode(_ message: ControlMessage) -> [UInt8] { ControlFramer().encode(message) }
 
   public mutating func feed(_ chunk: [UInt8]) throws -> [ControlMessage] { try append(chunk) }

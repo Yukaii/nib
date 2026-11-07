@@ -243,8 +243,13 @@ public final class UsbLinkListener {
     connection?.cancel()
     connection = newConnection
     let generation = connectionGeneration
+    let arm = deviceLink.sessionArm
     streamDispatcher = StreamLinkDispatcher(
       transport: NWLinkByteTransport(newConnection),
+      armSession: { message in
+        guard case .helloAck(let ack) = message else { return nil }
+        return arm.make(ack)
+      },
       onControl: { [weak self] message in
         Task { @MainActor [weak self] in
           guard let self, self.connectionGeneration == generation,
@@ -316,12 +321,25 @@ public final class UsbLinkListener {
       case .connected(let info):
         hostInfo = info
         onHostInfo(info)
-        if let parameters = deviceLink.sessionParameters,
-          let cipher = try? SessionCipher(
-            pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
-            hostNonce: parameters.hostNonce, role: .device)
-        {
+        if deviceLink.requiresAuthentication {
+          guard let parameters = deviceLink.sessionParameters,
+            let connection
+          else {
+            if let connection { drop(connection) }
+            return
+          }
+          let cipher: SessionCipher
+          do {
+            cipher = try SessionCipher(
+              pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce, hostNonce: parameters.hostNonce,
+              role: .device)
+          } catch {
+            drop(connection)
+            return
+          }
           streamDispatcher?.configureSession(cipher)
+        } else {
+          streamDispatcher?.clearSession()
         }
         setConnected(true)
         if isConnected { startHeartbeat() }

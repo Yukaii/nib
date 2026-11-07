@@ -1,5 +1,39 @@
 import Foundation
 
+public final class DeviceSessionArm: @unchecked Sendable {
+  private let lock = NSLock()
+  private var pairKey: Data?
+  private var deviceNonce: Data?
+  private var hostID: String = ""
+  func prepare(pairKey: Data, deviceNonce: Data, hostID: String) {
+    lock.lock()
+    self.pairKey = pairKey
+    self.deviceNonce = deviceNonce
+    self.hostID = hostID
+    lock.unlock()
+  }
+  func clear() {
+    lock.lock()
+    pairKey = nil
+    deviceNonce = nil
+    lock.unlock()
+  }
+  func make(_ ack: ControlMessage.HelloAck) -> SessionCipher? {
+    lock.lock()
+    let key = pairKey
+    let nonce = deviceNonce
+    let id = hostID
+    lock.unlock()
+    guard ack.accepted, let key, let nonce, let hostNonceString = ack.nonce,
+      let hostNonce = Data(base64Encoded: hostNonceString), let proof = ack.proof,
+      PairingCrypto.verifyHostProof(
+        base64Proof: proof, pairKey: key, hostID: id, base64DeviceNonce: PairingCrypto.base64(nonce),
+        base64HostNonce: hostNonceString)
+    else { return nil }
+    return try? SessionCipher(pairKey: key, ipadNonce: nonce, hostNonce: hostNonce, role: .device)
+  }
+}
+
 /// Testable per-connection hello policy for the host. Production
 /// (`PenLinkReceiver`) routes every hello through this; tests drive it with
 /// dummy `ObjectIdentifier`s, so the production path is exercised without
@@ -65,6 +99,7 @@ public struct HostLink: Sendable {
     }
     // Legacy opt-in off: no store means today's behaviour, no proofs.
     guard store != nil else {
+      sessionParameters = nil
       return .needsAccept(hello)
     }
     session.updatePairingKey(pairingKey(for: hello.deviceID), hostID: hostID)
@@ -107,12 +142,18 @@ public struct HostLink: Sendable {
       let deviceNonceData =
         (hello.nonce.flatMap { Data(base64Encoded: $0) }) ?? PairingCrypto.randomNonce()
       let hostNonceData = PairingCrypto.randomNonce()
-      if let key = pairingKey(for: hello.deviceID),
-        let parameters = try? SessionParameters(
-          pairKey: key, ipadNonce: deviceNonceData, hostNonce: hostNonceData)
-      {
-        sessionParameters = parameters
+      guard let key = pairingKey(for: hello.deviceID) else {
+        sessionConnected = false
+        return .init(accepted: false, reason: "Session could not be established")
       }
+      let parameters: SessionParameters
+      do {
+        parameters = try SessionParameters(pairKey: key, ipadNonce: deviceNonceData, hostNonce: hostNonceData)
+      } catch {
+        sessionConnected = false
+        return .init(accepted: false, reason: "Session could not be established")
+      }
+      sessionParameters = parameters
       return session.authenticatedHelloAck(
         deviceNonce: deviceNonceData, hostNonce: hostNonceData, accepted: true,
         udpPort: udpPort, displayWidth: displayWidth, displayHeight: displayHeight, host: host)
@@ -144,6 +185,7 @@ public struct HostLink: Sendable {
       pairingOnlyGeneration = nil
     }
     // Full session loss is handled by the owner (session.disconnect).
+    sessionParameters = nil
   }
 
   public mutating func newConnection(_ generation: UInt64) {
@@ -178,6 +220,7 @@ public struct DeviceLink: Sendable {
   public var pairingRequired = false
   public private(set) var knownHostID: String?
   public private(set) var sessionParameters: SessionParameters?
+  public let sessionArm: DeviceSessionArm
 
   public init(
     store: PairingKeyStore? = nil, hostID: String? = nil, baseHello: ControlMessage.Hello? = nil
@@ -186,6 +229,7 @@ public struct DeviceLink: Sendable {
     self.hostID = hostID
     self.baseHello = baseHello
     self.sessionParameters = nil
+    self.sessionArm = DeviceSessionArm()
   }
 
   public mutating func updateStore(store: PairingKeyStore?, hostID: String?) {
@@ -198,6 +242,7 @@ public struct DeviceLink: Sendable {
     pairingRequired = false
     lastDeviceNonce = nil
     sessionParameters = nil
+    sessionArm.clear()
   }
 
   public func allows(_ message: ControlMessage) -> Bool {
@@ -233,6 +278,7 @@ public struct DeviceLink: Sendable {
     }
     let nonce = PairingCrypto.randomNonce()
     lastDeviceNonce = nonce
+    sessionArm.prepare(pairKey: pairKey, deviceNonce: nonce, hostID: hostID)
     var authenticated = base
     authenticated.nonce = PairingCrypto.base64(nonce)
     authenticated.proof = PairingCrypto.base64(
@@ -270,8 +316,13 @@ public struct DeviceLink: Sendable {
         if let hostNonceString = ack.nonce, let hostNonce = Data(base64Encoded: hostNonceString),
           let key = storedKey(), let deviceNonce = lastDeviceNonce
         {
-          sessionParameters = try? SessionParameters(
-            pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce)
+          let parameters: SessionParameters
+          do {
+            parameters = try SessionParameters(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce)
+          } catch { return .invalidProof }
+          sessionParameters = parameters
+        } else {
+          return .invalidProof
         }
         return .connected(hostInfo: ack.host)
       } else {
@@ -291,6 +342,21 @@ public struct DeviceLink: Sendable {
         return .rejected(reason: reason, hostInfo: ack.host, retryLater: retry)
       }
     }
+  }
+
+  /// Builds the authenticated session without changing pairing state. The
+  /// transport dispatcher calls this synchronously while it still owns the
+  /// plaintext receive buffer, before it examines bytes following helloAck.
+  public func sessionCipher(for ack: ControlMessage.HelloAck) -> SessionCipher? {
+    if let cipher = sessionArm.make(ack) { return cipher }
+    guard ack.accepted, let key = storedKey(), let deviceNonce = lastDeviceNonce,
+      let hostNonceString = ack.nonce, let hostNonce = Data(base64Encoded: hostNonceString),
+      let proof = ack.proof,
+      PairingCrypto.verifyHostProof(
+        base64Proof: proof, pairKey: key, hostID: hostID ?? "",
+        base64DeviceNonce: PairingCrypto.base64(deviceNonce), base64HostNonce: hostNonceString)
+    else { return nil }
+    return try? SessionCipher(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce, role: .device)
   }
 
   private func makeSession() -> SenderSession? {

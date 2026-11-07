@@ -66,12 +66,15 @@ USB control length limits are the same as TCP.
 
 When pairing has produced a `pairKey`, the fresh authenticated hello nonces
 are the session inputs. The iPad nonce is followed by the host nonce, with no
-additional encoding, to form the HKDF salt. Each direction has a separate
-32-byte key:
+additional encoding, to form the HKDF salt. HKDF `info` is UTF-8, including
+the `→` character (U+2192). Control and sample traffic use separate keys in
+each direction:
 
 ```
-HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session ipad→host")
-HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session host→ipad")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session control ipad→host")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session control host→ipad")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session sample ipad→host")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session sample host→ipad")
 ```
 
 The output length is 32 bytes. A third derivation,
@@ -80,7 +83,9 @@ The output length is 32 bytes. A third derivation,
 changes with a fresh authenticated hello; a sender MUST rekey before its
 32-bit sample sequence wraps.
 
-After `helloAck`, the body of every TCP control frame (and every USB `0x01`
+`helloAck` is the last plaintext frame in each direction. The sender arms its
+session cipher immediately after writing that frame; every remaining byte in
+the same read is sealed. After `helloAck`, the body of every TCP control frame (and every USB `0x01`
 frame) is, byte by byte:
 
 ```
@@ -106,10 +111,13 @@ offset  size  value
 ```
 
 Its AEAD nonce is the eight-byte session epoch followed by the four-byte
-little-endian sequence. The header is authenticated by nonce selection; no
-sample is accepted unless it opens and then passes the existing wrap-aware
-sequence admission. A failed open is dropped and counted as loss. The legacy
-no-store path remains plaintext.
+little-endian sequence. The header is authenticated by nonce selection. A
+sender never seals predicted samples and never seals two different plaintexts
+with one sequence; an identical re-seal is allowed for Wi-Fi triple-send.
+When the next sequence would be `UInt32.max`, the sender closes the session
+cleanly and reconnects, producing a fresh hello, epoch, and keys. A failed
+sample open on UDP drops the datagram and counts loss; on the reliable USB
+byte stream it closes the session. The legacy no-store path remains plaintext.
 
 ## 5. Control messages
 

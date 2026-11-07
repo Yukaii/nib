@@ -58,6 +58,38 @@ public struct StreamFramer: Sendable {
     return frames
   }
 
+  public mutating func appendOne(_ chunk: [UInt8]) throws -> StreamFrame? {
+    bytes.append(contentsOf: chunk)
+    guard let type = bytes.first else { return nil }
+    switch type {
+    case Self.sampleType:
+      guard bytes.count >= 1 + PenSample.byteCount else { return nil }
+      let payload = bytes[1..<(1 + PenSample.byteCount)]
+      guard let sample = try? PenSample(decoding: payload) else { throw Error.invalidSample }
+      bytes.removeFirst(1 + PenSample.byteCount)
+      return .sample(sample)
+    case Self.controlType:
+      guard bytes.count >= 5 else { return nil }
+      let length = UInt32(bytes[1]) | UInt32(bytes[2]) << 8 | UInt32(bytes[3]) << 16 | UInt32(bytes[4]) << 24
+      guard length <= ControlFramer.maximumMessageSize, length >= 2 else { throw Error.invalidControl }
+      let total = 1 + 4 + Int(length)
+      guard bytes.count >= total else { return nil }
+      var control = ControlFramer()
+      do {
+        guard let message = try control.appendOne(Array(bytes[1..<total])) else { throw Error.invalidControl }
+        bytes.removeFirst(total)
+        return .control(message)
+      } catch { throw Error.invalidControl }
+    default: throw Error.unknownType(type)
+    }
+  }
+
+  public mutating func takeBufferedBytes() -> Data {
+    let result = Data(bytes)
+    bytes.removeAll(keepingCapacity: true)
+    return result
+  }
+
   public mutating func feed(_ chunk: [UInt8]) throws -> [StreamFrame] { try append(chunk) }
   public var bufferedByteCount: Int { bytes.count }
 

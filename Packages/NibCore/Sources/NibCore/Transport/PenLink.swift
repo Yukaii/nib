@@ -320,7 +320,7 @@ public final class PenLinkSender {
   private var udpConnection: NWConnection?
   private var framer = ControlFramer()
   private var controlDispatcher: ControlLinkDispatcher?
-  private var sessionCipher: SessionCipher?
+  private let sessionCipher = LockedSessionCipher()
   private var hello: ControlMessage.Hello?
   private var lastReceivedAt: TimeInterval?
   private var lastGeometry: (Double, Double)?
@@ -360,7 +360,7 @@ public final class PenLinkSender {
     udpConnection?.cancel()
     connection = nil
     controlDispatcher = nil
-    sessionCipher = nil
+    sessionCipher.set(nil)
     udpConnection = nil
     latestResult = nil
     resultsByName = [:]
@@ -458,15 +458,17 @@ public final class PenLinkSender {
   public func send(_ sample: PenSample) {
     guard let udpConnection else { return }
     let count = [.down, .up, .cancel, .proximityExit].contains(sample.kind) ? 3 : 1
-    let sessionCipher = self.sessionCipher
+    let sessionCipher = self.sessionCipher.get()
     queue.async {
       let payload: Data
       if let sessionCipher {
-        guard
-          let sealed = try? sessionCipher.sealSample(
-            Data(sample.encode()), sequence: sample.sequence)
-        else { return }
-        payload = sealed
+        do { payload = try sessionCipher.sealSample(Data(sample.encode()), sequence: sample.sequence) } catch
+        {
+          if case SessionCryptoError.sequenceWrap = error {
+            Task { @MainActor [weak self] in self?.connectionLost() }
+          }
+          return
+        }
       } else {
         payload = Data(sample.encode())
       }
@@ -558,10 +560,16 @@ public final class PenLinkSender {
     pairingDriver?.newConnection(connectionGeneration)
     framer = ControlFramer()
     let generation = connectionGeneration
-    controlDispatcher = ControlLinkDispatcher(transport: NWLinkByteTransport(newConnection)) {
-      [weak self] message in
-      Task { @MainActor [weak self] in self?.handle(message, connectionGeneration: generation) }
-    }
+    let arm = deviceLink.sessionArm
+    controlDispatcher = ControlLinkDispatcher(
+      transport: NWLinkByteTransport(newConnection),
+      armSession: { message in
+        guard case .helloAck(let ack) = message else { return nil }
+        return arm.make(ack)
+      },
+      onMessage: { [weak self] message in
+        Task { @MainActor [weak self] in self?.handle(message, connectionGeneration: generation) }
+      })
     newConnection.stateUpdateHandler = { [weak self] newState in
       if case .failed = newState {
         Task { @MainActor [weak self] in self?.connectionLost() }
@@ -639,13 +647,24 @@ public final class PenLinkSender {
       case .connected(let info):
         hostInfo = info
         onHostInfo(info)
-        if let parameters = deviceLink.sessionParameters,
-          let cipher = try? SessionCipher(
-            pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
-            hostNonce: parameters.hostNonce, role: .device)
-        {
-          sessionCipher = cipher
+        if deviceLink.requiresAuthentication {
+          guard let parameters = deviceLink.sessionParameters else {
+            connectionLost()
+            return
+          }
+          let cipher: SessionCipher
+          do {
+            cipher = try SessionCipher(
+              pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce, hostNonce: parameters.hostNonce,
+              role: .device)
+          } catch {
+            connectionLost()
+            return
+          }
+          sessionCipher.set(cipher)
           controlDispatcher?.configureSession(cipher)
+        } else {
+          sessionCipher.set(nil)
         }
         guard connection != nil else {
           connectionLost()
@@ -782,6 +801,9 @@ public final class PenLinkReceiver {
   // are never injected. One uncontended lock per sample (~20 ns against a
   // ~4 ms sample interval); `Atomic` would need macOS 15.
   private let sampleGate = LockedFlag()
+  // Explicit mode prevents a failed cipher construction from silently
+  // reopening the unauthenticated sample path.
+  private let sealedMode = LockedFlag()
   private var linkStats = LinkStats()
   private var rttSamples: [Double] = []
   public private(set) var latestRTTMs: Double?
@@ -1174,10 +1196,43 @@ public final class PenLinkReceiver {
       let ack = hostLink.acceptHello(
         hello, now: now, udpPort: udpPort, displayWidth: displayWidth,
         displayHeight: displayHeight, host: hostInfo)
+      guard ack.accepted else {
+        sendControl(.helloAck(ack))
+        disconnectSession(notify: false)
+        return
+      }
       // Only the accepted control connection's host may send samples.
       var tcpHost = hostLink.session.remoteHost
       if tcpHost == nil, case .hostPort(let host, _) = connection?.currentPath?.remoteEndpoint {
         tcpHost = String(describing: host)
+      }
+      // A .send never goes to a different connection: verify the asker is
+      // still current before sending the ack.
+      guard connection === asking else { return }
+      sendControl(.helloAck(ack))
+      if let parameters = hostLink.sessionParameters {
+        let made: SessionCipher
+        do {
+          made = try SessionCipher(
+            pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce, hostNonce: parameters.hostNonce,
+            role: .host)
+        } catch {
+          disconnectSession(notify: false)
+          return
+        }
+        sessionCipher.set(made)
+        sealedMode.set(true)
+        #if os(macOS)
+          if usbMode {
+            usbDispatcher?.configureSession(made)
+          } else {
+            controlDispatcher?.configureSession(made)
+          }
+        #else
+          controlDispatcher?.configureSession(made)
+        #endif
+      } else {
+        sealedMode.set(false)
       }
       #if os(macOS)
         if usbMode { udpGate.disable() } else { udpGate.configure(host: tcpHost) }
@@ -1191,26 +1246,6 @@ public final class PenLinkReceiver {
       rttSamples.removeAll()
       latestRTTMs = nil
       transportLogger.info("session accepted from \(hello.deviceName, privacy: .public)")
-      // A .send never goes to a different connection: verify the asker is
-      // still current before sending the ack.
-      guard connection === asking else { return }
-      sendControl(.helloAck(ack))
-      if let parameters = hostLink.sessionParameters,
-        let cipher = try? SessionCipher(
-          pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
-          hostNonce: parameters.hostNonce, role: .host)
-      {
-        sessionCipher.set(cipher)
-        #if os(macOS)
-          if usbMode {
-            usbDispatcher?.configureSession(cipher)
-          } else {
-            controlDispatcher?.configureSession(cipher)
-          }
-        #else
-          controlDispatcher?.configureSession(cipher)
-        #endif
-      }
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):
@@ -1299,7 +1334,7 @@ public final class PenLinkReceiver {
         self.lastPacketAt.set(Date.timeIntervalSinceReferenceDate)
         self.lockedStats.record(sequence: sample.sequence, sender: sample.timestamp, arrival: arrival)
         self.sampleSink.send(sample, arrivalNs: arrival)
-      } else if let data, cipher == nil,
+      } else if let data, !self.sealedMode.get(),
         data.count == PenSample.byteCount,
         let sample = try? PenSample(decoding: Array(data)),
         case .hostPort(let host, _) = udp.currentPath?.remoteEndpoint,
@@ -1336,9 +1371,10 @@ public final class PenLinkReceiver {
       }
     #endif
     hostLink.session.disconnect()
-    sessionCipher.set(nil)
     udpGate.disable()
     sampleGate.set(false)
+    sealedMode.set(false)
+    sessionCipher.set(nil)
     lastPacketAt.set(nil)
     lockedStats.reset()
     linkStats = LinkStats()

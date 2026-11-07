@@ -63,13 +63,14 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit: t3/encrypted-session-sealing @ 919c6cf
-Verify: verify: ok (Test run with 165 tests; NibMac + NibPad built)
+Branch/commit: t3/encrypted-session-integration-fixes @ 68a7ba530fbdcdc29cc0400a372bcbfc4146efc2
+Verify: verify: ok (Test run with 169 tests; NibMac + NibPad built)
 Done:
-- Added CryptoKit HKDF session keys, directional ChaCha20-Poly1305 control sealing, and epoch-based sample sealing.
-- Wired Wi-Fi TCP/UDP and USB dispatchers after authenticated helloAck while preserving plaintext no-store sessions.
-- Added tamper, replay/gap, sequence-wrap, dispatcher, benchmark, and protocol-vector coverage.
-- Updated protocol.md and protocol/vectors/session.json with byte layouts and deterministic values.
-Manual checks: Not run — requires an iPad mini 7 + Apple Silicon Mac. Pair, draw a pressure stroke in Krita over Wi-Fi, repeat over USB, and verify an unkeyed `nib-receive` cannot decode samples.
-Not done / risks: On-device Wi-Fi/USB pressure verification remains; sequence max is a rekey boundary and is rejected to prevent nonce reuse.
+- Switched the TCP and USB dispatchers atomically from plaintext helloAck to sealed frames, including bytes buffered in the same read; covered split and combined Wi-Fi/USB dispatcher tests.
+- Replaced mutable SessionCipher value state with lock-protected directional counters and separate control/sample HKDF subkeys; added concurrent counter, replay, tamper, and nonce uniqueness coverage.
+- Enforced sample sealing rules (no predicted samples, identical triple-send re-seal only, strictly newer sequence, clean sequence-wrap failure) and made paired-session setup fail closed.
+- Added production HostLink replay coverage with fresh host nonces and isolated ciphers; updated protocol documentation and session vector for the new UTF-8 HKDF info strings and plaintext helloAck boundary.
+- Release benchmark: `session sample seal benchmark: 2.21 µs per seal (10k)`; `session sample open benchmark: 1.66 µs per open (10k)`.
+Manual checks: Not run. On an iPad mini 7 and Apple Silicon Mac, pair from a clean install, draw a pressure stroke in Krita over Wi-Fi, confirm pressure and front-app updates, disconnect/reconnect, then repeat over USB. During both sessions verify the iPad screen stays black and pressure varies in Krita. Launch an unkeyed `nib-receive` and confirm it cannot decode the sealed samples.
+Not done / risks: Physical iPad/Mac/Krita checks require hardware and were not run. Existing Swift concurrency warnings in Network callback code remain; no new main-actor hop was added to the Pencil sample path.
 ```
