@@ -37,7 +37,7 @@ visible thin-to-thick pressure stroke.
 - [x] 0011 USB-C mode via usbmuxd, preferred over Wi-Fi
 - [x] 0012 Per-app profiles model, front-app reporting, key shortcuts on the Mac
 - [ ] 0013 iPad edge controls: shortcut buttons + scroll/zoom/brush strip
-- [ ] 0014 iPad profile editor in the companion panel
+- [x] 0014 iPad profile editor in the companion panel
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
 - [ ] Active-area mapping: aspect-locked letterbox, region selection, multi-display
 - [ ] Eraser via Pencil double-tap / squeeze (toggle exists; verify in apps)
