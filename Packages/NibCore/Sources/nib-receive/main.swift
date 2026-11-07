@@ -12,7 +12,7 @@ struct NibReceive {
         }
       }
       await MainActor.run {
-        receiver.onSample = { sample in
+        receiver.onSample = { sample, _ in
           print("\(sample.sequence) \(sample.kind) \(sample.x) \(sample.y) \(sample.pressure)")
         }
         receiver.onSession = { event in
