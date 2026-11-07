@@ -4,6 +4,7 @@ import UIKit
 @MainActor
 protocol GestureSink: AnyObject {
   func send(_ gesture: Gesture)
+  var padSettings: PadSettings { get }
 }
 
 /// Owns UIKit recognizers so the capture view only reports Pencil contact state.
@@ -13,6 +14,11 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   private let send: (Gesture) -> Void
   private let settings: () -> PadSettings
   private var palm = GesturePalmRejection()
+  // A gesture that began must always end on the Mac, even if palm rejection
+  // or a settings change would now suppress it; otherwise apps see a scroll
+  // that never finishes.
+  private var panActive = false
+  private var pinchActive = false
   private let pan: UIPanGestureRecognizer
   private let pinch: UIPinchGestureRecognizer
   private let undoTap: UITapGestureRecognizer
@@ -73,7 +79,27 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   }
 
   @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-    guard allowed(settings().gestures.twoFingerScroll) else { return }
+    let finishing =
+      recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
+    if finishing && panActive {
+      panActive = false
+      send(.scroll(dx: 0, dy: 0, phase: recognizer.state == .ended ? .ended : .cancelled))
+      return
+    }
+    guard allowed(settings().gestures.twoFingerScroll) else {
+      if panActive {
+        panActive = false
+        send(.scroll(dx: 0, dy: 0, phase: .cancelled))
+      }
+      return
+    }
+    if recognizer.state == .began || (recognizer.state == .changed && !panActive) {
+      panActive = true
+      recognizer.setTranslation(.zero, in: view)
+      send(.scroll(dx: 0, dy: 0, phase: .began))
+      return
+    }
+    guard recognizer.state == .changed else { return }
     let phase: Gesture.Phase
     switch recognizer.state {
     case .began: phase = .began
@@ -88,7 +114,30 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   }
 
   @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-    guard allowed(settings().gestures.pinchZoom) else { return }
+    let modifierValue = modifier(for: settings().gestures.zoomModifier)
+    let finishing =
+      recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
+    if finishing && pinchActive {
+      pinchActive = false
+      send(
+        .zoom(scaleDelta: 1, phase: recognizer.state == .ended ? .ended : .cancelled, modifier: modifierValue)
+      )
+      return
+    }
+    guard allowed(settings().gestures.pinchZoom) else {
+      if pinchActive {
+        pinchActive = false
+        send(.zoom(scaleDelta: 1, phase: .cancelled, modifier: modifierValue))
+      }
+      return
+    }
+    if recognizer.state == .began || (recognizer.state == .changed && !pinchActive) {
+      pinchActive = true
+      recognizer.scale = 1
+      send(.zoom(scaleDelta: 1, phase: .began, modifier: modifierValue))
+      return
+    }
+    guard recognizer.state == .changed else { return }
     let phase: Gesture.Phase
     switch recognizer.state {
     case .began: phase = .began
@@ -97,10 +146,10 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
     case .cancelled, .failed: phase = .cancelled
     default: return
     }
-    send(
-      .zoom(
-        scaleDelta: recognizer.scale, phase: phase, modifier: modifier(for: settings().gestures.zoomModifier))
-    )
+    // UIKit's scale is cumulative since the pinch began; send per-event deltas.
+    let delta = recognizer.scale
+    recognizer.scale = 1
+    send(.zoom(scaleDelta: delta, phase: phase, modifier: modifierValue))
   }
 
   @objc private func handleUndo(_ recognizer: UITapGestureRecognizer) {

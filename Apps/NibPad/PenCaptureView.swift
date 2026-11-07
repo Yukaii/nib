@@ -26,6 +26,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private var sequence: UInt32 = 0
   private var buttons: PenSample.Buttons = []
   private var wasActive = false
+  private var panelOpen = false
+  var onPanelToggle: (() -> Void)?
   private var originalBrightness: CGFloat?
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
@@ -47,11 +49,15 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     backgroundColor = .black
     addSubview(hud)
     hud.isHidden = true
+    let panelTap = UITapGestureRecognizer(target: self, action: #selector(togglePanel))
+    panelTap.numberOfTouchesRequired = 4
+    panelTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+    panelTap.delegate = self
+    addGestureRecognizer(panelTap)
     fingerGestures = FingerGestureController(
       view: self,
-      send: { [weak sink] gesture in
-        (sink as? GestureSink)?.send(gesture)
-      })
+      send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) },
+      settings: { [weak sink] in (sink as? GestureSink)?.padSettings ?? PadSettings() })
     if #available(iOS 16.0, *) {
       let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
       hoverRecognizer = hover
@@ -107,18 +113,40 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     self.originalBrightness = nil
   }
 
-  @objc private func toggleHUD() {
-    hud.isHidden.toggle()
-    if hud.isHidden {
-      UIScreen.main.brightness = 0
-      padLogger.info("HUD hidden")
-    } else {
+  @objc private func togglePanel() {
+    onPanelToggle?()
+  }
+
+  func setPanelOpen(_ open: Bool) {
+    guard panelOpen != open else { return }
+    panelOpen = open
+    if open {
+      // Sends stop while the panel is open; release the pen on the Mac first so
+      // a stroke or hover in progress cannot leave the button held.
+      cancelProximityExit()
+      isTouching = false
+      if lastSample?.kind != .proximityExit {
+        sink.send(
+          PenSample(
+            kind: .proximityExit, sequence: nextSequence(), timestamp: timestamp(),
+            x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0, buttons: buttons))
+      }
       UIScreen.main.brightness = originalBrightness ?? UIScreen.main.brightness
-      padLogger.info("HUD shown")
+      inkPoints.removeAll()
+      sampleTimes.removeAll()
+      hud.clearTrace()
+    } else if wasActive {
+      UIScreen.main.brightness = 0
     }
-    inkPoints.removeAll()
-    sampleTimes.removeAll()
-    hud.clearTrace()
+  }
+
+  func setHUDVisible(_ visible: Bool) {
+    hud.isHidden = !visible
+    if visible {
+      UIScreen.main.brightness = originalBrightness ?? UIScreen.main.brightness
+    } else if wasActive && !panelOpen {
+      UIScreen.main.brightness = 0
+    }
   }
 
   func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
@@ -201,7 +229,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   }
 
   private func publish(_ sample: PenSample) {
-    if !sample.flags.contains(.predicted) {
+    if !panelOpen && !sample.flags.contains(.predicted) {
       sink.send(sample)
     }
     lastSample = sample
@@ -324,6 +352,17 @@ final class PenHUDView: UIView {
 
 struct PenCaptureRepresentable: UIViewRepresentable {
   let sink: PenSampleSink
-  func makeUIView(context: Context) -> PenCaptureView { PenCaptureView(sink: sink) }
-  func updateUIView(_ uiView: PenCaptureView, context: Context) {}
+  @Binding var panelOpen: Bool
+  @Binding var showsHUD: Bool
+
+  func makeUIView(context: Context) -> PenCaptureView {
+    let view = PenCaptureView(sink: sink)
+    view.onPanelToggle = { panelOpen.toggle() }
+    return view
+  }
+
+  func updateUIView(_ uiView: PenCaptureView, context: Context) {
+    uiView.setPanelOpen(panelOpen)
+    uiView.setHUDVisible(showsHUD)
+  }
 }

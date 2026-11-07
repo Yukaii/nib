@@ -32,7 +32,7 @@ visible thin-to-thick pressure stroke.
 
 - [x] 0007 Link diagnostics: logging, stats (rate, loss, jitter, RTT), HUD brightness
 - [x] 0008 Smooth delivery: off-main receive, adaptive jitter buffer, low-latency network params
-- [ ] 0009 iPad companion panel (four-finger tap) + pressure curve applied on iPad
+- [x] 0009 iPad companion panel (four-finger tap) + pressure curve applied on iPad
 - [ ] 0010 Finger gestures: two-finger scroll, pinch zoom, 2/3-finger tap undo/redo
 - [ ] 0011 USB-C mode via usbmuxd, preferred over Wi-Fi
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
