@@ -72,7 +72,7 @@ checkbox and the device-ID allow list go away.
 ## Handoff
 
 ```
-Branch/commit: t3/pairing-commit-reveal-fixes @ 9881f60
+Branch/commit: t3/pairing-commit-reveal-fixes @ 2a07238
 Verify: verify: ok (Test run with 146 tests; NibMac + NibPad built)
 Done:
 - Commit-reveal per amended 0011: pairRequest carries commitment
