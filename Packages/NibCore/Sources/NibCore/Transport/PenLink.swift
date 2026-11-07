@@ -288,6 +288,9 @@ public final class PenLinkReceiver {
   public var accept: AcceptHandler
   public var onSample: SampleHandler?
   public var onSession: SessionHandler?
+  /// Display size sent in the hello acknowledgement, in points.
+  public var displayWidth: Double = 0
+  public var displayHeight: Double = 0
 
   private let listener: NWListener
   private let queue = DispatchQueue(label: "dev.yukai.nib.receiver")
@@ -455,7 +458,11 @@ public final class PenLinkReceiver {
         return
       }
       sessionConnected = true
-      sendControl(.helloAck(.init(accepted: true, udpPort: port, displayWidth: 0, displayHeight: 0)))
+      sendControl(
+        .helloAck(
+          .init(
+            accepted: true, udpPort: port, displayWidth: displayWidth,
+            displayHeight: displayHeight)))
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):
