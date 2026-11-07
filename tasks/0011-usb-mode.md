@@ -72,9 +72,13 @@ unplugged. The menu line shows which transport is active.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/fix-usb-transport @ c52b82e30944acfcc5d2e6ada4ca16ca505fc3ed
+Verify: verify: ok (Test run with 67 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Merged the USB transport with the companion panel, pressure curve, and gesture paths; USB carries curved pressure, geometry, and gestures.
+- USB wins over an active Wi-Fi session, while a live USB session remains exclusive; usbmuxd connections are cleared on every end path and retry while attached.
+- Added iPad USB heartbeat pings and a three-second receive timeout, plus busy-as-retry Wi-Fi fallback.
+- Made Connect-result parsing exact and preserved following stream bytes; added deterministic tests for result leftovers, retry policy, arbitration, and heartbeat timeout.
+Manual checks: plug in while on Wi-Fi and confirm `via USB` within ~3 seconds; idle 10 seconds on USB and confirm it stays connected; unplug and confirm `via Wi-Fi` within ~5 seconds; replug and confirm USB again; not run (no iPad/USB hardware in this environment).
+Not done / risks: Hardware usbmuxd trust, cable latency, and the manual transport handoff checks still require an iPad and cable.
 ```
