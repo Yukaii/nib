@@ -84,7 +84,7 @@ struct NibPadApp: App {
         if panelOpen {
           CompanionPanel(
             store: settings, linkState: sink.linkState, profileName: sink.activeProfile.name,
-            showsHUD: $showsHUD
+            frontApp: sink.frontApp, showsHUD: $showsHUD
           )
           .padding(20)
           .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in

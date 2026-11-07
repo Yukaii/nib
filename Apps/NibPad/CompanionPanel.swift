@@ -6,8 +6,13 @@ struct CompanionPanel: View {
   @Bindable var store: PadSettingsStore
   let linkState: String
   let profileName: String
+  let frontApp: ControlMessage.FrontApp
   @Binding var showsHUD: Bool
   @State private var testRaw: Double = 0.5
+  @State private var editing: ProfileTarget?
+  @State private var confirmsReset = false
+
+  private struct ProfileTarget: Identifiable { let id: UUID }
 
   var body: some View {
     ScrollView {
@@ -16,13 +21,12 @@ struct CompanionPanel: View {
           VStack(alignment: .leading) {
             Text("Nib Companion").font(.title2.bold())
             Text("Link: \(linkState)").font(.footnote).foregroundStyle(.secondary)
-            Text("Profile: \(profileName)").font(.footnote).foregroundStyle(.secondary)
           }
           Spacer()
           Button("Done") { NotificationCenter.default.post(name: .closeCompanionPanel, object: nil) }
         }
         pressureSection
-        gesturesSection
+        profilesSection
         Toggle("Debug HUD", isOn: $showsHUD)
       }
       .padding(24)
@@ -77,19 +81,55 @@ struct CompanionPanel: View {
     }
   }
 
-  private var gesturesSection: some View {
+  private var activeID: UUID { store.settings.profile(forBundleID: frontApp.bundleID).id }
+
+  private var profilesSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Gestures").font(.headline)
-      Toggle("Two-finger scroll", isOn: toggle(\.twoFingerScroll))
-      Toggle("Pinch zoom", isOn: toggle(\.pinchZoom))
-      Toggle("Tap undo / redo", isOn: toggle(\.tapUndoRedo))
-      Picker("Zoom modifier", selection: modifier) {
-        Text("⌘").tag(PadSettings.ZoomModifier.command)
-        Text("⌥").tag(PadSettings.ZoomModifier.option)
-        Text("⌃").tag(PadSettings.ZoomModifier.control)
+      Text("Profiles").font(.headline)
+      Text(
+        "Active: \(profileName) (front app: \(frontApp.bundleID.isEmpty ? "none reported" : frontApp.name))"
+      )
+      .font(.footnote).foregroundStyle(.secondary)
+      ForEach(store.settings.profiles) { profile in
+        Button {
+          editing = ProfileTarget(id: profile.id)
+        } label: {
+          HStack {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(profile.name)
+              Text(profileSummary(profile)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if profile.id == activeID { Image(systemName: "checkmark.circle.fill").foregroundStyle(.cyan) }
+            Image(systemName: "chevron.right").foregroundStyle(.secondary)
+          }
+          .padding(12)
+          .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
       }
-      .pickerStyle(.segmented)
+      HStack {
+        Button("Add profile") { editing = ProfileTarget(id: store.settings.addProfile()) }
+        Spacer()
+        Button("Reset to presets", role: .destructive) { confirmsReset = true }
+      }
+      .buttonStyle(.bordered)
     }
+    .sheet(item: $editing) { target in
+      ProfileEditor(store: store, profileID: target.id, frontApp: frontApp)
+    }
+    .confirmationDialog(
+      "Replace all profiles with the Default, Krita, Photoshop and Affinity presets?",
+      isPresented: $confirmsReset, titleVisibility: .visible
+    ) {
+      Button("Reset to presets", role: .destructive) { store.settings.resetProfilesToPresets() }
+    }
+  }
+
+  private func profileSummary(_ profile: PadSettings.Profile) -> String {
+    let apps =
+      store.settings.isDefault(profile.id) ? "Fallback" : profile.bundleIDPrefixes.joined(separator: ", ")
+    return "\(apps.isEmpty ? "No apps" : apps) · \(profile.buttons.count) buttons"
   }
 
   private var softness: Binding<Double> {
@@ -104,14 +144,6 @@ struct CompanionPanel: View {
     Binding(
       get: { store.settings.pressure.maximum },
       set: { store.settings.pressure.maximum = max($0, store.settings.pressure.minimum + 0.01) })
-  }
-  private var modifier: Binding<PadSettings.ZoomModifier> {
-    Binding(get: { store.settings.gestures.zoomModifier }, set: { store.settings.gestures.zoomModifier = $0 })
-  }
-  private func toggle(_ keyPath: WritableKeyPath<PadSettings.Gestures, Bool>) -> Binding<Bool> {
-    Binding(
-      get: { store.settings.gestures[keyPath: keyPath] },
-      set: { store.settings.gestures[keyPath: keyPath] = $0 })
   }
 }
 

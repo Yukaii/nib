@@ -74,29 +74,57 @@ public struct PadSettings: Codable, Equatable, Sendable {
       self.strip = strip
       self.gestures = gestures
     }
-  }
-  public var pressure: Pressure
-  public var profiles: [Profile]
-  /// Compatibility accessor for the companion panel; it edits the Default profile.
-  public var gestures: Gestures {
-    get { profiles.first?.gestures ?? Gestures() }
-    set {
-      if profiles.isEmpty {
-        profiles = [Profile(name: "Default", gestures: newValue)]
-      } else {
-        profiles[0].gestures = newValue
-      }
+    public var canAddButton: Bool { buttons.count < PadSettings.maxButtons }
+    /// Appends a blank button (no key yet); returns false at the button limit.
+    @discardableResult
+    public mutating func addButton() -> Bool {
+      guard canAddButton else { return false }
+      buttons.append(ShortcutButton(label: "New", chord: .init()))
+      return true
+    }
+    /// Moves a button by `offset` places, clamped to the list.
+    public mutating func moveButton(at index: Int, by offset: Int) {
+      guard buttons.indices.contains(index) else { return }
+      let target = min(max(index + offset, 0), buttons.count - 1)
+      guard target != index else { return }
+      buttons.insert(buttons.remove(at: index), at: target)
     }
   }
+  public var pressure: Pressure
+  /// The first profile is always Default: the fallback for unbound apps.
+  public var profiles: [Profile]
+  public static let maxButtons = 8
   public init(pressure: Pressure = .linear, gestures: Gestures = Gestures()) {
     self.pressure = pressure
     self.profiles = Self.presets(defaultGestures: gestures)
   }
   public func profile(forBundleID bundleID: String) -> Profile {
-    profiles.first(where: {
-      !$0.bundleIDPrefixes.isEmpty && $0.bundleIDPrefixes.contains(where: bundleID.hasPrefix)
+    // Default (first) is never bound to apps, and an empty prefix, which a
+    // half-typed text field can produce, must not match everything.
+    profiles.dropFirst().first(where: {
+      $0.bundleIDPrefixes.contains(where: { !$0.isEmpty && bundleID.hasPrefix($0) })
     }) ?? profiles.first ?? Profile(name: "Default")
   }
+  public func isDefault(_ id: UUID) -> Bool { profiles.first?.id == id }
+  /// Adds a copy of Default's buttons and gestures, unbound to any app.
+  @discardableResult
+  public mutating func addProfile() -> UUID {
+    var profile = profiles.first ?? Profile(name: "Default")
+    profile.id = UUID()
+    profile.name = "New profile"
+    profile.bundleIDPrefixes = []
+    profiles.append(profile)
+    return profile.id
+  }
+  /// Default cannot be deleted. Returns whether a profile was removed.
+  @discardableResult
+  public mutating func deleteProfile(id: UUID) -> Bool {
+    guard !isDefault(id), let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
+    profiles.remove(at: index)
+    return true
+  }
+  /// Restores the four built-in profiles; pressure calibration is kept.
+  public mutating func resetProfilesToPresets() { profiles = Self.presets() }
   private enum CodingKeys: String, CodingKey { case pressure, profiles, gestures }
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
