@@ -17,6 +17,7 @@
 
     public typealias DeviceHandler = @MainActor (Device, NWConnection) -> Void
     public var onDeviceConnection: DeviceHandler?
+    public var onDeviceConnectionEnded: (@MainActor (Device, NWConnection) -> Void)?
     public private(set) var devices: [UInt32: Device] = [:]
 
     private let queue = DispatchQueue(label: "dev.yukai.nib.usbmux")
@@ -27,6 +28,14 @@
     private var listenBytes = Data()
 
     public init() {}
+
+    /// Called by the receiver when it has dropped a successfully connected USB stream.
+    public func deviceConnectionEnded(_ device: Device, connection: NWConnection) {
+      guard deviceConnections[device.id] === connection else { return }
+      deviceConnections[device.id] = nil
+      onDeviceConnectionEnded?(device, connection)
+      if let device = devices[device.id] { scheduleConnect(device) }
+    }
 
     public func start() {
       stop()
@@ -124,6 +133,11 @@
       deviceConnections[device.id] = connection
       let request = UsbmuxPacket.connectRequest(deviceID: device.id, tag: nextTag())
       connection.stateUpdateHandler = { [weak self] state in
+        if case .failed = state {
+          Task { @MainActor [weak self] in self?.deviceConnectionFailed(device, connection: connection) }
+        } else if case .cancelled = state {
+          Task { @MainActor [weak self] in self?.deviceConnectionFailed(device, connection: connection) }
+        }
         if case .ready = state {
           connection.send(content: request, completion: .contentProcessed { _ in })
           Task { @MainActor [weak self] in
@@ -135,23 +149,61 @@
     }
 
     private func receiveConnectResult(_ connection: NWConnection, device: Device) {
-      connection.receive(minimumIncompleteLength: UsbmuxPacket.headerLength, maximumLength: 64 * 1024) {
+      connection.receive(
+        minimumIncompleteLength: UsbmuxPacket.headerLength, maximumLength: UsbmuxPacket.headerLength
+      ) {
         [weak self] data, _, _, error in
         Task { @MainActor [weak self] in
-          guard let self, self.deviceConnections[device.id] === connection, error == nil, let data else {
-            connection.cancel()
+          guard let self, self.deviceConnections[device.id] === connection, error == nil,
+            let header = data, header.count == UsbmuxPacket.headerLength
+          else {
+            self?.deviceConnectionFailed(device, connection: connection)
             return
           }
-          guard let packet = try? UsbmuxPacket.decode(data), case .result(let code) = packet.message,
-            code == 0
+          let length =
+            UInt32(header[0]) | UInt32(header[1]) << 8 | UInt32(header[2]) << 16
+            | UInt32(header[3]) << 24
+          let bodyLength = Int(length) - UsbmuxPacket.headerLength
+          guard bodyLength > 0, bodyLength <= 1_048_576 else {
+            self.deviceConnectionFailed(device, connection: connection)
+            return
+          }
+          self.receiveConnectBody(
+            connection, device: device, header: header, bodyLength: bodyLength)
+        }
+      }
+    }
+
+    private func receiveConnectBody(
+      _ connection: NWConnection, device: Device, header: Data, bodyLength: Int
+    ) {
+      connection.receive(minimumIncompleteLength: bodyLength, maximumLength: bodyLength) {
+        [weak self] data, _, _, error in
+        Task { @MainActor [weak self] in
+          guard let self, self.deviceConnections[device.id] === connection, error == nil,
+            let body = data, body.count == bodyLength
           else {
-            connection.cancel()
-            self.deviceConnections[device.id] = nil
+            self?.deviceConnectionFailed(device, connection: connection)
+            return
+          }
+          var packetData = header
+          packetData.append(body)
+          guard let packet = try? UsbmuxPacket.decode(packetData),
+            case .result(let code) = packet.message, code == 0
+          else {
+            self.deviceConnectionFailed(device, connection: connection)
             return
           }
           self.onDeviceConnection?(device, connection)
         }
       }
+    }
+
+    private func deviceConnectionFailed(_ device: Device, connection: NWConnection) {
+      guard deviceConnections[device.id] === connection else { return }
+      connection.cancel()
+      deviceConnections[device.id] = nil
+      onDeviceConnectionEnded?(device, connection)
     }
 
     private func nextTag() -> UInt32 {

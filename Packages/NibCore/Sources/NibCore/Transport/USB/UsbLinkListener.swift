@@ -15,6 +15,8 @@ public final class UsbLinkListener {
   private var connection: NWConnection?
   private var framer = StreamFramer()
   private var hello: ControlMessage.Hello?
+  private var lastTrafficAt: TimeInterval?
+  private var heartbeatTask: Task<Void, Never>?
 
   public init(port: UInt16 = 47811) {
     self.port = NWEndpoint.Port(rawValue: port)!
@@ -39,10 +41,13 @@ public final class UsbLinkListener {
   }
 
   public func stop() {
+    heartbeatTask?.cancel()
+    heartbeatTask = nil
     listener?.cancel()
     listener = nil
     connection?.cancel()
     connection = nil
+    lastTrafficAt = nil
     setConnected(false)
   }
 
@@ -89,11 +94,14 @@ public final class UsbLinkListener {
       Task { @MainActor [weak self] in
         guard let self, self.connection === expected else { return }
         if let data, !data.isEmpty {
+          self.lastTrafficAt = Date.timeIntervalSinceReferenceDate
           do {
             for frame in try self.framer.append(Array(data)) {
               guard case .control(let message) = frame else { continue }
               switch message {
-              case .helloAck(let ack): self.setConnected(ack.accepted)
+              case .helloAck(let ack):
+                self.setConnected(ack.accepted)
+                if ack.accepted { self.startHeartbeat() }
               case .probe(let sentAtNs): self.send(.probeReply(sentAtNs: sentAtNs))
               default: break
               }
@@ -112,7 +120,27 @@ public final class UsbLinkListener {
     guard connection === expected else { return }
     expected.cancel()
     connection = nil
+    heartbeatTask?.cancel()
+    heartbeatTask = nil
+    lastTrafficAt = nil
     setConnected(false)
+  }
+
+  private func startHeartbeat() {
+    heartbeatTask?.cancel()
+    lastTrafficAt = Date.timeIntervalSinceReferenceDate
+    heartbeatTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(1))
+        guard let self, !Task.isCancelled, self.isConnected else { return }
+        let now = Date.timeIntervalSinceReferenceDate
+        if USBHeartbeatPolicy.isTimedOut(lastTraffic: self.lastTrafficAt, now: now) {
+          if let connection = self.connection { self.drop(connection) }
+          return
+        }
+        self.send(.ping)
+      }
+    }
   }
 
   private func setConnected(_ value: Bool) {

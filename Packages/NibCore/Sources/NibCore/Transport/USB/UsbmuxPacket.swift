@@ -106,6 +106,31 @@ public struct UsbmuxPacket: Sendable, Equatable {
   }
 }
 
+/// Incrementally consumes one Connect result packet without swallowing bytes
+/// belonging to the iPad stream that follows it.
+public struct UsbmuxConnectResultFramer: Sendable {
+  private var bytes = Data()
+
+  public init() {}
+
+  public mutating func append(_ chunk: Data) throws -> UsbmuxPacket? {
+    bytes.append(chunk)
+    guard bytes.count >= UsbmuxPacket.headerLength else { return nil }
+    let length =
+      UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16
+      | UInt32(bytes[3]) << 24
+    guard length >= UsbmuxPacket.headerLength, length <= 1_048_576 else {
+      throw UsbmuxPacket.Error.invalidHeader
+    }
+    guard bytes.count >= Int(length) else { return nil }
+    let packet = try UsbmuxPacket.decode(bytes.prefix(Int(length)))
+    bytes.removeFirst(Int(length))
+    return packet
+  }
+
+  public var bufferedByteCount: Int { bytes.count }
+}
+
 private func integer(_ value: Any?) -> Int64? {
   if let value = value as? NSNumber { return value.int64Value }
   if let value = value as? Int { return Int64(value) }

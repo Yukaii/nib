@@ -77,3 +77,31 @@ public enum USBPeerPolicy {
     return normalized == "127.0.0.1" || normalized == "::1"
   }
 }
+
+public enum USBTransport: Sendable, Equatable {
+  case none, wifi, usb
+}
+
+public enum USBTransportDecision: Sendable, Equatable {
+  case accept, replace, busy
+}
+
+/// USB is preferred when it appears, but an existing USB session is exclusive.
+public enum USBTransportArbitration {
+  public static func decide(current: USBTransport, newcomer: USBTransport) -> USBTransportDecision {
+    switch (current, newcomer) {
+    case (.usb, _): return .busy
+    case (.wifi, .usb): return .replace
+    default: return .accept
+    }
+  }
+}
+
+public enum USBHeartbeatPolicy {
+  public static let timeout: TimeInterval = 3
+
+  public static func isTimedOut(lastTraffic: TimeInterval?, now: TimeInterval) -> Bool {
+    guard let lastTraffic else { return false }
+    return now - lastTraffic >= timeout
+  }
+}

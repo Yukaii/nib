@@ -42,4 +42,40 @@ struct USBTransportTests {
     #expect(!USBPeerPolicy.allowsLoopbackPeer("192.168.1.2"))
     #expect(!USBPeerPolicy.allowsLoopbackPeer("localhost"))
   }
+
+  @Test func connectResultFramerPreservesFollowingBytes() throws {
+    let result = UsbmuxPacket(tag: 4, message: .result(code: 0))
+    let body = try PropertyListSerialization.data(
+      fromPropertyList: ["Message": "Result", "Number": 0], format: .xml, options: 0)
+    var packet = Data()
+    let length = UInt32(UsbmuxPacket.headerLength + body.count)
+    for value in [length, UInt32(1), UInt32(8), UInt32(4)] {
+      packet.append(UInt8(truncatingIfNeeded: value))
+      packet.append(UInt8(truncatingIfNeeded: value >> 8))
+      packet.append(UInt8(truncatingIfNeeded: value >> 16))
+      packet.append(UInt8(truncatingIfNeeded: value >> 24))
+    }
+    packet.append(body)
+    packet.append(contentsOf: [0x01, 0x02, 0x03])
+    var framer = UsbmuxConnectResultFramer()
+    #expect(try framer.append(packet) == result)
+    #expect(framer.bufferedByteCount == 3)
+  }
+
+  @Test func busySenderRejectionRetries() {
+    #expect(PenLinkRejectionPolicy.decision(reason: "busy") == .retryLater)
+    #expect(PenLinkRejectionPolicy.decision(reason: "rejected") == .final)
+  }
+
+  @Test func usbReplacesWifiButUsbIsExclusive() {
+    #expect(USBTransportArbitration.decide(current: .wifi, newcomer: .usb) == .replace)
+    #expect(USBTransportArbitration.decide(current: .usb, newcomer: .usb) == .busy)
+    #expect(USBTransportArbitration.decide(current: .none, newcomer: .usb) == .accept)
+  }
+
+  @Test func usbHeartbeatTimesOutAfterThreeSecondsWithoutTraffic() {
+    #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 12.99))
+    #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 13))
+    #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: nil, now: 100))
+  }
 }

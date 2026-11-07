@@ -72,13 +72,13 @@ unplugged. The menu line shows which transport is active.
 ## Handoff
 
 ```
-Branch/commit: t3/add-usb-transport @ 2af8656844133ecdbe2f83a6b32c1ad9f158dfae
-Verify: verify: ok (Test run with 55 tests; NibMac + NibPad built)
+Branch/commit: t3/fix-usb-transport @ 5435def8961e7b4eee1bfa39125069fb2215d0dd
+Verify: verify: ok (Test run with 67 tests; NibMac + NibPad built)
 Done:
-- Added usbmuxd plist packet encoding/decoding, USB stream framing, and loopback policy tests.
-- Added Mac usbmuxd discovery/connect retry and iPad loopback-only USB listener.
-- Routed USB samples/control and receiver events through the existing session, stats, heartbeat, and injection path; Wi-Fi remains fallback.
-- Added USB/Wi-Fi menu status and deterministic transport tests.
-Manual checks: Plug in iPad and confirm `via USB` within ~3 seconds, compare jitter p95 while drawing, then unplug and confirm Wi-Fi fallback; not run (no iPad/USB hardware in this environment).
-Not done / risks: Hardware usbmuxd trust, cable latency, and unplug/reconnect behavior still require the manual checks above.
+- Merged the USB transport with the companion panel, pressure curve, and gesture paths; USB carries curved pressure, geometry, and gestures.
+- USB wins over an active Wi-Fi session, while a live USB session remains exclusive; usbmuxd connections are cleared on every end path and retry while attached.
+- Added iPad USB heartbeat pings and a three-second receive timeout, plus busy-as-retry Wi-Fi fallback.
+- Made Connect-result parsing exact and preserved following stream bytes; added deterministic tests for result leftovers, retry policy, arbitration, and heartbeat timeout.
+Manual checks: plug in while on Wi-Fi and confirm `via USB` within ~3 seconds; idle 10 seconds on USB and confirm it stays connected; unplug and confirm `via Wi-Fi` within ~5 seconds; replug and confirm USB again; not run (no iPad/USB hardware in this environment).
+Not done / risks: Hardware usbmuxd trust, cable latency, and the manual transport handoff checks still require an iPad and cable.
 ```

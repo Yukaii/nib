@@ -87,6 +87,25 @@ private final class SampleSink: @unchecked Sendable {
   }
 }
 
+#if os(macOS)
+  private final class USBConnectionIdentity: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: ObjectIdentifier?
+
+    func set(_ connection: NWConnection?) {
+      lock.lock()
+      value = connection.map(ObjectIdentifier.init)
+      lock.unlock()
+    }
+
+    func matches(_ connection: NWConnection) -> Bool {
+      lock.lock()
+      defer { lock.unlock() }
+      return value == ObjectIdentifier(connection)
+    }
+  }
+#endif
+
 public enum PenLinkState: Sendable, Equatable {
   case searching, connecting
   case connected(String)
@@ -97,6 +116,16 @@ public enum PenLinkSessionEvent: Sendable, Equatable {
   case connected(ControlMessage.Hello)
   case geometryChanged(ControlMessage.Geometry)
   case disconnected
+}
+
+public enum PenLinkRejectionDecision: Sendable, Equatable {
+  case retryLater, final
+}
+
+public enum PenLinkRejectionPolicy {
+  public static func decision(reason: String?) -> PenLinkRejectionDecision {
+    reason == "busy" ? .retryLater : .final
+  }
 }
 
 /// Pure session policy used by the receiver and its deterministic tests.
@@ -301,8 +330,12 @@ public final class PenLinkSender {
     case .helloAck(let ack):
       guard ack.accepted, let connection else {
         transportLogger.info("session rejected: \(ack.reason ?? "unknown", privacy: .public)")
-        state = .rejected(ack.reason ?? "rejected")
-        connectionLost(reconnect: false)
+        if PenLinkRejectionPolicy.decision(reason: ack.reason) == .retryLater {
+          connectionLost(reconnectDelay: .seconds(2))
+        } else {
+          state = .rejected(ack.reason ?? "rejected")
+          connectionLost(reconnect: false)
+        }
         return
       }
       guard let remote = connection.currentPath?.remoteEndpoint,
@@ -357,7 +390,7 @@ public final class PenLinkSender {
     }
   }
 
-  private func connectionLost(reconnect: Bool = true) {
+  private func connectionLost(reconnect: Bool = true, reconnectDelay: Duration? = nil) {
     connection?.cancel()
     udpConnection?.cancel()
     connection = nil
@@ -366,14 +399,14 @@ public final class PenLinkSender {
     pingTask?.cancel()
     pingTask = nil
     guard reconnect else { return }
-    scheduleReconnect()
+    scheduleReconnect(after: reconnectDelay ?? .seconds(1))
   }
 
-  private func scheduleReconnect() {
+  private func scheduleReconnect(after delay: Duration = .seconds(1)) {
     guard reconnectTask == nil else { return }
     state = .searching
     reconnectTask = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .seconds(1))
+      try? await Task.sleep(for: delay)
       guard let self, !Task.isCancelled else { return }
       self.reconnectTask = nil
       self.startBrowser()
@@ -403,7 +436,9 @@ public final class PenLinkReceiver {
   private var connection: NWConnection?
   #if os(macOS)
     private var usbClient: UsbmuxClient?
+    private var usbDevice: UsbmuxClient.Device?
     private var usbConnection: NWConnection?
+    private let usbConnectionIdentity = USBConnectionIdentity()
     private var usbFramer = StreamFramer()
     private var usbMode = false
   #endif
@@ -444,8 +479,8 @@ public final class PenLinkReceiver {
     listener.start(queue: queue)
     #if os(macOS)
       let client = UsbmuxClient()
-      client.onDeviceConnection = { [weak self] _, connection in
-        self?.acceptUSBConnection(connection)
+      client.onDeviceConnection = { [weak self] device, connection in
+        self?.acceptUSBConnection(device: device, connection: connection)
       }
       usbClient = client
       client.start()
@@ -487,17 +522,24 @@ public final class PenLinkReceiver {
   }
 
   #if os(macOS)
-    private func acceptUSBConnection(_ newConnection: NWConnection) {
-      if sessionConnected {
+    private func acceptUSBConnection(device: UsbmuxClient.Device, connection newConnection: NWConnection) {
+      let current: USBTransport = sessionConnected ? (usbMode ? .usb : .wifi) : .none
+      switch USBTransportArbitration.decide(current: current, newcomer: .usb) {
+      case .busy:
         newConnection.start(queue: queue)
         newConnection.send(
           content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
           completion: .contentProcessed { _ in newConnection.cancel() })
         return
+      case .replace:
+        disconnectSession(notify: true)
+      case .accept: break
       }
       connection?.cancel()
       connection = newConnection
+      usbDevice = device
       usbConnection = newConnection
+      usbConnectionIdentity.set(newConnection)
       usbMode = true
       transportIsUSB = true
       usbFramer = StreamFramer()
@@ -510,6 +552,7 @@ public final class PenLinkReceiver {
       expected.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
         [weak self] data, _, complete, error in
         guard let self else { return }
+        guard self.usbConnectionIdentity.matches(expected) else { return }
         if let data, !data.isEmpty {
           do {
             let frames = try self.usbFramer.append(Array(data))
@@ -628,14 +671,12 @@ public final class PenLinkReceiver {
         protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now)
       if case .rejected(let reason) = decision, reason != "rejected" && reason != "busy" {
         sendControl(.helloAck(.init(accepted: false, reason: reason)))
-        connection?.cancel()
-        connection = nil
+        disconnectSession(notify: false)
         return
       }
       if hello.protocolVersion != PenSample.version {
         sendControl(.helloAck(.init(accepted: false, reason: "Update the iPad app to the current version.")))
-        connection?.cancel()
-        connection = nil
+        disconnectSession(notify: false)
         return
       }
       if sessionConnected {
@@ -654,8 +695,7 @@ public final class PenLinkReceiver {
       }
       guard allowed else {
         sendControl(.helloAck(.init(accepted: false, reason: "rejected")))
-        connection?.cancel()
-        connection = nil
+        disconnectSession(notify: false)
         return
       }
       _ = session.hello(protocolVersion: hello.protocolVersion, busy: false, acceptResult: true, now: now)
@@ -663,15 +703,13 @@ public final class PenLinkReceiver {
       #if os(macOS)
         if !usbMode && udpListener?.port == nil {
           sendControl(.helloAck(.init(accepted: false, reason: "UDP listener unavailable")))
-          connection?.cancel()
-          connection = nil
+          disconnectSession(notify: false)
           return
         }
       #else
         guard udpListener?.port != nil else {
           sendControl(.helloAck(.init(accepted: false, reason: "UDP listener unavailable")))
-          connection?.cancel()
-          connection = nil
+          disconnectSession(notify: false)
           return
         }
       #endif
@@ -787,11 +825,18 @@ public final class PenLinkReceiver {
     connection?.cancel()
     connection = nil
     #if os(macOS)
+      let endedDevice = usbDevice
+      let endedConnection = usbConnection
       usbConnection?.cancel()
       usbConnection = nil
+      usbDevice = nil
+      usbConnectionIdentity.set(nil)
       usbMode = false
       transportIsUSB = false
       usbFramer = StreamFramer()
+      if let endedDevice, let endedConnection {
+        usbClient?.deviceConnectionEnded(endedDevice, connection: endedConnection)
+      }
     #endif
     session.disconnect()
     udpGate.disable()

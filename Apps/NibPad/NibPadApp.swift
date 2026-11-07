@@ -42,7 +42,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     if usb.isConnected { usb.send(message) } else { sender.send(gesture) }
   }
   var padSettings: PadSettings { settings.settings }
-  
+
   func updateGeometry(width: Double, height: Double) {
     if usb.isConnected {
       usb.send(.geometry(.init(surfaceWidth: width, surfaceHeight: height)))
