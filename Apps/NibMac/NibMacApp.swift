@@ -40,7 +40,9 @@ private final class PairingPanelController: NSWindowController {
     self.cancel = cancel
     let panel = NSPanel(
       contentRect: NSRect(x: 0, y: 0, width: 360, height: 150),
-      styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
+      // Not closable: closing without Pair/Cancel would leave pairing pending
+      // until its timeout.
+      styleMask: [.titled, .utilityWindow], backing: .buffered, defer: false)
     panel.isFloatingPanel = true
     panel.level = .floating
     panel.isReleasedWhenClosed = false
