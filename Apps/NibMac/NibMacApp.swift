@@ -25,6 +25,7 @@ private final class NibMacModel: ObservableObject {
   private var receiver: PenLinkReceiver
   private var injection: PenInjectionWorker
   private var screenObserver: NSObjectProtocol?
+  private var frontAppObserver: NSObjectProtocol?
   private var accessibilityTimer: Timer?
   private var diagnosticsTimer: Timer?
   private var diagnosticsLogCounter = 0
@@ -54,6 +55,18 @@ private final class NibMacModel: ObservableObject {
     }
     receiver.onSession = { [weak self] event in
       self?.session(event)
+    }
+    frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+    ) { [weak self] notification in
+      guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+        app.bundleIdentifier != Bundle.main.bundleIdentifier,
+        let bundleID = app.bundleIdentifier,
+        let name = app.localizedName
+      else { return }
+      Task { @MainActor in
+        self?.sendFrontApp(bundleID: bundleID, name: name)
+      }
     }
     refreshDisplays()
     receiver.start()
@@ -108,6 +121,7 @@ private final class NibMacModel: ObservableObject {
     accessibilityTimer?.invalidate()
     diagnosticsTimer?.invalidate()
     if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+    if let frontAppObserver { NSWorkspace.shared.notificationCenter.removeObserver(frontAppObserver) }
   }
 
   private func refreshDisplays() {
@@ -161,6 +175,12 @@ private final class NibMacModel: ObservableObject {
     case .connected(let hello):
       macLogger.info("session connected: \(hello.deviceName, privacy: .public)")
       injection.surfaceChanged(CGSize(width: hello.surfaceWidth, height: hello.surfaceHeight))
+      if let app = NSWorkspace.shared.frontmostApplication,
+        let bundleID = app.bundleIdentifier,
+        let name = app.localizedName
+      {
+        sendFrontApp(bundleID: bundleID, name: name)
+      }
       status =
         receiver.transportIsUSB
         ? "connected via USB to \(hello.deviceName)"
@@ -172,6 +192,11 @@ private final class NibMacModel: ObservableObject {
       injection.sessionEnded()
       status = "waiting for iPad"
     }
+  }
+
+  private func sendFrontApp(bundleID: String, name: String) {
+    guard bundleID != Bundle.main.bundleIdentifier else { return }
+    receiver.sendControl(.frontApp(.init(bundleID: bundleID, name: name)))
   }
 
   private func refreshDiagnostics() {

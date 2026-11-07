@@ -8,6 +8,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
   private let settings: PadSettingsStore
   private let usb = UsbLinkListener()
   private(set) var linkState = "searching"
+  private(set) var frontApp = ControlMessage.FrontApp(bundleID: "", name: "Default")
 
   init(settings: PadSettingsStore) {
     self.settings = settings
@@ -20,6 +21,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
         case .rejected(let reason): "rejected: " + reason
         }
     }
+    sender.onFrontApp = { [weak self] app in self?.frontApp = app }
     sender.start(
       hello: .init(appVersion: "0.1.0", deviceName: UIDevice.current.name, surfaceWidth: 0, surfaceHeight: 0))
     let hello = ControlMessage.Hello(
@@ -27,6 +29,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     usb.stateHandler = { [weak self] connected in
       self?.linkState = connected ? "connected via USB" : "searching"
     }
+    usb.onFrontApp = { [weak self] app in self?.frontApp = app }
     usb.start(hello: hello)
     NotificationCenter.default.addObserver(
       forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -47,6 +50,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     if usb.isConnected { usb.send(message) } else { sender.send(gesture) }
   }
   var padSettings: PadSettings { settings.settings }
+  var activeProfile: PadSettings.Profile { settings.settings.profile(forBundleID: frontApp.bundleID) }
 
   func updateGeometry(width: Double, height: Double) {
     if usb.isConnected {
@@ -78,11 +82,14 @@ struct NibPadApp: App {
           .statusBarHidden()
           .persistentSystemOverlays(.hidden)
         if panelOpen {
-          CompanionPanel(store: settings, linkState: sink.linkState, showsHUD: $showsHUD)
-            .padding(20)
-            .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in
-              panelOpen = false
-            }
+          CompanionPanel(
+            store: settings, linkState: sink.linkState, profileName: sink.activeProfile.name,
+            showsHUD: $showsHUD
+          )
+          .padding(20)
+          .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in
+            panelOpen = false
+          }
         }
       }
     }

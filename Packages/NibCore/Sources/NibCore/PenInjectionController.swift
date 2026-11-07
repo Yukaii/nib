@@ -34,7 +34,7 @@
     @discardableResult
     public mutating func handle(_ sample: PenSample) -> Bool {
       guard accessibilityTrusted else { return false }
-      var events = sample.kind == .down ? gestureBuilder.releaseHeldModifier() : []
+      var events = sample.kind == .down ? gestureBuilder.releaseAll() : []
       events += builder.events(for: sample, at: mapper.map(sample))
       guard !events.isEmpty else { return true }
       post(events)
@@ -63,7 +63,7 @@
       let sample = PenSample(
         kind: .proximityExit, sequence: 0, timestamp: 0, x: 0, y: 0, pressure: 0, altitude: 0,
         azimuth: 0)
-      let events = gestureBuilder.releaseHeldModifier() + builder.events(for: sample, at: mapper.map(sample))
+      let events = gestureBuilder.releaseAll() + builder.events(for: sample, at: mapper.map(sample))
       if !events.isEmpty { post(events) }
     }
   }

@@ -205,6 +205,7 @@ public final class PenLinkSender {
     }
   }
   public var stateHandler: StateHandler?
+  public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
@@ -262,6 +263,7 @@ public final class PenLinkSender {
   public func ping() { sendControl(.ping) }
 
   public func send(_ gesture: Gesture) { sendControl(.gesture(gesture)) }
+  public func send(_ message: ControlMessage) { sendControl(message) }
 
   private func startBrowser() {
     browser?.cancel()
@@ -362,13 +364,14 @@ public final class PenLinkSender {
     case .probe(let sentAtNs):
       sendControl(.probeReply(sentAtNs: sentAtNs))
     case .probeReply: break
+    case .frontApp(let frontApp): onFrontApp(frontApp)
     // Pings are never echoed: both sides send their own every second, and
     // echoing would make each one ping-pong forever.
     default: break
     }
   }
 
-  private func sendControl(_ message: ControlMessage) {
+  public func sendControl(_ message: ControlMessage) {
     guard let connection else { return }
     connection.send(content: Data(ControlFramer().encode(message)), completion: .contentProcessed { _ in })
   }
@@ -752,6 +755,8 @@ public final class PenLinkReceiver {
       guard sessionConnected else { return }
       session.received(at: now)
       onGesture?(gesture)
+    case .frontApp:
+      guard sessionConnected else { return }
     case .probeReply(let sentAtNs):
       guard sessionConnected else { return }
       let nowNs = DispatchTime.now().uptimeNanoseconds
@@ -764,7 +769,7 @@ public final class PenLinkReceiver {
     }
   }
 
-  private func sendControl(_ message: ControlMessage) {
+  public func sendControl(_ message: ControlMessage) {
     guard let connection else { return }
     #if os(macOS)
       if usbMode {

@@ -8,15 +8,28 @@ public enum Gesture: Codable, Equatable, Sendable {
 
   public enum Modifier: String, Codable, Sendable {
     case command, option, control
+    case shift
   }
+
+  public struct KeyChord: Codable, Equatable, Sendable {
+    public var keyCode: UInt16
+    public var modifiers: Set<Modifier>
+    public init(keyCode: UInt16, modifiers: Set<Modifier> = []) {
+      self.keyCode = keyCode
+      self.modifiers = modifiers
+    }
+  }
+
+  public enum KeyAction: String, Codable, Sendable { case tap, down, up }
 
   case scroll(dx: Double, dy: Double, phase: Phase)
   case zoom(scaleDelta: Double, phase: Phase, modifier: Modifier)
   case undo
   case redo
+  case key(KeyChord, action: KeyAction)
 
-  private enum CodingKeys: String, CodingKey { case type, dx, dy, scaleDelta, phase, modifier }
-  private enum Kind: String, Codable { case scroll, zoom, undo, redo }
+  private enum CodingKeys: String, CodingKey { case type, dx, dy, scaleDelta, phase, modifier, chord, action }
+  private enum Kind: String, Codable { case scroll, zoom, undo, redo, key }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -33,6 +46,10 @@ public enum Gesture: Codable, Equatable, Sendable {
         modifier: try values.decode(Modifier.self, forKey: .modifier))
     case .undo: self = .undo
     case .redo: self = .redo
+    case .key:
+      self = .key(
+        try values.decode(KeyChord.self, forKey: .chord),
+        action: try values.decode(KeyAction.self, forKey: .action))
     }
   }
 
@@ -51,6 +68,10 @@ public enum Gesture: Codable, Equatable, Sendable {
       try values.encode(modifier, forKey: .modifier)
     case .undo: try values.encode(Kind.undo, forKey: .type)
     case .redo: try values.encode(Kind.redo, forKey: .type)
+    case .key(let chord, let action):
+      try values.encode(Kind.key, forKey: .type)
+      try values.encode(chord, forKey: .chord)
+      try values.encode(action, forKey: .action)
     }
   }
 }

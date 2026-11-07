@@ -124,12 +124,21 @@ extension TransportTests {
       .zoom(scaleDelta: 0.8, phase: .ended, modifier: .option),
       .zoom(scaleDelta: 1, phase: .cancelled, modifier: .control),
       .undo, .redo,
+      .key(.init(keyCode: 6, modifiers: [.command, .shift]), action: .tap),
     ]
     for gesture in gestures {
       let message = ControlMessage.gesture(gesture)
       var framer = ControlFramer()
       #expect(try framer.append(framer.encode(message)) == [message])
     }
+  }
+
+  @Test func frontAppRoundTripsThroughControlAndUSBFramers() throws {
+    let message = ControlMessage.frontApp(.init(bundleID: "org.kde.krita", name: "Krita"))
+    var control = ControlFramer()
+    #expect(try control.append(control.encode(message)) == [message])
+    var stream = StreamFramer()
+    #expect(try stream.append(StreamFramer.encode(.control(message))) == [.control(message)])
   }
 
   @Test func palmRejectionCoversContactGracePeriod() {
