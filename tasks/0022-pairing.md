@@ -72,7 +72,7 @@ checkbox and the device-ID allow list go away.
 ## Handoff
 
 ```
-Branch/commit: t3/pairing-transport-hardening @ e546130
+Branch/commit: t3/pairing-transport-hardening @ 1fba800
 Verify: verify: ok (Test run with 156 tests; NibMac + NibPad built)
 Done:
 - First pairing remains reachable: unpaired hello gets
