@@ -1,5 +1,6 @@
 import CoreGraphics
 import Testing
+
 @testable import NibCore
 
 private func mappedSample(x: Float, y: Float, pressure: Float = 0) -> PenSample {

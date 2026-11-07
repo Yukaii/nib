@@ -4,6 +4,89 @@ import os
 
 private let transportLogger = Logger(subsystem: "dev.yukai.nib", category: "transport")
 
+/// Lock-backed state shared by the Network callback queue and the main actor.
+/// The lock protects the entire value so UDP admission and sequence checks are atomic.
+private final class UDPGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var host: String?
+  private var accepted = false
+  private var sequencer = SampleSequencer()
+  func configure(host: String?) {
+    lock.lock()
+    self.host = host
+    accepted = host != nil
+    sequencer.reset()
+    lock.unlock()
+  }
+  func disable() {
+    lock.lock()
+    accepted = false
+    host = nil
+    sequencer.reset()
+    lock.unlock()
+  }
+  func accepts(host incoming: String, sequence: UInt32) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard accepted, host == incoming else { return false }
+    return sequencer.accept(
+      .init(kind: .move, sequence: sequence, timestamp: 0, x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0))
+  }
+}
+
+/// LinkStats is kept off the main actor without sorting on the datagram path.
+private final class LockedStats: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = LinkStats()
+  func reset() {
+    lock.lock()
+    value = LinkStats()
+    lock.unlock()
+  }
+  func record(sequence: UInt32, sender: UInt64, arrival: UInt64) {
+    lock.lock()
+    value.record(sequence: sequence, senderTimestampNs: sender, arrivalNs: arrival)
+    lock.unlock()
+  }
+  func snapshot(nowNs: UInt64) -> LinkStats.Snapshot {
+    lock.lock()
+    defer { lock.unlock() }
+    return value.snapshot(nowNs: nowNs)
+  }
+}
+
+/// Timestamp publication crosses the Network queue and the heartbeat task under this lock.
+private final class LockedTimestamp: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value: TimeInterval?
+  func set(_ value: TimeInterval?) {
+    lock.lock()
+    self.value = value
+    lock.unlock()
+  }
+  func get() -> TimeInterval? {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+}
+
+private final class SampleSink: @unchecked Sendable {
+  private let lock = NSLock()
+  private var handler: ((PenSample, UInt64) -> Void)?
+  func set(_ handler: ((PenSample, UInt64) -> Void)?) {
+    lock.lock()
+    self.handler = handler
+    lock.unlock()
+  }
+  func send(_ sample: PenSample, arrivalNs: UInt64) {
+    lock.lock()
+    let handler = self.handler
+    lock.unlock()
+    handler?(sample, arrivalNs)
+  }
+}
+
 public enum PenLinkState: Sendable, Equatable {
   case searching, connecting
   case connected(String)
@@ -173,8 +256,11 @@ public final class PenLinkSender {
     guard connection == nil, let result else { return }
     guard case .service(let name, let type, let domain, let interface) = result.endpoint else { return }
     state = .connecting
+    let tcpOptions = NWProtocolTCP.Options()
+    tcpOptions.noDelay = true
+    let tcpParameters = NWParameters(tls: nil, tcp: tcpOptions)
     let newConnection = NWConnection(
-      to: .service(name: name, type: type, domain: domain, interface: interface), using: .tcp)
+      to: .service(name: name, type: type, domain: domain, interface: interface), using: tcpParameters)
     connection = newConnection
     framer = ControlFramer()
     newConnection.stateUpdateHandler = { [weak self] newState in
@@ -225,7 +311,9 @@ public final class PenLinkSender {
         return
       }
       udpConnection?.cancel()
-      let udp = NWConnection(to: .hostPort(host: host, port: port), using: .udp)
+      let udpParameters = NWParameters.udp
+      udpParameters.serviceClass = .interactiveVoice
+      let udp = NWConnection(to: .hostPort(host: host, port: port), using: udpParameters)
       udpConnection = udp
       udp.start(queue: queue)
       let name: String
@@ -295,10 +383,12 @@ public final class PenLinkSender {
 @MainActor
 public final class PenLinkReceiver {
   public typealias AcceptHandler = @MainActor (ControlMessage.Hello) async -> Bool
-  public typealias SampleHandler = @MainActor (PenSample) -> Void
+  public typealias SampleHandler = @Sendable (PenSample, UInt64) -> Void
   public typealias SessionHandler = @MainActor (PenLinkSessionEvent) -> Void
   public var accept: AcceptHandler
-  public var onSample: SampleHandler?
+  public var onSample: SampleHandler? {
+    didSet { sampleSink.set(onSample) }
+  }
   public var onSession: SessionHandler?
   /// Display size sent in the hello acknowledgement, in points.
   public var displayWidth: Double = 0
@@ -313,13 +403,20 @@ public final class PenLinkReceiver {
   private var heartbeatTask: Task<Void, Never>?
   private var sessionConnected = false
   private var busyFramers: [ObjectIdentifier: ControlFramer] = [:]
+  private let udpGate = UDPGate()
+  private let lockedStats = LockedStats()
+  private let sampleSink = SampleSink()
+  private let lastPacketAt = LockedTimestamp()
   private var linkStats = LinkStats()
   private var rttSamples: [Double] = []
   public private(set) var latestRTTMs: Double?
 
   public init(accept: @escaping AcceptHandler = { _ in true }) throws {
     self.accept = accept
-    listener = try NWListener(using: .tcp)
+    let tcpOptions = NWProtocolTCP.Options()
+    tcpOptions.noDelay = true
+    let tcpParameters = NWParameters(tls: nil, tcp: tcpOptions)
+    listener = try NWListener(using: tcpParameters)
     listener.service = NWListener.Service(type: "_nib._tcp")
     listener.newConnectionHandler = { [weak self] newConnection in
       Task { @MainActor [weak self] in self?.acceptConnection(newConnection) }
@@ -335,7 +432,9 @@ public final class PenLinkReceiver {
     }
     listener.start(queue: queue)
     do {
-      let udp = try NWListener(using: .udp)
+      let udpParameters = NWParameters.udp
+      udpParameters.serviceClass = .interactiveVoice
+      let udp = try NWListener(using: udpParameters)
       udp.stateUpdateHandler = { [weak self] state in
         if case .failed(let error) = state {
           transportLogger.error(
@@ -355,7 +454,7 @@ public final class PenLinkReceiver {
 
   /// Computed on demand (percentiles sort the window); never per sample.
   public func linkStatsSnapshot(nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> LinkStats.Snapshot {
-    linkStats.snapshot(nowNs: nowNs)
+    lockedStats.snapshot(nowNs: nowNs)
   }
 
   public func stop() {
@@ -485,6 +584,14 @@ public final class PenLinkReceiver {
         return
       }
       sessionConnected = true
+      // Only the accepted control connection's host may send samples.
+      var tcpHost = session.remoteHost
+      if tcpHost == nil, case .hostPort(let host, _) = connection?.currentPath?.remoteEndpoint {
+        tcpHost = String(describing: host)
+      }
+      udpGate.configure(host: tcpHost)
+      lastPacketAt.set(now)
+      lockedStats.reset()
       linkStats = LinkStats()
       rttSamples.removeAll()
       latestRTTMs = nil
@@ -530,6 +637,7 @@ public final class PenLinkReceiver {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(1))
         guard let self, !Task.isCancelled else { return }
+        if let packetAt = self.lastPacketAt.get() { self.session.received(at: packetAt) }
         if self.session.timeoutIfNeeded(at: Date.timeIntervalSinceReferenceDate) {
           self.disconnectSession(notify: true)
           return
@@ -545,29 +653,24 @@ public final class PenLinkReceiver {
       udp.cancel()
       return
     }
-    udp.stateUpdateHandler = { [weak self] state in
-      guard case .ready = state else { return }
-      Task { @MainActor [weak self] in self?.receiveUDP(udp) }
-    }
     udp.start(queue: queue)
+    receiveUDP(udp)
   }
 
-  private func receiveUDP(_ udp: NWConnection) {
+  private nonisolated func receiveUDP(_ udp: NWConnection) {
     udp.receiveMessage { [weak self] data, _, _, error in
-      Task { @MainActor [weak self] in
-        guard let self else { return }
-        if let data, data.count == PenSample.byteCount, let sample = try? PenSample(decoding: Array(data)),
-          case .hostPort(let host, _) = udp.currentPath?.remoteEndpoint,
-          self.session.acceptsUDP(from: String(describing: host), sequence: sample.sequence)
-        {
-          self.session.received(at: Date.timeIntervalSinceReferenceDate)
-          self.linkStats.record(
-            sequence: sample.sequence, senderTimestampNs: sample.timestamp,
-            arrivalNs: DispatchTime.now().uptimeNanoseconds)
-          self.onSample?(sample)
-        }
-        if error == nil, self.sessionConnected { self.receiveUDP(udp) }
+      guard let self else { return }
+      let arrival = DispatchTime.now().uptimeNanoseconds
+      if let data, data.count == PenSample.byteCount,
+        let sample = try? PenSample(decoding: Array(data)),
+        case .hostPort(let host, _) = udp.currentPath?.remoteEndpoint,
+        self.udpGate.accepts(host: String(describing: host), sequence: sample.sequence)
+      {
+        self.lastPacketAt.set(Date.timeIntervalSinceReferenceDate)
+        self.lockedStats.record(sequence: sample.sequence, sender: sample.timestamp, arrival: arrival)
+        self.sampleSink.send(sample, arrivalNs: arrival)
       }
+      if error == nil { self.receiveUDP(udp) }
     }
   }
 
@@ -577,6 +680,9 @@ public final class PenLinkReceiver {
     connection?.cancel()
     connection = nil
     session.disconnect()
+    udpGate.disable()
+    lastPacketAt.set(nil)
+    lockedStats.reset()
     linkStats = LinkStats()
     rttSamples.removeAll()
     latestRTTMs = nil

@@ -90,9 +90,17 @@ actor, so the backlog shows up in the jitter stat.
 Filled in by the worker:
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/smooth-delivery-threading @ f21153fe0b3cc3547c794a23d2f945fa326d5add
+Verify: verify: ok (Test run with 48 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Removed predicted samples from the sender hot path while retaining HUD trace data.
+- Moved UDP decode, admission, sequencing, arrival timestamps, and stats recording off the main actor with lock-backed state; re-arms receive immediately.
+- Added serial user-interactive injection worker, adaptive FIFO playout scheduler, persisted Smoothing toggle, and inject/playout diagnostics.
+- Configured interactiveVoice UDP and noDelay TCP parameters on both peers; added deterministic scheduler coverage.
+Manual checks: 30 s smoothing on/off drawing and menu-line comparison not run (requires iPad, Accessibility, and a drawing app).
+Review fixes (orchestrator): restored UDP host gating to the accepted
+  TCP host (UDP sender could set its own host); percentile precedence bug
+  (delay tracked the max); p95/sort moved off per-sample/per-tick paths;
+  menu label is post p95 (CGEvent post cost, not arrival→post).
+Not done / risks: Hardware latency and loss targets remain to be validated manually; no USB/AWDL changes were made.
 ```

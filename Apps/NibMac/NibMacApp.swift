@@ -23,17 +23,21 @@ private final class NibMacModel: ObservableObject {
   @Published var linkDiagnostics = "link —"
 
   private var receiver: PenLinkReceiver
-  private var injection: PenInjectionController
+  private var injection: PenInjectionWorker
   private var screenObserver: NSObjectProtocol?
   private var accessibilityTimer: Timer?
   private var diagnosticsTimer: Timer?
   private var diagnosticsLogCounter = 0
   private let defaults = UserDefaults.standard
   private let displayKey = "selectedDisplayID"
+  private let smoothingKey = "smoothingEnabled"
+  @Published var smoothingEnabled = true
 
   init() {
+    let savedSmoothing = UserDefaults.standard.object(forKey: "smoothingEnabled") as? Bool ?? true
     receiver = try! PenLinkReceiver()
-    injection = PenInjectionController(post: TabletInjector().post)
+    injection = PenInjectionWorker(post: TabletInjector().post, smoothing: savedSmoothing)
+    smoothingEnabled = savedSmoothing
     let saved = defaults.object(forKey: displayKey) as? NSNumber
     selectedDisplayID = CGDirectDisplayID(saved?.uint32Value ?? CGMainDisplayID())
 
@@ -41,8 +45,9 @@ private final class NibMacModel: ObservableObject {
       guard let self else { return false }
       return await self.accept(hello)
     }
-    receiver.onSample = { [weak self] sample in
-      _ = self?.injection.handle(sample)
+    let worker = injection
+    receiver.onSample = { sample, arrivalNs in
+      worker.enqueue(sample, arrivalNs: arrivalNs)
     }
     receiver.onSession = { [weak self] event in
       self?.session(event)
@@ -77,6 +82,12 @@ private final class NibMacModel: ObservableObject {
     selectedDisplayID = display.id
     defaults.set(display.id, forKey: displayKey)
     configureDisplay(display)
+  }
+
+  func setSmoothing(_ enabled: Bool) {
+    smoothingEnabled = enabled
+    defaults.set(enabled, forKey: smoothingKey)
+    injection.setSmoothing(enabled)
   }
 
   func requestAccessibility() {
@@ -164,9 +175,12 @@ private final class NibMacModel: ObservableObject {
     }
     let stats = receiver.linkStatsSnapshot()
     let rtt = receiver.latestRTTMs.map { String(format: "%.0f ms", $0) } ?? "—"
+    let inject = injection.snapshot()
     linkDiagnostics = String(
-      format: "%.0f Hz · loss %.1f%% · gap p95 %.0f ms · jitter p95 %.0f ms · RTT %@",
-      stats.sampleRateHz, stats.lossPercent, stats.interArrivalP95Ms, stats.delayVariationP95Ms, rtt)
+      format:
+        "%.0f Hz · loss %.1f%% · gap p95 %.0f ms · jitter p95 %.0f ms · delay %.0f ms · post p95 %.1f ms · RTT %@",
+      stats.sampleRateHz, stats.lossPercent, stats.interArrivalP95Ms, stats.delayVariationP95Ms,
+      inject.playoutDelayMs, inject.injectP95Ms, rtt)
     diagnosticsLogCounter += 1
     if diagnosticsLogCounter >= 5 {
       diagnosticsLogCounter = 0
@@ -199,6 +213,13 @@ struct NibMacApp: App {
       } else {
         Button(model.accessibilityLabel) { model.requestAccessibility() }
       }
+      Toggle(
+        "Smoothing",
+        isOn: Binding(
+          get: { model.smoothingEnabled },
+          set: { enabled in
+            model.setSmoothing(enabled)
+          }))
       Menu("Display") {
         ForEach(model.displays) { display in
           Button {

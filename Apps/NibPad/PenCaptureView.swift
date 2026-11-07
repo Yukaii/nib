@@ -196,7 +196,9 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   }
 
   private func publish(_ sample: PenSample) {
-    sink.send(sample)
+    if !sample.flags.contains(.predicted) {
+      sink.send(sample)
+    }
     lastSample = sample
     guard !hud.isHidden else { return }
     if !sample.flags.contains(.predicted) {
