@@ -5,9 +5,11 @@ import UIKit
 @MainActor
 final class NetworkSink: PenSampleSink {
   private let sender = PenLinkSender()
+  private let settings: PadSettingsStore
   private(set) var linkState = "searching"
 
-  init() {
+  init(settings: PadSettingsStore) {
+    self.settings = settings
     sender.stateHandler = { [weak self] state in
       self?.linkState =
         switch state {
@@ -21,20 +23,46 @@ final class NetworkSink: PenSampleSink {
       hello: .init(appVersion: "0.1.0", deviceName: UIDevice.current.name, surfaceWidth: 0, surfaceHeight: 0))
   }
 
-  func send(_ sample: PenSample) { sender.send(sample) }
+  func send(_ sample: PenSample) {
+    guard sample.kind == .hover || sample.kind == .proximityExit else {
+      var mapped = sample
+      mapped.pressure = PressureCurve.apply(sample.pressure, settings.settings.pressure)
+      sender.send(mapped)
+      return
+    }
+    sender.send(sample)
+  }
   func updateGeometry(width: Double, height: Double) { sender.updateGeometry(width: width, height: height) }
 }
 
 @main
 struct NibPadApp: App {
-  @MainActor private let sink = NetworkSink()
+  @State private var settings: PadSettingsStore
+  @State private var panelOpen = false
+  @State private var showsHUD = false
+  private let sink: NetworkSink
+
+  init() {
+    let settings = PadSettingsStore()
+    _settings = State(initialValue: settings)
+    sink = NetworkSink(settings: settings)
+  }
 
   var body: some Scene {
     WindowGroup {
-      PenCaptureRepresentable(sink: sink)
-        .ignoresSafeArea()
-        .statusBarHidden()
-        .persistentSystemOverlays(.hidden)
+      ZStack {
+        PenCaptureRepresentable(sink: sink, panelOpen: $panelOpen, showsHUD: $showsHUD)
+          .ignoresSafeArea()
+          .statusBarHidden()
+          .persistentSystemOverlays(.hidden)
+        if panelOpen {
+          CompanionPanel(store: settings, linkState: sink.linkState, showsHUD: $showsHUD)
+            .padding(20)
+            .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in
+              panelOpen = false
+            }
+        }
+      }
     }
   }
 }
