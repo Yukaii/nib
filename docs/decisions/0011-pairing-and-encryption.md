@@ -15,13 +15,22 @@ Network.framework TLS-PSK would force OpenSSL on Windows/Linux.
 
 - **Pairing (once per iPad–host pair), Bluetooth-style numeric comparison.**
   iPad and host exchange X25519 public keys and 32-byte nonces over the
-  control channel (`pairRequest` / `pairResponse`). Both derive the same
-  6-digit code from a hash of the full transcript and show it. The user
+  control channel. Both derive the same 6-digit code from a hash of the full
+  transcript and show it. **Commit first:** `pairRequest` carries the iPad's
+  key and `commitment = SHA256("nib-commit" ‖ pkD ‖ nD)`, not `nD` itself.
+  `pairResponse` carries the host's key and `nH`. Only then does `pairReveal`
+  send `nD`, and the host checks it against the commitment. Without this, the
+  side that sends its nonce last can try 10⁶ nonces offline until the codes
+  match (amended 2026-11-07 after review of 0022). The user
   confirms on the host ("Pair" button) and on the iPad; either side may
   cancel. Then both store `pairKey = HKDF-SHA256(ECDH secret, transcript)`
   keyed by the peer's ID (`deviceID` on the host, a new stable `hostID` on
   the iPad). A MITM has a 1-in-10⁶ chance per attempt, and every attempt
   needs the user to confirm a code.
+- **Hello proofs** use distinct labels per direction. The host's proof binds
+  *both* nonces (`"nib-hello-ack" ‖ hostID ‖ nD ‖ nH`), so a recorded
+  helloAck can't be replayed to the iPad. A replayed iPad hello gets no usable
+  session, because session keys need the fresh host nonce (below).
 - **Sessions.** `hello` and `helloAck` carry fresh 32-byte nonces. Session
   keys come from `HKDF(pairKey, nonces)`, one per direction. Every control
   frame and every sample after `helloAck` is ChaCha20-Poly1305 sealed (nonce
