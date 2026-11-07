@@ -23,7 +23,14 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
   private var lastSample: PenSample?
-  private var inkPoints: [CGPoint] = []
+  private var isTouching = false
+  private var pendingProximityExit: Task<Void, Never>?
+  private var inkPoints: [(point: CGPoint, time: TimeInterval)] = []
+  private var sampleTimes: [TimeInterval] = []
+  private static let traceLifetime: TimeInterval = 1.0
+  // Hover ends the moment the Pencil touches the glass, and a lifted Pencil
+  // may resume hovering a few frames later; only a lasting absence is an exit.
+  private static let proximityExitDelay: Duration = .milliseconds(150)
 
   init(sink: PenSampleSink = LoggingSink()) {
     self.sink = sink
@@ -34,6 +41,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     hud.isHidden = true
     let hudTap = UITapGestureRecognizer(target: self, action: #selector(toggleHUD))
     hudTap.numberOfTouchesRequired = 3
+    hudTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
     hudTap.delegate = self
     addGestureRecognizer(hudTap)
     if #available(iOS 16.0, *) {
@@ -47,6 +55,10 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     NotificationCenter.default.addObserver(
       self, selector: #selector(willResignActive),
       name: UIApplication.willResignActiveNotification, object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(didBecomeActive),
+      name: UIApplication.didBecomeActiveNotification, object: nil
     )
   }
 
@@ -63,6 +75,10 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   }
 
   @objc private func willResignActive() { restoreScreen() }
+
+  @objc private func didBecomeActive() {
+    if window != nil { activateScreenOffMode() }
+  }
 
   private func activateScreenOffMode() {
     guard !wasActive else { return }
@@ -82,10 +98,9 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
 
   @objc private func toggleHUD() {
     hud.isHidden.toggle()
-    if hud.isHidden {
-      inkPoints.removeAll()
-      hud.clearTrace()
-    }
+    inkPoints.removeAll()
+    sampleTimes.removeAll()
+    hud.clearTrace()
   }
 
   func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
@@ -118,6 +133,16 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
 
   private func handle(_ touches: Set<UITouch>, kind: PenSample.Kind, event: UIEvent?) {
     for touch in touches where touch.type == .pencil {
+      switch kind {
+      case .down:
+        isTouching = true
+        cancelProximityExit()
+      case .up, .cancel:
+        isTouching = false
+        scheduleProximityExit()
+      default:
+        break
+      }
       let coalesced = (kind == .move ? event?.coalescedTouches(for: touch) : nil) ?? [touch]
       for sampleTouch in coalesced {
         emit(sampleTouch, kind: kind, flags: coalesced.count > 1 ? .coalesced : [])
@@ -144,13 +169,43 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       altitude: normalized.altitude, azimuth: normalized.azimuth,
       buttons: buttons, flags: flags
     )
+    publish(sample)
+    if !hud.isHidden, kind == .down || kind == .move, !flags.contains(.predicted) {
+      inkPoints.append((point, touch.timestamp))
+      let cutoff = touch.timestamp - Self.traceLifetime
+      inkPoints.removeAll { $0.time < cutoff }
+      hud.updateTrace(inkPoints.map(\.point))
+    }
+  }
+
+  private func publish(_ sample: PenSample) {
     sink.send(sample)
     lastSample = sample
-    hud.update(sample)
-    if kind == .down || kind == .move {
-      inkPoints.append(point)
-      hud.updateTrace(inkPoints)
+    guard !hud.isHidden else { return }
+    if !sample.flags.contains(.predicted) {
+      let now = CACurrentMediaTime()
+      sampleTimes.append(now)
+      sampleTimes.removeAll { $0 < now - 1 }
     }
+    hud.update(sample, rate: sampleTimes.count)
+  }
+
+  private func scheduleProximityExit() {
+    pendingProximityExit?.cancel()
+    pendingProximityExit = Task { [weak self] in
+      try? await Task.sleep(for: Self.proximityExitDelay)
+      guard !Task.isCancelled, let self, !self.isTouching else { return }
+      self.publish(
+        PenSample(
+          kind: .proximityExit, sequence: self.nextSequence(), timestamp: self.timestamp(),
+          x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0, buttons: self.buttons
+        ))
+    }
+  }
+
+  private func cancelProximityExit() {
+    pendingProximityExit?.cancel()
+    pendingProximityExit = nil
   }
 
   private func timestamp(_ touch: UITouch) -> UInt64 {
@@ -167,15 +222,12 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     let point = recognizer.location(in: self)
     let state = recognizer.state
     if state == .ended || state == .cancelled {
-      let exit = PenSample(
-        kind: .proximityExit, sequence: nextSequence(), timestamp: timestamp(),
-        x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0, buttons: buttons
-      )
-      sink.send(exit)
-      lastSample = exit
-      hud.update(exit)
+      if !isTouching { scheduleProximityExit() }
       return
     }
+    // A hover sample during contact would lift the pen on the Mac mid-stroke.
+    guard !isTouching else { return }
+    cancelProximityExit()
     let zOffset = recognizer.zOffset
     let normalized = PencilNormalizer.normalize(
       location: SIMD2(Float(point.x), Float(point.y)),
@@ -188,9 +240,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       x: normalized.x, y: normalized.y, pressure: 0, altitude: normalized.altitude,
       azimuth: normalized.azimuth, hoverDistance: normalized.hoverDistance, buttons: buttons
     )
-    sink.send(sample)
-    lastSample = sample
-    hud.update(sample)
+    publish(sample)
   }
 
   private func timestamp() -> UInt64 {
@@ -226,11 +276,11 @@ final class PenHUDView: UIView {
     trace.frame = bounds
   }
 
-  func update(_ sample: PenSample) {
+  func update(_ sample: PenSample, rate: Int) {
     pressure.progress = sample.pressure
     values.text = String(
-      format: "pressure %.3f\naltitude %.3f  azimuth %.3f\nhover %u  %.0f Hz",
-      sample.pressure, sample.altitude, sample.azimuth, sample.hoverDistance, 0
+      format: "pressure %.3f\naltitude %.3f  azimuth %.3f\nhover %u  %d Hz",
+      sample.pressure, sample.altitude, sample.azimuth, sample.hoverDistance, rate
     )
   }
 

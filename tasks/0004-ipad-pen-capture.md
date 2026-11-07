@@ -67,5 +67,12 @@ Done:
 - Added UIKit Pencil capture surface with pencil-only touch handling, coalesced/predicted samples, hover/proximity events, sequence/timestamp generation, eraser toggle tap/squeeze, and LoggingSink.
 - Added black full-screen SwiftUI wrapper, screen-off brightness/idle behavior, and three-finger debug HUD with pressure, pose, hover, rate placeholder, and trace.
 Manual checks: Not run (requires iPad mini hardware). Install the unsigned NibPad build on an iPad mini, open the HUD with a three-finger tap, press harder to see the pressure bar rise, tilt to see altitude change, and draw with a finger to confirm no samples are emitted.
-Not done / risks: Sample-rate HUD currently displays 0 Hz; networking remains task 0005.
+Review fixes (orchestrator): live HUD rate, 1 s fading trace only while HUD is
+  visible, re-dim on didBecomeActive, proximityExit debounced 150 ms and
+  suppressed during contact (also sent after lift on hover-less Pencil 2),
+  HUD tap counts fingers only, NaN-safe normalizer, corner tests.
+Manual checks (added): with HUD on, lift and re-hover quickly → no exit
+  sample between strokes; background/foreground → screen dims again.
+Not done / risks: predicted samples are sent as kind .move with flag
+  .predicted; the Mac (0006) must not inject them. Networking is task 0005.
 ```

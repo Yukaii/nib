@@ -33,7 +33,7 @@ public struct PencilNormalizer: Sendable {
     let pressure =
       maximumPossibleForce > 0
       ? clamp01(force / maximumPossibleForce) : 0
-    let altitude = min(max(altitude, 0), .pi / 2)
+    let altitude = altitude.isNaN ? 0 : min(max(altitude, 0), .pi / 2)
     let azimuth = normalizedAzimuth(azimuth)
     let hoverDistance: UInt16
     if let hoverZOffset {
@@ -47,11 +47,14 @@ public struct PencilNormalizer: Sendable {
     )
   }
 
+  // NaN would survive min/max and then be rejected by the Mac's decoder,
+  // dropping the sample; map it to 0 instead.
   private static func clamp01(_ value: Float) -> Float {
-    min(max(value, 0), 1)
+    value.isNaN ? 0 : min(max(value, 0), 1)
   }
 
   private static func normalizedAzimuth(_ value: Float) -> Float {
+    guard value.isFinite else { return 0 }
     let twoPi = Float.pi * 2
     var result = value.truncatingRemainder(dividingBy: twoPi)
     if result < 0 { result += twoPi }
