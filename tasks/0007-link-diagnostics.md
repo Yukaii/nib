@@ -66,7 +66,7 @@ debug HUD on the iPad is readable.
 Filled in by the worker:
 
 ```
-Branch/commit: t3/link-diagnostics @ 81667fd99afdf579af5702eb87687edcea5d74a3
+Branch/commit: t3/link-diagnostics @ 0a7017dfe2fb44273243da11da5917ce2f20ff06
 Verify: verify: ok (Test run with 43 tests; NibMac + NibPad built)
 Done:
 - Added pure two-second LinkStats measurements for rate, sequence loss, inter-arrival gaps, and delay variation, with deterministic tests.
