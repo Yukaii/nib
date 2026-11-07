@@ -16,21 +16,40 @@
       #expect(event.flags.isEmpty)
     }
 
+    @Test func nativeMagnifyAndRotateUsePrivateGestureFields() {
+      var native = NativeGestureEventBuilder()
+      let magnify = native.magnify(delta: 0.25, phase: .changed)[0]
+      #expect(magnify.type.rawValue == 29)
+      #expect(magnify.getIntegerValueField(NativeGestureEventBuilder.Field.eventType) == 29)
+      #expect(magnify.getIntegerValueField(NativeGestureEventBuilder.Field.hidType) == 8)
+      #expect(magnify.getDoubleValueField(NativeGestureEventBuilder.Field.magnification) == 0.25)
+      #expect(magnify.getIntegerValueField(NativeGestureEventBuilder.Field.phase) == 2)
+      let rotate = native.rotate(degrees: 45, phase: .began)[0]
+      #expect(rotate.getIntegerValueField(NativeGestureEventBuilder.Field.hidType) == 5)
+      #expect(rotate.getDoubleValueField(NativeGestureEventBuilder.Field.rotation) == 45)
+      #expect(rotate.getIntegerValueField(NativeGestureEventBuilder.Field.phase) == 1)
+      _ = native.rotate(degrees: 1, phase: .changed)
+      #expect(native.releaseAll().last?.getIntegerValueField(NativeGestureEventBuilder.Field.phase) == 4)
+    }
+
     @Test func zoomPressesModifierOnceAndReleasesOnEnd() {
       var builder = GestureEventBuilder()
-      let began = builder.events(for: .zoom(scaleDelta: 1.25, phase: .began, modifier: .command))
+      let began = builder.events(
+        for: .zoom(scaleDelta: 1.25, phase: .began, modifier: .command))
       #expect(began.map(\.type) == [.flagsChanged, .scrollWheel])
       #expect(keyCode(began[0]) == 55 && began[0].flags.contains(.maskCommand))
       #expect(began[1].getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 100)
       #expect(began[1].flags.contains(.maskCommand))
 
-      let changed = builder.events(for: .zoom(scaleDelta: 1.1, phase: .changed, modifier: .command))
+      let changed = builder.events(
+        for: .zoom(scaleDelta: 1.1, phase: .changed, modifier: .command))
       #expect(changed.map(\.type) == [.scrollWheel])
 
       // Panning during a pinch stays a plain scroll.
       #expect(builder.events(for: .scroll(dx: 1, dy: 1, phase: .changed))[0].flags.isEmpty)
 
-      let ended = builder.events(for: .zoom(scaleDelta: 1, phase: .ended, modifier: .command))
+      let ended = builder.events(
+        for: .zoom(scaleDelta: 1, phase: .ended, modifier: .command))
       #expect(ended.map(\.type) == [.scrollWheel, .flagsChanged])
       #expect(keyCode(ended[1]) == 55 && ended[1].flags.isEmpty)
       #expect(builder.heldModifier == nil)
@@ -38,7 +57,8 @@
 
     @Test func lostZoomEndIsReleasedExplicitly() {
       var builder = GestureEventBuilder()
-      _ = builder.events(for: .zoom(scaleDelta: 1.2, phase: .began, modifier: .option))
+      _ = builder.events(
+        for: .zoom(scaleDelta: 1.2, phase: .began, modifier: .option))
       let release = builder.releaseHeldModifier()
       #expect(release.count == 1 && keyCode(release[0]) == 58 && release[0].flags.isEmpty)
       #expect(builder.releaseHeldModifier().isEmpty)
@@ -101,7 +121,8 @@
 
     @Test func undoDuringZoomReleasesZoomModifierFirst() {
       var builder = GestureEventBuilder()
-      _ = builder.events(for: .zoom(scaleDelta: 1.2, phase: .began, modifier: .control))
+      _ = builder.events(
+        for: .zoom(scaleDelta: 1.2, phase: .began, modifier: .control))
       let undo = builder.events(for: .undo)
       #expect(keyCode(undo[0]) == 59 && undo[0].flags.isEmpty)
       #expect(builder.heldModifier == nil)

@@ -8,11 +8,13 @@ let package = Package(
     .library(name: "NibCore", targets: ["NibCore"]),
     .executable(name: "nib-inject-demo", targets: ["NibInjectDemo"]),
     .executable(name: "nib-receive", targets: ["nib-receive"]),
+    .executable(name: "nib-gesture-demo", targets: ["NibGestureDemo"]),
   ],
   targets: [
     .target(name: "NibCore"),
     .executableTarget(name: "NibInjectDemo", dependencies: ["NibCore"]),
     .executableTarget(name: "nib-receive", dependencies: ["NibCore"]),
+    .executableTarget(name: "NibGestureDemo", dependencies: ["NibCore"]),
     .testTarget(name: "NibCoreTests", dependencies: ["NibCore"]),
   ]
 )

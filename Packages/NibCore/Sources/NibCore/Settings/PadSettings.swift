@@ -20,22 +20,40 @@ public struct PadSettings: Codable, Equatable, Sendable {
     public static let firm = Pressure(softness: 0.6)
   }
   public enum ZoomModifier: String, Codable, CaseIterable, Sendable { case command, option, control }
+  public enum ZoomMethod: String, Codable, CaseIterable, Sendable { case nativeGesture, modifierScroll }
   public enum StripMode: String, Codable, Sendable { case scroll, zoom, brushSize, off }
   public enum StripSide: String, Codable, Sendable { case left, right }
   public struct Gestures: Codable, Equatable, Sendable {
     public var twoFingerScroll: Bool
     public var pinchZoom: Bool
+    public var zoomMethod: ZoomMethod
     public var zoomModifier: ZoomModifier
+    public var rotate: Bool
     /// Two-finger tap → undo, three-finger tap → redo (Procreate convention).
     public var tapUndoRedo: Bool
     public init(
-      twoFingerScroll: Bool = true, pinchZoom: Bool = true, zoomModifier: ZoomModifier = .command,
-      tapUndoRedo: Bool = true
+      twoFingerScroll: Bool = true, pinchZoom: Bool = true, zoomMethod: ZoomMethod = .nativeGesture,
+      zoomModifier: ZoomModifier = .command, rotate: Bool = true, tapUndoRedo: Bool = true
     ) {
       self.twoFingerScroll = twoFingerScroll
       self.pinchZoom = pinchZoom
+      self.zoomMethod = zoomMethod
       self.zoomModifier = zoomModifier
+      self.rotate = rotate
       self.tapUndoRedo = tapUndoRedo
+    }
+    private enum CodingKeys: String, CodingKey {
+      case twoFingerScroll, pinchZoom, zoomMethod, zoomModifier, rotate, tapUndoRedo
+    }
+    public init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      self.init(
+        twoFingerScroll: try values.decodeIfPresent(Bool.self, forKey: .twoFingerScroll) ?? true,
+        pinchZoom: try values.decodeIfPresent(Bool.self, forKey: .pinchZoom) ?? true,
+        zoomMethod: try values.decodeIfPresent(ZoomMethod.self, forKey: .zoomMethod) ?? .nativeGesture,
+        zoomModifier: try values.decodeIfPresent(ZoomModifier.self, forKey: .zoomModifier) ?? .command,
+        rotate: try values.decodeIfPresent(Bool.self, forKey: .rotate) ?? true,
+        tapUndoRedo: try values.decodeIfPresent(Bool.self, forKey: .tapUndoRedo) ?? true)
     }
   }
   public struct ShortcutButton: Codable, Equatable, Sendable {

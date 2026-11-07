@@ -16,6 +16,7 @@
     public private(set) var heldModifier: Gesture.Modifier?
     private var heldChords: [Gesture.KeyChord] = []
     private var heldFlags: CGEventFlags = []
+    private var nativeBuilder = NativeGestureEventBuilder()
     public init() {}
 
     public mutating func events(for gesture: Gesture) -> [CGEvent] {
@@ -25,7 +26,10 @@
         // Panning never carries a modifier, even while a pinch holds one.
         event.flags = []
         return [event]
-      case .zoom(let delta, let phase, let modifier):
+      case .zoom(let delta, let phase, let modifier, let method):
+        if method == .nativeGesture {
+          return releaseHeldModifier() + nativeBuilder.magnify(delta: delta - 1, phase: phase)
+        }
         var events = releaseHeldModifierIfNeeded(except: modifier)
         if heldModifier != modifier {
           events.append(Self.modifierEvent(modifier, flags: Self.flags(for: modifier)))
@@ -36,6 +40,8 @@
         events.append(event)
         if phase == .ended || phase == .cancelled { events += releaseHeldModifier() }
         return events
+      case .rotate(let degrees, let phase):
+        return releaseHeldModifier() + nativeBuilder.rotate(degrees: degrees, phase: phase)
       case .undo:
         return releaseHeldModifier() + shortcut(.init(keyCode: 6, modifiers: [.command]), action: .tap)
       case .redo:
@@ -65,6 +71,7 @@
         events.append(Self.modifierEvent(modifier, flags: heldFlags))
       }
       events += releaseHeldModifier()
+      events += nativeBuilder.releaseAll()
       return events
     }
 

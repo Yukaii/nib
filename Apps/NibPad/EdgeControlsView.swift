@@ -163,7 +163,10 @@ private final class EdgeStripView: UIView {
     switch activeMode {
     case .scroll: send(.scroll(dx: 0, dy: 0, phase: .began))
     case .zoom:
-      send(.zoom(scaleDelta: 1, phase: .began, modifier: zoomModifier(profile().gestures.zoomModifier)))
+      send(
+        .zoom(
+          scaleDelta: 1, phase: .began, modifier: zoomModifier(profile().gestures.zoomModifier),
+          method: zoomMethod(profile().gestures.zoomMethod)))
     case .brushSize, .off: break
     }
   }
@@ -177,7 +180,8 @@ private final class EdgeStripView: UIView {
       send(
         .zoom(
           scaleDelta: pow(2, Double(-delta / 240)), phase: .changed,
-          modifier: zoomModifier(profile().gestures.zoomModifier)))
+          modifier: zoomModifier(profile().gestures.zoomModifier),
+          method: zoomMethod(profile().gestures.zoomMethod)))
     case .brushSize:
       let count = stepper.add(Double(-delta))
       guard count != 0 else { return }
@@ -193,7 +197,8 @@ private final class EdgeStripView: UIView {
       send(
         .zoom(
           scaleDelta: 1, phase: cancelled ? .cancelled : .ended,
-          modifier: zoomModifier(profile().gestures.zoomModifier)))
+          modifier: zoomModifier(profile().gestures.zoomModifier),
+          method: zoomMethod(profile().gestures.zoomMethod)))
     case .brushSize, .off: break
     }
     stepper.end()
@@ -206,5 +211,8 @@ private final class EdgeStripView: UIView {
     case .option: .option
     case .control: .control
     }
+  }
+  private func zoomMethod(_ method: PadSettings.ZoomMethod) -> Gesture.ZoomMethod {
+    method == .nativeGesture ? .nativeGesture : .modifierScroll
   }
 }

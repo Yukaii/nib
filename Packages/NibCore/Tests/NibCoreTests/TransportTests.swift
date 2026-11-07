@@ -1,3 +1,4 @@
+import Foundation
 import NibCore
 import Testing
 
@@ -139,6 +140,15 @@ extension TransportTests {
     #expect(try control.append(control.encode(message)) == [message])
     var stream = StreamFramer()
     #expect(try stream.append(StreamFramer.encode(.control(message))) == [.control(message)])
+  }
+
+  @Test func oldZoomJSONDefaultsToModifierScrollAndRotateRoundTrips() throws {
+    let old = #"{"type":"zoom","scaleDelta":1.1,"phase":"changed","modifier":"command"}"#
+    let decoded = try JSONDecoder().decode(Gesture.self, from: Data(old.utf8))
+    #expect(decoded == .zoom(scaleDelta: 1.1, phase: .changed, modifier: .command))
+    let rotate = Gesture.rotate(degreesDelta: 12, phase: .changed)
+    var framer = ControlFramer()
+    #expect(try framer.append(framer.encode(.gesture(rotate))) == [.gesture(rotate)])
   }
 
   @Test func palmRejectionCoversContactGracePeriod() {

@@ -81,10 +81,15 @@ The existing modifier+scroll zoom stays as a per-profile fallback.
 
 ```
 Branch/commit:
-Verify:
+Verify: verify: ok (Test run with 97 tests; NibMac + NibPad built)
 Done:
-Manual checks: run nib-gesture-demo with Krita in front (needs Accessibility
-  for the terminal): canvas zooms in/out and rotates. Then iPad: pinch zooms,
-  twist rotates in Krita; scroll still works. (needs Mac + Krita + iPad)
-Not done / risks:
+- Added private Quartz magnify/rotate event synthesis with phase tracking and session-end cleanup.
+- Added protocol rotation and per-profile native versus modifier-scroll zoom settings with old JSON defaults.
+- Added iPad rotation recognition with an 8° dead zone, profile editor controls, and the nib-gesture-demo CLI.
+- Documented field sources and risks in decision 0007; added field and wire/settings tests.
+Manual checks: not run. Run `swift run --package-path Packages/NibCore nib-gesture-demo`
+  with Krita in front (Accessibility for the terminal), then test iPad pinch,
+  twist, and simultaneous scroll in Krita.
+Not done / risks: Native fields are private and may change in future macOS
+  releases; the modifier-scroll profile option remains the fallback.
 ```

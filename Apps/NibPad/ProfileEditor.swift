@@ -167,12 +167,18 @@ struct ProfileEditor: View {
     Section("Gestures") {
       Toggle("Two-finger scroll", isOn: profile.gestures.twoFingerScroll)
       Toggle("Pinch zoom", isOn: profile.gestures.pinchZoom)
+      Picker("Zoom method", selection: profile.gestures.zoomMethod) {
+        Text("Native trackpad").tag(PadSettings.ZoomMethod.nativeGesture)
+        Text("Modifier + scroll").tag(PadSettings.ZoomMethod.modifierScroll)
+      }
+      Toggle("Two-finger rotate", isOn: profile.gestures.rotate)
       Picker("Zoom modifier", selection: profile.gestures.zoomModifier) {
         Text("⌘").tag(PadSettings.ZoomModifier.command)
         Text("⌥").tag(PadSettings.ZoomModifier.option)
         Text("⌃").tag(PadSettings.ZoomModifier.control)
       }
       .pickerStyle(.segmented)
+      .disabled(profile.wrappedValue.gestures.zoomMethod == .nativeGesture)
       Toggle("Tap undo / redo", isOn: profile.gestures.tapUndoRedo)
     }
   }
