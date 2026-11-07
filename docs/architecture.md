@@ -70,11 +70,12 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
   `FingerGestureController`: two-finger scroll, pinch zoom,
   2/3-finger tap undo/redo. `NetworkSink` routes to USB when live, else
   Wi-Fi; predicted samples are never sent.
-- `Apps/NibMac` — `MenuBarExtra` (`LSUIElement`): status, Accessibility
-  onboarding, display picker (persisted), Smoothing toggle, live link
-  line (Hz, loss, jitter, delay, post, RTT), `via USB`/`via Wi-Fi`,
-  sends `frontApp` on accept and app activation, Allow/Deny prompt per iPad (remembered by device name — not
-  authentication). Logs to `dev.yukai.nib` (`log stream --info`).
+- `Apps/NibMac` — `MenuBarExtra` (`LSUIElement`): status ("<iPad> ·
+  Connected via USB/Wi-Fi"), Accessibility item only while missing, display
+  picker (persisted), Smoothing and Show Diagnostics toggles (link lines:
+  Hz, loss, RTT, jitter, gap, delay, post), sends `frontApp` on accept and
+  app activation, Allow/Deny prompt per iPad (remembered by device name —
+  not authentication). Logs to `dev.yukai.nib` (`log stream --info`).
 
 ## Build and checks
 

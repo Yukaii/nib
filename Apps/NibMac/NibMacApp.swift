@@ -16,11 +16,16 @@ private final class NibMacModel: ObservableObject {
     let bounds: CGRect
   }
 
-  @Published var status = "waiting for iPad"
+  @Published var status = "Waiting for iPad…"
+  @Published private(set) var connected = false
+  @Published var showsDiagnostics: Bool {
+    didSet { defaults.set(showsDiagnostics, forKey: diagnosticsKey) }
+  }
   @Published var displays: [Display] = []
   @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID()
   @Published var accessibilityTrusted = TabletInjector.isTrusted
-  @Published var linkDiagnostics = "link —"
+  /// Two short lines so the menu stays narrow; empty while disconnected.
+  @Published var linkDiagnostics: [String] = []
 
   private var receiver: PenLinkReceiver
   private var injection: PenInjectionWorker
@@ -30,11 +35,13 @@ private final class NibMacModel: ObservableObject {
   private var diagnosticsTimer: Timer?
   private var diagnosticsLogCounter = 0
   private let defaults = UserDefaults.standard
+  private let diagnosticsKey = "showsDiagnostics"
   private let displayKey = "selectedDisplayID"
   private let smoothingKey = "smoothingEnabled"
   @Published var smoothingEnabled = true
 
   init() {
+    showsDiagnostics = UserDefaults.standard.bool(forKey: "showsDiagnostics")
     let savedSmoothing = UserDefaults.standard.object(forKey: "smoothingEnabled") as? Bool ?? true
     receiver = try! PenLinkReceiver()
     injection = PenInjectionWorker(post: TabletInjector().post, smoothing: savedSmoothing)
@@ -88,10 +95,6 @@ private final class NibMacModel: ObservableObject {
     diagnosticsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       Task { @MainActor in self?.refreshDiagnostics() }
     }
-  }
-
-  var accessibilityLabel: String {
-    accessibilityTrusted ? "Accessibility: granted" : "Accessibility: required"
   }
 
   func chooseDisplay(_ display: Display) {
@@ -166,7 +169,7 @@ private final class NibMacModel: ObservableObject {
     alert.accessoryView = remember
     let allowed = alert.runModal() == .alertFirstButtonReturn
     if allowed, remember.state == .on { defaults.set(true, forKey: rememberKey) }
-    if !allowed { status = "rejected \(hello.deviceName)" }
+    if !allowed { status = "Rejected \(hello.deviceName)" }
     return allowed
   }
 
@@ -181,16 +184,15 @@ private final class NibMacModel: ObservableObject {
       {
         sendFrontApp(bundleID: bundleID, name: name)
       }
-      status =
-        receiver.transportIsUSB
-        ? "connected via USB to \(hello.deviceName)"
-        : "connected via Wi-Fi to \(hello.deviceName)"
+      connected = true
+      status = "\(hello.deviceName) · Connected via \(receiver.transportIsUSB ? "USB" : "Wi-Fi")"
     case .geometryChanged(let geometry):
       injection.surfaceChanged(CGSize(width: geometry.surfaceWidth, height: geometry.surfaceHeight))
     case .disconnected:
       macLogger.info("session disconnected")
       injection.sessionEnded()
-      status = "waiting for iPad"
+      connected = false
+      status = "Waiting for iPad…"
     }
   }
 
@@ -200,34 +202,25 @@ private final class NibMacModel: ObservableObject {
   }
 
   private func refreshDiagnostics() {
-    guard receiverStateConnected else {
-      linkDiagnostics = "link —"
+    guard connected else {
+      linkDiagnostics = []
       return
     }
     let stats = receiver.linkStatsSnapshot()
     let rtt = receiver.latestRTTMs.map { String(format: "%.0f ms", $0) } ?? "—"
     let inject = injection.snapshot()
-    linkDiagnostics = String(
-      format:
-        "%.0f Hz · loss %.1f%% · gap p95 %.0f ms · jitter p95 %.0f ms · delay %.0f ms · post p95 %.1f ms · RTT %@",
-      stats.sampleRateHz, stats.lossPercent, stats.interArrivalP95Ms, stats.delayVariationP95Ms,
-      inject.playoutDelayMs, inject.injectP95Ms, rtt)
+    linkDiagnostics = [
+      String(
+        format: "%.0f Hz · loss %.1f%% · RTT %@", stats.sampleRateHz, stats.lossPercent, rtt),
+      String(
+        format: "jitter %.0f ms · gap %.0f ms · delay %.0f ms · post %.1f ms",
+        stats.delayVariationP95Ms, stats.interArrivalP95Ms, inject.playoutDelayMs, inject.injectP95Ms),
+    ]
     diagnosticsLogCounter += 1
     if diagnosticsLogCounter >= 5 {
       diagnosticsLogCounter = 0
-      macLogger.info("\(self.linkDiagnostics, privacy: .public)")
+      macLogger.info("\(self.linkDiagnostics.joined(separator: " · "), privacy: .public)")
     }
-  }
-
-  private var receiverStateConnected: Bool {
-    if case .connected = receiverState { return true }
-    return false
-  }
-
-  private var receiverState: PenLinkState {
-    // The receiver has no public state; a session is reflected by the menu status.
-    (status.hasPrefix("connected via USB") || status.hasPrefix("connected via Wi-Fi"))
-      ? .connected(status) : .searching
   }
 }
 
@@ -237,21 +230,14 @@ struct NibMacApp: App {
 
   var body: some Scene {
     MenuBarExtra("Nib", systemImage: "pencil.tip") {
-      Text("Nib — \(model.status)")
-      Text(model.linkDiagnostics)
-      Divider()
-      if model.accessibilityTrusted {
-        Text(model.accessibilityLabel)
-      } else {
-        Button(model.accessibilityLabel) { model.requestAccessibility() }
+      Text(model.status)
+      if !model.accessibilityTrusted {
+        Button("⚠︎ Grant Accessibility Access…") { model.requestAccessibility() }
       }
-      Toggle(
-        "Smoothing",
-        isOn: Binding(
-          get: { model.smoothingEnabled },
-          set: { enabled in
-            model.setSmoothing(enabled)
-          }))
+      if model.showsDiagnostics && !model.linkDiagnostics.isEmpty {
+        ForEach(model.linkDiagnostics, id: \.self) { Text($0).font(.caption) }
+      }
+      Divider()
       Menu("Display") {
         ForEach(model.displays) { display in
           Button {
@@ -264,11 +250,20 @@ struct NibMacApp: App {
           }
         }
       }
+      Toggle(
+        "Smoothing",
+        isOn: Binding(
+          get: { model.smoothingEnabled },
+          set: { enabled in
+            model.setSmoothing(enabled)
+          }))
+      Toggle("Show Diagnostics", isOn: $model.showsDiagnostics)
       Divider()
-      Button("Quit") {
+      Button("Quit Nib") {
         model.stop()
         NSApplication.shared.terminate(nil)
       }
+      .keyboardShortcut("q")
     }
   }
 }

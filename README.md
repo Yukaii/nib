@@ -67,8 +67,9 @@ open Nib.xcodeproj
 2. **Connect** — open Nib on the iPad. Over Wi-Fi, both devices must be on the
    same network; allow Local Network access when asked. Over USB-C, plug in and
    accept "Trust This Computer". The Mac asks once to **Allow** the iPad.
-3. **Draw** — the menu bar shows `connected via USB` or `via Wi-Fi`. Pick the
-   target display in the menu if you have more than one.
+3. **Draw** — the menu shows `iPad · Connected via USB` (or `Wi-Fi`). Pick the
+   target display in the menu if you have more than one; turn on
+   **Show Diagnostics** to see sample rate, loss, jitter and latency.
 
 ## Using Nib
 
