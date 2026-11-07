@@ -2,13 +2,16 @@ import Foundation
 
 /// Shared pairing/timeout driving used by the Wi-Fi receiver, the Wi-Fi sender
 /// and the USB listener. The machine belongs to the connection that started it
-/// (`ObjectIdentifier` of the `NWConnection` in production, a dummy object in
-/// tests) and is reset when that connection is lost. A new connection never
-/// inherits it, and a `.send` never goes to a different connection.
+/// A monotonically increasing connection generation owns the machine. Object
+/// identifiers are retained only as a source-compatible test shim; production
+/// transports must pass their generation so allocator reuse cannot resurrect a
+/// stale pairing flow.
 @MainActor
 public final class PairingDriver {
   private var machine: PairingStateMachine?
-  private var connection: ObjectIdentifier?
+  private var connection: UInt64?
+  private var legacyGenerations: [ObjectIdentifier: UInt64] = [:]
+  private var nextLegacyGeneration: UInt64 = 1
   private var timeoutTask: Task<Void, Never>?
   private let store: PairingKeyStore
   private let role: PairingRole
@@ -19,8 +22,10 @@ public final class PairingDriver {
   public var clock: () -> TimeInterval = { Date.timeIntervalSinceReferenceDate }
   /// Timeout for tests; production uses `PairingTransportPolicy.timeoutSeconds`.
   public var timeoutSeconds: UInt64 = PairingTransportPolicy.timeoutSeconds
-  /// Sends on the bound connection only; the owner checks the connection.
+  /// Sends on the bound connection only; the owner checks the generation.
   public var onSend: ((ControlMessage) -> Void)?
+  /// Used only for an attempt-limit refusal, before a machine is bound.
+  public var onSendUnbound: ((ControlMessage, UInt64) -> Void)?
   public var onEvent: ((PairingTransportEvent) -> Void)?
 
   public init(
@@ -33,8 +38,14 @@ public final class PairingDriver {
   }
 
   public var phase: PairingPhase? { machine?.phase }
+  public var hasActiveMachine: Bool { machine != nil }
   public var peerDisplayName: String? { machine?.peerDisplayName }
-  public var boundConnection: ObjectIdentifier? { connection }
+  public var boundGeneration: UInt64? { connection }
+  /// Deprecated compatibility view for older tests and callers.
+  public var boundConnection: ObjectIdentifier? {
+    guard let connection else { return nil }
+    return legacyGenerations.first(where: { $0.value == connection })?.key
+  }
 
   public func updateLocal(id: String, name: @escaping () -> String) {
     localID = id
@@ -43,73 +54,105 @@ public final class PairingDriver {
 
   // MARK: - Device role
 
-  public func beginPairing(deviceID: String, deviceName: String, connectionID: ObjectIdentifier) {
+  public func beginPairing(deviceID: String, deviceName: String, connectionGeneration: UInt64) {
     guard role == .device else { return }
     if let machine, !machine.isTerminal { return }
     var fresh = PairingStateMachine(role: .device, id: deviceID, name: deviceName, store: store)
     guard let event = try? fresh.begin() else { return }
     machine = fresh
-    connection = connectionID
+    connection = connectionGeneration
     startTimeout()
-    if case .send(let message) = event { sendIfBound(message, connectionID: connectionID) }
+    if case .send(let message) = event { sendIfBound(message, connectionGeneration: connectionGeneration) }
+  }
+
+  public func beginPairing(deviceID: String, deviceName: String, connectionID: ObjectIdentifier) {
+    beginPairing(
+      deviceID: deviceID, deviceName: deviceName, connectionGeneration: generation(for: connectionID))
   }
 
   // MARK: - Common
 
-  public func receive(_ message: ControlMessage, connectionID: ObjectIdentifier) {
+  public func receive(_ message: ControlMessage, connectionGeneration: UInt64) {
     // Host creates its machine on the first pairRequest; device ignores
     // pairing traffic with no machine.
     if machine == nil {
       guard role == .host, case .pairRequest = message else { return }
       let now = clock()
       if !limiter.canAttempt(at: now) {
-        onSend?(
-          .pairResult(
-            .init(accepted: false, reason: PairingAttemptLimiter.refusalReason())))
+        onSendUnbound?(
+          .pairResult(.init(accepted: false, reason: PairingAttemptLimiter.refusalReason())),
+          connectionGeneration)
         return
       }
       machine = PairingStateMachine(
         role: .host, id: localID, name: localName(), store: store)
-      connection = connectionID
+      connection = connectionGeneration
       startTimeout()
     }
-    guard let bound = connection, bound == connectionID, var machine else { return }
+    guard let bound = connection, bound == connectionGeneration, var machine else { return }
     let events = machine.receive(message)
     self.machine = machine
-    process(events, connectionID: connectionID)
+    process(events, connectionGeneration: connectionGeneration)
+  }
+
+  public func receive(_ message: ControlMessage, connectionID: ObjectIdentifier) {
+    receive(message, connectionGeneration: generation(for: connectionID))
+  }
+
+  public func confirm(connectionGeneration: UInt64) {
+    guard let bound = connection, bound == connectionGeneration, var machine else { return }
+    let events = machine.confirm()
+    self.machine = machine
+    process(events, connectionGeneration: connectionGeneration)
   }
 
   public func confirm(connectionID: ObjectIdentifier) {
-    guard let bound = connection, bound == connectionID, var machine else { return }
-    let events = machine.confirm()
-    self.machine = machine
-    process(events, connectionID: connectionID)
+    confirm(connectionGeneration: generation(for: connectionID))
   }
 
-  public func cancel(connectionID: ObjectIdentifier) {
-    guard let bound = connection, bound == connectionID, var machine else { return }
+  public func cancel(connectionGeneration: UInt64) {
+    guard let bound = connection, bound == connectionGeneration, var machine else { return }
     let event = machine.cancel()
     self.machine = machine
-    if case .send(let message) = event { sendIfBound(message, connectionID: connectionID) }
+    if case .send(let message) = event { sendIfBound(message, connectionGeneration: connectionGeneration) }
     // `cancel()` always moves to `.cancelled`.
     if role == .host { limiter.recordFailure(at: clock()) }
     finish(with: .cancelled)
   }
 
-  public func connectionLost(_ id: ObjectIdentifier) {
-    guard connection == id else { return }
+  public func cancel(connectionID: ObjectIdentifier) {
+    cancel(connectionGeneration: generation(for: connectionID))
+  }
+
+  public func connectionLost(_ generation: UInt64) {
+    guard connection == generation else { return }
     cancelTimeout()
     machine = nil
     connection = nil
   }
 
-  public func newConnection(_ id: ObjectIdentifier) {
+  public func connectionLost(_ id: ObjectIdentifier) {
+    connectionLost(generation(for: id))
+  }
+
+  public func newConnection(_ generation: UInt64) {
     // A new connection never inherits pairing in progress.
-    if let bound = connection, bound != id {
+    if let bound = connection, bound != generation {
       cancelTimeout()
       machine = nil
       connection = nil
     }
+  }
+
+  public func newConnection(_ id: ObjectIdentifier) {
+    newConnection(generation(for: id))
+  }
+
+  /// Counts connection churn against the same host-side limiter as failed
+  /// pairing attempts. This keeps busy/displacement spam from cycling forever.
+  public func recordConnectionAttempt() {
+    guard role == .host else { return }
+    limiter.recordFailure(at: clock())
   }
 
   /// Fires the 60 s timeout immediately (tests and manual expiry).
@@ -121,11 +164,11 @@ public final class PairingDriver {
     if case .timedOut = event { finish(with: .timedOut) }
   }
 
-  private func process(_ events: [PairingEvent], connectionID: ObjectIdentifier) {
+  private func process(_ events: [PairingEvent], connectionGeneration: UInt64) {
     for event in events {
       switch event {
       case .send(let message):
-        sendIfBound(message, connectionID: connectionID)
+        sendIfBound(message, connectionGeneration: connectionGeneration)
       case .showCode(let code):
         let peer = machine?.peerDisplayName ?? (role == .host ? "iPad" : "Mac")
         onEvent?(.showCode(code, peerName: peer))
@@ -149,9 +192,17 @@ public final class PairingDriver {
     // Terminal machines are cleared by finish/paired above; nothing extra here.
   }
 
-  private func sendIfBound(_ message: ControlMessage, connectionID: ObjectIdentifier) {
-    guard connection == connectionID else { return }
+  private func sendIfBound(_ message: ControlMessage, connectionGeneration: UInt64) {
+    guard connection == connectionGeneration else { return }
     onSend?(message)
+  }
+
+  private func generation(for id: ObjectIdentifier) -> UInt64 {
+    if let generation = legacyGenerations[id] { return generation }
+    let generation = nextLegacyGeneration
+    nextLegacyGeneration &+= 1
+    legacyGenerations[id] = generation
+    return generation
   }
 
   private func finish(with event: PairingTransportEvent) {

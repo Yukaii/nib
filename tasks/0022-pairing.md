@@ -72,18 +72,26 @@ checkbox and the device-ID allow list go away.
 ## Handoff
 
 ```
-Branch/commit: t3/pairing-first-pair-hardening @ 3fe7d64
-Verify: verify: ok (Test run with 151 tests; NibMac + NibPad built)
+Branch/commit: t3/pairing-transport-hardening @ e546130
+Verify: verify: ok (Test run with 156 tests; NibMac + NibPad built)
 Done:
-- First pairing reachable: unpaired hello gets helloAck{pairingRequired:true}
-  and the connection stays open in pairing-only state (hello/pair*/ping only,
-  no samples/gestures/UDP). After paired, the iPad sends a fresh authenticated
-  hello on the same connection. Same on USB. Spec + end-to-end tests through
-  HostLink/DeviceLink + PairingDriver (production types, in-memory transport).
-- Connection-bound pairing: PairingDriver owns the machine per ObjectIdentifier,
-  reset on that connection's loss; new connections never inherit; .send only to
-  the bound connection. Second pairRequest mid-flow ignored; early/duplicate
-  pairResult ignored; pairResult accepted:false never re-fires from terminal.
+- First pairing remains reachable: unpaired hello gets
+  helloAck{pairingRequired:true} and stays open in pairing-only state on Wi-Fi
+  and USB; only hello/pair*/ping are accepted.
+- Active pairing machines hold their connection through the 60 s timeout;
+  newcomers receive busy and count against the attempt limiter. Idle invites
+  close after 10 s and may be replaced.
+- Pairing ownership uses monotonically increasing connection generations, with
+  explicit HostLink/DeviceLink/PairingDriver reset on replacement and loss.
+- Attempt-limit refusals use an unbound, generation-targeted send callback, so
+  the requesting connection receives pairResult{accepted:false}.
+- Device-side pairingRequired hints never publish unauthenticated host info or
+  delete a stored key; Wi-Fi and USB ignore probe/frontApp and all other
+  non-pairing messages in pairing-only state.
+- Extracted ControlLinkDispatcher and StreamLinkDispatcher run the production
+  ControlFramer/StreamFramer receive/dispatch paths against byte transports.
+- Existing commit-reveal, proof, authenticated hello, cancellation, timeout,
+  and protocol vector coverage remains intact.
 - fail() now sets phase=.failed and clears pending; invalid reveal leaves no
   secrets and terminal phase (tested).
 - Identities bound: deviceID in commitment, deviceID+hostID length-prefixed in
@@ -107,8 +115,8 @@ Done:
   logged.
 Manual checks: fresh pair over Wi-Fi; reconnect; Forget either side → re-pair;
   pair over USB with Wi-Fi off; Cancel either side leaves no stored key;
-  NOT RUN (NibCore only, no app UI in this task; end-to-end covered by
-  in-memory HostLink/DeviceLink + framer tests for Wi-Fi and USB paths).
+  NOT RUN (NibCore only, no app UI in this task; deterministic framer and
+  HostLink/DeviceLink tests cover the production dispatch paths).
 Not done / risks:
 - App UI + KeychainPairingKeyStore live in 0024 (Mac prompt/submenu, iPad
   code step, Forget buttons, hostID minting, allow-list migration).

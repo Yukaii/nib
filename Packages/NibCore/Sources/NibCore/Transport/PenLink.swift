@@ -301,13 +301,16 @@ public final class PenLinkSender {
   }
   public private(set) var selectedHost: String?
   private var connection: NWConnection?
+  private var connectionGeneration: UInt64 = 0
   private var udpConnection: NWConnection?
   private var framer = ControlFramer()
+  private var controlDispatcher: ControlLinkDispatcher?
   private var hello: ControlMessage.Hello?
   private var lastReceivedAt: TimeInterval?
   private var lastGeometry: (Double, Double)?
   private var reconnectTask: Task<Void, Never>?
   private var pingTask: Task<Void, Never>?
+  private var pairingIdleTask: Task<Void, Never>?
   private let queue = DispatchQueue(label: "dev.yukai.nib.sender")
 
   public init() {}
@@ -333,13 +336,17 @@ public final class PenLinkSender {
     reconnectTask = nil
     pingTask?.cancel()
     pingTask = nil
-    if let id = currentConnectionID { pairingDriver?.connectionLost(id) }
+    pairingIdleTask?.cancel()
+    pairingIdleTask = nil
+    pairingDriver?.connectionLost(connectionGeneration)
+    deviceLink.connectionLost()
     pairingDriver = nil
     browser?.cancel()
     browser = nil
     connection?.cancel()
     udpConnection?.cancel()
     connection = nil
+    controlDispatcher = nil
     udpConnection = nil
     latestResult = nil
     resultsByName = [:]
@@ -364,10 +371,13 @@ public final class PenLinkSender {
             self?.hello?.deviceName ?? "iPad"
           }, store: store)
         driver.onSend = { [weak self] message in
-          guard let self, let current = self.connection,
-            let bound = self.pairingDriver?.boundConnection,
-            ObjectIdentifier(current) == bound
+          guard let self, self.connection != nil,
+            self.pairingDriver?.boundGeneration == self.connectionGeneration
           else { return }
+          self.sendControl(message)
+        }
+        driver.onSendUnbound = { [weak self] message, generation in
+          guard let self, self.connection != nil, self.connectionGeneration == generation else { return }
           self.sendControl(message)
         }
         driver.onEvent = { [weak self] event in self?.handleDriverEvent(event) }
@@ -387,23 +397,26 @@ public final class PenLinkSender {
   }
 
   public func beginPairing(deviceID: String, deviceName: String) {
-    guard let id = currentConnectionID, let driver = pairingDriver else { return }
-    driver.beginPairing(deviceID: deviceID, deviceName: deviceName, connectionID: id)
+    guard connection != nil, let driver = pairingDriver else { return }
+    pairingIdleTask?.cancel()
+    pairingIdleTask = nil
+    driver.beginPairing(
+      deviceID: deviceID, deviceName: deviceName, connectionGeneration: connectionGeneration)
   }
 
   public func confirmPairing() {
-    guard let id = currentConnectionID else { return }
-    pairingDriver?.confirm(connectionID: id)
+    guard connection != nil else { return }
+    pairingDriver?.confirm(connectionGeneration: connectionGeneration)
   }
 
   public func cancelPairing() {
-    guard let id = currentConnectionID else { return }
-    pairingDriver?.cancel(connectionID: id)
+    guard connection != nil else { return }
+    pairingDriver?.cancel(connectionGeneration: connectionGeneration)
   }
 
   private func handlePairingMessage(_ message: ControlMessage) {
-    guard let id = currentConnectionID else { return }
-    pairingDriver?.receive(message, connectionID: id)
+    guard connection != nil else { return }
+    pairingDriver?.receive(message, connectionGeneration: connectionGeneration)
   }
 
   private func handleDriverEvent(_ event: PairingTransportEvent) {
@@ -511,7 +524,13 @@ public final class PenLinkSender {
     let newConnection = NWConnection(
       to: .service(name: name, type: type, domain: domain, interface: interface), using: tcpParameters)
     connection = newConnection
+    connectionGeneration &+= 1
+    pairingDriver?.newConnection(connectionGeneration)
     framer = ControlFramer()
+    controlDispatcher = ControlLinkDispatcher(transport: NWLinkByteTransport(newConnection)) {
+      [weak self] message in
+      Task { @MainActor [weak self] in self?.handle(message) }
+    }
     newConnection.stateUpdateHandler = { [weak self] newState in
       if case .failed = newState {
         Task { @MainActor [weak self] in self?.connectionLost() }
@@ -537,7 +556,7 @@ public final class PenLinkSender {
         if let data, !data.isEmpty {
           self.lastReceivedAt = Date.timeIntervalSinceReferenceDate
           do {
-            for message in try self.framer.append(Array(data)) { self.handle(message) }
+            try self.controlDispatcher?.receive(data)
           } catch {
             self.connectionLost()
             return
@@ -550,6 +569,7 @@ public final class PenLinkSender {
 
   private func handle(_ message: ControlMessage) {
     lastReceivedAt = Date.timeIntervalSinceReferenceDate
+    if !deviceLink.allows(message) { return }
     switch message {
     case .helloAck(let ack):
       // Verify before trusting hostInfo or the reason when a key is held.
@@ -565,6 +585,15 @@ public final class PenLinkSender {
         onHostInfo(info)
         state = .searching
         transportLogger.info("pairing required: \(reason, privacy: .public)")
+        pairingIdleTask?.cancel()
+        let generation = connectionGeneration
+        pairingIdleTask = Task { @MainActor [weak self] in
+          try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.pairingIdleSeconds)))
+          guard let self, self.connectionGeneration == generation,
+            self.deviceLink.pairingRequired
+          else { return }
+          self.connectionLost(reconnect: false)
+        }
         // Keep the connection open in a pairing-only state; beginPairing
         // sends pairRequest on this same connection.
         return
@@ -647,7 +676,10 @@ public final class PenLinkSender {
   }
 
   private func connectionLost(reconnect: Bool = true, reconnectDelay: Duration? = nil) {
-    if let id = currentConnectionID { pairingDriver?.connectionLost(id) }
+    pairingDriver?.connectionLost(connectionGeneration)
+    deviceLink.connectionLost()
+    pairingIdleTask?.cancel()
+    pairingIdleTask = nil
     connection?.cancel()
     udpConnection?.cancel()
     connection = nil
@@ -693,6 +725,7 @@ public final class PenLinkReceiver {
   private let listener: NWListener
   private let queue = DispatchQueue(label: "dev.yukai.nib.receiver")
   private var connection: NWConnection?
+  private var connectionGeneration: UInt64 = 0
   #if os(macOS)
     private var usbClient: UsbmuxClient?
     private var usbDevice: UsbmuxClient.Device?
@@ -703,11 +736,13 @@ public final class PenLinkReceiver {
   #endif
   private var udpListener: NWListener?
   private var framer = ControlFramer()
+  private var controlDispatcher: ControlLinkDispatcher?
   private var hostLink: HostLink
   private var pairingDriver: PairingDriver?
   private var pairingStoreRef: PairingKeyStore?
   private var pairingHostIDRef: String?
   private var heartbeatTask: Task<Void, Never>?
+  private var pairingIdleTask: Task<Void, Never>?
   private var busyFramers: [ObjectIdentifier: ControlFramer] = [:]
   private let udpGate = UDPGate()
   private let lockedStats = LockedStats()
@@ -766,9 +801,13 @@ public final class PenLinkReceiver {
       }, store: pairingStore)
     driver.onSend = { [weak self] message in
       guard let self, let current = self.connection,
-        let bound = self.pairingDriver?.boundConnection,
-        ObjectIdentifier(current) == bound
+        self.pairingDriver?.boundGeneration == self.connectionGeneration,
+        current === self.connection
       else { return }
+      self.sendControl(message)
+    }
+    driver.onSendUnbound = { [weak self] message, generation in
+      guard let self, self.connection != nil, self.connectionGeneration == generation else { return }
       self.sendControl(message)
     }
     driver.onEvent = { [weak self] event in self?.handleDriverEvent(event) }
@@ -778,13 +817,13 @@ public final class PenLinkReceiver {
   // MARK: - Host-role pairing (NibCore only; UI lives in the apps)
 
   public func confirmPairing() {
-    guard let id = connection.map(ObjectIdentifier.init) else { return }
-    pairingDriver?.confirm(connectionID: id)
+    guard connection != nil else { return }
+    pairingDriver?.confirm(connectionGeneration: connectionGeneration)
   }
 
   public func cancelPairing() {
-    guard let id = connection.map(ObjectIdentifier.init) else { return }
-    pairingDriver?.cancel(connectionID: id)
+    guard connection != nil else { return }
+    pairingDriver?.cancel(connectionGeneration: connectionGeneration)
   }
 
   private func handleDriverEvent(_ event: PairingTransportEvent) {
@@ -792,7 +831,9 @@ public final class PenLinkReceiver {
     // connection; the host clears pairing-only then and accepts it.
     switch event {
     case .paired(let peerID):
-      if let id = connection.map(ObjectIdentifier.init) { hostLink.clearPairingOnly(id) }
+      hostLink.clearPairingOnly(connectionGeneration)
+      pairingIdleTask?.cancel()
+      pairingIdleTask = nil
       onPairingEvent?(.paired(peerID: peerID))
     case .showCode(let code, let peerName):
       onPairingEvent?(.showCode(code, peerName: peerName))
@@ -806,12 +847,12 @@ public final class PenLinkReceiver {
   }
 
   private func handlePairingMessage(_ message: ControlMessage) {
-    guard let id = connection.map(ObjectIdentifier.init) else { return }
+    guard connection != nil else { return }
     // In pairing-only only pair*/ping are processed; full sessions ignore
     // stray pairing traffic.
     if hostLink.sessionConnected { return }
-    if !hostLink.allows(message, connectionID: id) { return }
-    pairingDriver?.receive(message, connectionID: id)
+    if !hostLink.allows(message, connectionGeneration: connectionGeneration) { return }
+    pairingDriver?.receive(message, connectionGeneration: connectionGeneration)
   }
 
   public func start() {
@@ -859,10 +900,10 @@ public final class PenLinkReceiver {
   public func stop() {
     listener.cancel()
     udpListener?.cancel()
-    if let id = connection.map(ObjectIdentifier.init) {
-      pairingDriver?.connectionLost(id)
-      hostLink.connectionLost(id)
-    }
+    pairingDriver?.connectionLost(connectionGeneration)
+    hostLink.connectionLost(connectionGeneration)
+    pairingIdleTask?.cancel()
+    pairingIdleTask = nil
     pairingDriver = nil
     disconnectSession(notify: hostLink.sessionConnected)
     #if os(macOS)
@@ -876,6 +917,7 @@ public final class PenLinkReceiver {
       let current: USBTransport = hostLink.sessionConnected ? (usbMode ? .usb : .wifi) : .none
       switch USBTransportArbitration.decide(current: current, newcomer: .usb) {
       case .busy:
+        pairingDriver?.recordConnectionAttempt()
         newConnection.start(queue: queue)
         newConnection.send(
           content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
@@ -885,12 +927,19 @@ public final class PenLinkReceiver {
         disconnectSession(notify: true)
       case .accept: break
       }
-      if let old = connection.map(ObjectIdentifier.init) {
-        pairingDriver?.newConnection(ObjectIdentifier(newConnection))
-        _ = old
-      } else {
-        pairingDriver?.newConnection(ObjectIdentifier(newConnection))
+      if hostLink.pairingOnlyGeneration != nil, pairingDriver?.hasActiveMachine == true {
+        pairingDriver?.recordConnectionAttempt()
+        newConnection.start(queue: queue)
+        newConnection.send(
+          content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
+          completion: .contentProcessed { _ in newConnection.cancel() })
+        return
       }
+      pairingDriver?.connectionLost(connectionGeneration)
+      hostLink.connectionLost(connectionGeneration)
+      connectionGeneration &+= 1
+      pairingDriver?.newConnection(connectionGeneration)
+      hostLink.newConnection(connectionGeneration)
       connection?.cancel()
       connection = newConnection
       usbDevice = device
@@ -952,12 +1001,34 @@ public final class PenLinkReceiver {
       receiveBusy(newConnection)
       return
     }
-    let newID = ObjectIdentifier(newConnection)
-    pairingDriver?.newConnection(newID)
-    // A new connection never inherits pairing-only or the pairing machine.
+    // An active pairing machine owns its connection until the 60 s timeout.
+    // Keep the old connection and answer newcomers as busy; otherwise an
+    // attacker can evict the legitimate user without consuming pairing tries.
+    if hostLink.pairingOnlyGeneration != nil, pairingDriver?.hasActiveMachine == true {
+      pairingDriver?.recordConnectionAttempt()
+      newConnection.start(queue: queue)
+      receiveBusy(newConnection)
+      return
+    }
+    // Idle invitations may be displaced. Reset both policy and machine state
+    // before assigning the next monotonically increasing generation.
+    if connection != nil {
+      pairingDriver?.connectionLost(connectionGeneration)
+      hostLink.connectionLost(connectionGeneration)
+      pairingIdleTask?.cancel()
+      pairingIdleTask = nil
+      connection?.cancel()
+    }
+    connectionGeneration &+= 1
+    pairingDriver?.newConnection(connectionGeneration)
+    hostLink.newConnection(connectionGeneration)
     connection?.cancel()
     connection = newConnection
     framer = ControlFramer()
+    controlDispatcher = ControlLinkDispatcher(transport: NWLinkByteTransport(newConnection)) {
+      [weak self] message in
+      Task { @MainActor [weak self] in await self?.handle(message) }
+    }
     newConnection.stateUpdateHandler = { [weak self] state in
       guard case .ready = state else { return }
       Task { @MainActor [weak self] in
@@ -1009,7 +1080,7 @@ public final class PenLinkReceiver {
         guard let self, self.connection === expected else { return }
         if let data, !data.isEmpty {
           do {
-            for message in try self.framer.append(Array(data)) { await self.handle(message) }
+            try self.controlDispatcher?.receive(data)
           } catch {
             self.disconnectSession(notify: self.hostLink.sessionConnected)
             return
@@ -1026,17 +1097,17 @@ public final class PenLinkReceiver {
 
   private func handle(_ message: ControlMessage) async {
     let now = Date.timeIntervalSinceReferenceDate
-    let connectionID = connection.map(ObjectIdentifier.init)
+    let connectionID = connection == nil ? nil : connectionGeneration
     // Pairing-only gating: only hello, pairRequest/pairReveal/pairResult and
     // ping are processed; samples, gestures and the UDP gate stay idle.
-    if let id = connectionID, !hostLink.allows(message, connectionID: id) {
+    if let id = connectionID, !hostLink.allows(message, connectionGeneration: id) {
       return
     }
     switch message {
     case .hello(let hello):
       guard let id = connectionID else { return }
       let outcome = hostLink.receiveHello(
-        hello, connectionID: id, busy: hostLink.sessionConnected, now: now,
+        hello, connectionGeneration: id, busy: hostLink.sessionConnected, now: now,
         hostAppVersion: hostInfo?.appVersion ?? "unknown")
       switch outcome {
       case .reject(let ack, _):
@@ -1051,6 +1122,15 @@ public final class PenLinkReceiver {
       case .pairingRequired(let ack):
         // Keep the connection open in a pairing-only state.
         sendControl(.helloAck(ack))
+        pairingIdleTask?.cancel()
+        let generation = connectionGeneration
+        pairingIdleTask = Task { @MainActor [weak self] in
+          try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.pairingIdleSeconds)))
+          guard let self, self.connectionGeneration == generation,
+            self.hostLink.pairingOnlyIsIdle(at: Date.timeIntervalSinceReferenceDate)
+          else { return }
+          self.disconnectSession(notify: false)
+        }
         return
       case .needsAccept:
         break
@@ -1200,12 +1280,13 @@ public final class PenLinkReceiver {
   private func disconnectSession(notify: Bool) {
     heartbeatTask?.cancel()
     heartbeatTask = nil
-    if let id = connection.map(ObjectIdentifier.init) {
-      pairingDriver?.connectionLost(id)
-      hostLink.connectionLost(id)
-    }
+    pairingDriver?.connectionLost(connectionGeneration)
+    hostLink.connectionLost(connectionGeneration)
+    pairingIdleTask?.cancel()
+    pairingIdleTask = nil
     connection?.cancel()
     connection = nil
+    controlDispatcher = nil
     #if os(macOS)
       let endedDevice = usbDevice
       let endedConnection = usbConnection

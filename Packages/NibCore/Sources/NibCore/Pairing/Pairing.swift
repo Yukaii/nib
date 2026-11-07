@@ -277,6 +277,8 @@ public enum PairingTransportPolicy {
   /// Pairing must complete while the user is looking at both screens.
   /// Expiry stores nothing.
   public static let timeoutSeconds: UInt64 = 60
+  /// An invited connection that has not started pairing cannot squat forever.
+  public static let pairingIdleSeconds: TimeInterval = 10
 }
 
 /// Host-side attempt limiting: after 3 failed or cancelled pairings within 5

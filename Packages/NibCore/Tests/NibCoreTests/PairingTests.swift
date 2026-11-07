@@ -586,6 +586,105 @@ struct PairingTests {
     #expect(driver.phase == .waitingForReveal)
     #expect(sent.count == 2)
   }
+
+  @Test func pairingOnlyConnectionHasInjectedIdleDeadline() throws {
+    var link = HostLink(store: InMemoryPairingKeyStore(), hostID: "host-001")
+    let hello = ControlMessage.Hello(
+      appVersion: "0.3.0", deviceID: "device-001", deviceName: "iPad", surfaceWidth: 1,
+      surfaceHeight: 1)
+    guard
+      case .pairingRequired = link.receiveHello(
+        hello, connectionGeneration: 41, busy: false, now: 100)
+    else {
+      Issue.record("unpaired hello must enter pairing-only")
+      return
+    }
+    #expect(!link.pairingOnlyIsIdle(at: 109.99))
+    #expect(link.pairingOnlyIsIdle(at: 110))
+    // A generation replacement clears the policy state explicitly.
+    link.newConnection(42)
+    #expect(link.pairingOnlyGeneration == nil)
+  }
+
+  @Test @MainActor func attemptLimitRefusalUsesRequestingGeneration() throws {
+    let driver = PairingDriver(
+      role: .host, localID: "host-001", localName: { "Mac" }, store: InMemoryPairingKeyStore())
+    driver.clock = { 100 }
+    for _ in 0..<PairingAttemptLimiter.maxFailures { driver.recordConnectionAttempt() }
+    var sent: (ControlMessage, UInt64)?
+    driver.onSendUnbound = { sent = ($0, $1) }
+    let request = ControlMessage.pairRequest(
+      .init(deviceID: "device-001", deviceName: "iPad", publicKey: "key", commitment: "commit"))
+    driver.receive(request, connectionGeneration: 77)
+    guard case .pairResult(let result)? = sent?.0 else {
+      Issue.record("attempt-limit refusal must reach the requesting connection")
+      return
+    }
+    #expect(!result.accepted)
+    #expect(sent?.1 == 77)
+    #expect(driver.phase == nil)
+  }
+
+  @Test func pairingRequiredAckDoesNotPublishUntrustedHostInfo() throws {
+    let store = InMemoryPairingKeyStore()
+    store.save(Data(repeating: 7, count: 32), for: "host-001")
+    var link = DeviceLink(store: store, hostID: "host-001")
+    let evilHost = ControlMessage.HostInfo(
+      platform: .macos, name: "Evil Mac", appVersion: "9", capabilities: [])
+    let outcome = link.receiveHelloAck(
+      .init(accepted: false, reason: "Pair again", host: evilHost, pairingRequired: true))
+    guard case .pairingRequired(let reason, let info) = outcome else {
+      Issue.record("pairingRequired must remain a visible hint")
+      return
+    }
+    #expect(reason == "Pair again")
+    #expect(info == nil)
+    #expect(store.key(for: "host-001") != nil)
+  }
+
+  @Test func pairingOnlyDeviceIgnoresProbeAndFrontApp() {
+    var link = DeviceLink()
+    link.pairingRequired = true
+    #expect(!link.allows(.probe(sentAtNs: 1)))
+    #expect(!link.allows(.frontApp(.init(appID: "evil", name: "Evil"))))
+    #expect(link.allows(.ping))
+    #expect(link.allows(.pairResult(.init(accepted: false))))
+  }
+
+  @Test func extractedDispatchersPumpProductionFramers() throws {
+    final class MemoryTransport: LinkByteTransport, @unchecked Sendable {
+      var bytes: [Data] = []
+      var closed = false
+      func send(bytes: Data) { self.bytes.append(bytes) }
+      func close() { closed = true }
+    }
+    final class Box<T>: @unchecked Sendable {
+      var value: T
+      init(_ value: T) { self.value = value }
+    }
+    let controlTransport = MemoryTransport()
+    let controls = Box<[ControlMessage]>([])
+    let control = ControlLinkDispatcher(transport: controlTransport) { controls.value.append($0) }
+    let controlBytes = ControlFramer().encode(.ping) + ControlFramer().encode(.probe(sentAtNs: 3))
+    try control.receive(Data(controlBytes))
+    #expect(controls.value == [.ping, .probe(sentAtNs: 3)])
+    control.send(.ping)
+    var controlDecoder = ControlFramer()
+    #expect(try controlDecoder.append(Array(controlTransport.bytes[0])) == [.ping])
+
+    let streamTransport = MemoryTransport()
+    let streamControls = Box<[ControlMessage]>([])
+    let samples = Box<[PenSample]>([])
+    let stream = StreamLinkDispatcher(
+      transport: streamTransport, onControl: { streamControls.value.append($0) },
+      onSample: { samples.value.append($0) })
+    let sample = PenSample(
+      kind: .move, sequence: 1, timestamp: 2, x: 0.5, y: 0.5, pressure: 0.7, altitude: 1,
+      azimuth: 2)
+    try stream.receive(Data(StreamFramer.encode(.control(.ping)) + StreamFramer.encode(.sample(sample))))
+    #expect(streamControls.value == [.ping])
+    #expect(samples.value == [sample])
+  }
 }
 
 private func message(from event: PairingEvent) -> ControlMessage? {
