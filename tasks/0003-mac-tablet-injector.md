@@ -58,9 +58,19 @@ whose pressure ramps 0→1→0, and Krita shows a thin-thick-thin line.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/fix-mac-tablet-injector-review @ 56297d5
+Verify: verify: ok (Test run with 26 tests; NibMac + NibPad built)
 Done:
+- Corrected the IOKit tablet capability mask and added stable proximity pointer/vendor IDs.
+- Made button and proximity state resilient to missing, duplicate, and out-of-order samples; deferred eraser changes across an active stroke.
+- Added explicit tablet button/click fields, predicted-sample filtering, and full lifecycle/state transition tests.
+- Fixed the demo's normalized sample coordinates and Accessibility guidance.
 Manual checks:
-Not done / risks:
+- Build/run: `swift run --package-path Packages/NibCore nib-inject-demo`.
+- When prompted, grant the terminal app running `swift run` (Terminal, iTerm, etc.) access under System Settings › Privacy & Security › Accessibility.
+- Open Krita, create a new canvas, select a pressure-size brush such as “Basic-5 Size”, then open Settings › Configure Krita › Tablet settings tester and watch the pressure/tilt values.
+- Expected result: the demo draws a thin-thick-thin S-curve of about 400 pt width while the tester shows changing pressure and tilt.
+- Not run: this requires Accessibility permission, Krita, and a live desktop session.
+Review fix (orchestrator): device/vendor/pointer IDs kept within UInt16 (IOLLEvent.h field width).
+Not done / risks: Real drawing-app behavior remains for the orchestrator's manual Krita check; no decision document change was needed.
 ```
