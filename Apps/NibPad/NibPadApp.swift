@@ -8,9 +8,13 @@ final class NetworkSink: PenSampleSink, GestureSink {
   private let settings: PadSettingsStore
   private let usb = UsbLinkListener()
   private let deviceID: String
-  private(set) var linkState = "searching"
+  private(set) var linkState: PenLinkState = .searching
   private(set) var frontApp = ControlMessage.FrontApp(appID: "", name: "Default")
   private(set) var hostInfo: ControlMessage.HostInfo?
+  var onHostsChanged: (([String]) -> Void)?
+  var onLinkStateChanged: ((PenLinkState) -> Void)?
+  private(set) var pressureResult: PressureCheckResult = .notEnoughData
+  var selectedHost: String? { sender.selectedHost }
 
   init(settings: PadSettingsStore) {
     self.settings = settings
@@ -24,25 +28,23 @@ final class NetworkSink: PenSampleSink, GestureSink {
     }
     let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     sender.stateHandler = { [weak self] state in
-      self?.linkState =
-        switch state {
-        case .searching: "searching"
-        case .connecting: "connecting"
-        case .connected(let name): "connected " + name
-        case .rejected(let reason): "rejected: " + reason
-        }
+      self?.linkState = state
+      self?.onLinkStateChanged?(state)
     }
+    sender.hostsHandler = { [weak self] hosts in self?.onHostsChanged?(hosts) }
     sender.onFrontApp = { [weak self] app in self?.frontApp = app }
     sender.onHostInfo = { [weak self] info in self?.hostInfo = info }
     sender.start(
       hello: .init(
         appVersion: appVersion, deviceID: deviceID, deviceName: UIDevice.current.name, surfaceWidth: 0,
-        surfaceHeight: 0))
+        surfaceHeight: 0), rememberedHost: defaults.string(forKey: "nib.selectedMac"))
     let hello = ControlMessage.Hello(
       appVersion: appVersion, deviceID: deviceID, deviceName: UIDevice.current.name, surfaceWidth: 0,
       surfaceHeight: 0)
     usb.stateHandler = { [weak self] connected in
-      self?.linkState = connected ? "connected via USB" : "searching"
+      let state: PenLinkState = connected ? .connected(name: "", viaUSB: true) : .searching
+      self?.linkState = state
+      self?.onLinkStateChanged?(state)
     }
     usb.onFrontApp = { [weak self] app in self?.frontApp = app }
     usb.onHostInfo = { [weak self] info in self?.hostInfo = info }
@@ -75,6 +77,11 @@ final class NetworkSink: PenSampleSink, GestureSink {
       sender.updateGeometry(width: width, height: height)
     }
   }
+
+  func chooseMac(_ name: String) {
+    UserDefaults.standard.set(name, forKey: "nib.selectedMac")
+    sender.selectHost(name)
+  }
 }
 
 @main
@@ -82,12 +89,21 @@ struct NibPadApp: App {
   @State private var settings: PadSettingsStore
   @State private var panelOpen = false
   @State private var showsHUD = false
+  @State private var onboardingCompleted = UserDefaults.standard.bool(forKey: "nib.onboardingCompleted")
+  @State private var onboardingStep = 0
+  @State private var hosts: [String] = []
+  @State private var linkState: PenLinkState = .searching
+  @State private var pressureResult: PressureCheckResult = Self.storedPressureResult
   private let sink: NetworkSink
 
   init() {
     let settings = PadSettingsStore()
     _settings = State(initialValue: settings)
     sink = NetworkSink(settings: settings)
+    sink.onHostsChanged = { hosts in NotificationCenter.default.post(name: .nibHostsChanged, object: hosts) }
+    sink.onLinkStateChanged = { state in
+      NotificationCenter.default.post(name: .nibLinkStateChanged, object: state)
+    }
   }
 
   var body: some Scene {
@@ -97,10 +113,33 @@ struct NibPadApp: App {
           .ignoresSafeArea()
           .statusBarHidden()
           .persistentSystemOverlays(.hidden)
+        if !onboardingCompleted {
+          OnboardingView(
+            step: $onboardingStep, hosts: hosts, linkState: linkState,
+            chooseMac: { sink.chooseMac($0) },
+            finish: { result in
+              pressureResult = result
+              Self.storePressureResult(result)
+              UserDefaults.standard.set(true, forKey: "nib.onboardingCompleted")
+              onboardingCompleted = true
+            })
+        } else if !isConnected && !panelOpen {
+          ConnectionStatusOverlay(linkState: linkState, selectedHost: sink.selectedHost)
+        }
         if panelOpen {
           CompanionPanel(
-            store: settings, linkState: sink.linkState, profileName: sink.activeProfile.name,
-            frontApp: sink.frontApp, hostInfo: sink.hostInfo, showsHUD: $showsHUD
+            store: settings, linkState: linkState, profileName: sink.activeProfile.name,
+            frontApp: sink.frontApp, hostInfo: sink.hostInfo,
+            showIntroduction: {
+              onboardingStep = 0
+              onboardingCompleted = false
+              panelOpen = false
+            },
+            changeMac: {
+              onboardingStep = 2
+              onboardingCompleted = false
+              panelOpen = false
+            }, pressureResult: pressureResult, showsHUD: $showsHUD
           )
           .padding(20)
           .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in
@@ -108,6 +147,42 @@ struct NibPadApp: App {
           }
         }
       }
+      .onReceive(NotificationCenter.default.publisher(for: .nibHostsChanged)) { note in
+        hosts = note.object as? [String] ?? []
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .nibLinkStateChanged)) { note in
+        linkState = note.object as? PenLinkState ?? .searching
+      }
     }
   }
+}
+
+extension NibPadApp {
+  private var isConnected: Bool {
+    if case .connected = linkState { return true }
+    return false
+  }
+
+  private static var storedPressureResult: PressureCheckResult {
+    switch UserDefaults.standard.string(forKey: "nib.pressureCheckResult") {
+    case "ok": return .ok
+    case "noPressure": return .noPressure
+    default: return .notEnoughData
+    }
+  }
+
+  private static func storePressureResult(_ result: PressureCheckResult) {
+    let value: String =
+      switch result {
+      case .ok: "ok"
+      case .noPressure: "noPressure"
+      case .notEnoughData: "notEnoughData"
+      }
+    UserDefaults.standard.set(value, forKey: "nib.pressureCheckResult")
+  }
+}
+
+extension Notification.Name {
+  static let nibHostsChanged = Notification.Name("Nib.hostsChanged")
+  static let nibLinkStateChanged = Notification.Name("Nib.linkStateChanged")
 }
