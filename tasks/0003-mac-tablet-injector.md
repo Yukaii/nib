@@ -58,7 +58,7 @@ whose pressure ramps 0→1→0, and Krita shows a thin-thick-thin line.
 ## Handoff
 
 ```
-Branch/commit: t3/mac-tablet-injector @ b80b044eb650778e6a9c8597643edf2efff826ee
+Branch/commit: t3/mac-tablet-injector @ 6f450593c5ddf0d22cf3094bbb2d8c5cc4cd9274
 Verify: verify: ok (Test run with 5 tests; NibMac + NibPad built)
 Done:
 - Added TabletMath tilt conversion with clamping and deterministic tests.
