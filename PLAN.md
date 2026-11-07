@@ -39,7 +39,8 @@ iPad onboarding (0021) running. Next: pairing, then the iPad settings restructur
 - [x] 0020 Mac onboarding: setup window, Accessibility + auto-relaunch,
   pressure test canvas, launch at login
 - [ ] 0021 iPad onboarding: welcome, choose a Mac, pressure check, gesture guide
-- [ ] Pairing: code confirmation + encrypted channel (TLS-PSK), keyed by device ID
+- [ ] 0022 Pairing: numeric-comparison code, stored keys, authenticated hello
+- [ ] 0023 Encrypted sessions: ChaCha20-Poly1305 control frames and samples
 - [ ] iPad settings restructure (Pen / Profiles / Gestures / Display / Advanced)
 - [ ] Mac settings window: display, active-area mapping, multi-display
 - [ ] Keep-awake, minimal brightness, palm rejection review
@@ -74,3 +75,4 @@ pressure stroke in Krita by following only on-screen instructions.
 - 0008 Protocol v2: W3C key codes, `primary` modifier, host capabilities
 - 0009 Distribution: notarized DMG (Mac, not sandboxed), App Store (iPad)
 - 0010 Windows/Linux hosts in Rust; the Mac host stays Swift
+- 0011 (proposed) Pairing by numeric comparison; app-layer AEAD sessions
