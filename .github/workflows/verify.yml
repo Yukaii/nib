@@ -16,17 +16,17 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
       - name: Select newest Xcode
-        # Don't pin an Xcode version: verify.sh needs whatever Swift 6
-        # toolchain the runner ships, so pick the newest installed Xcode
-        # instead of letting the run depend on the image default.
+        # Newest stable Xcode on the image, not the image default: the apps
+        # track the current SDK. Version sort so 16.10 beats 16.4; no betas.
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort | tail -1)/Contents/Developer"
+          xcode=$(ls -d /Applications/Xcode_*.app | grep -vi beta | sort -V | tail -1)
+          sudo xcode-select -s "$xcode/Contents/Developer"
           xcodebuild -version
           swift --version
 
