@@ -93,6 +93,44 @@ for samples over Wi-Fi and display dimensions are points. `host` is optional
 metadata with `platform` (`macos`, `windows`, or `linux`), `name`, `appVersion`,
 and a string capability list.
 
+### Pairing and authenticated hello
+
+An iPad and Mac pair before either accepts pen input. Pairing uses the same
+control messages over Wi-Fi and USB; a cable is not trusted by itself. The
+three pairing messages are:
+
+```json
+{"type":"pairRequest","pairRequest":{"deviceID":"…","deviceName":"iPad Pro","publicKey":"base64","nonce":"base64"}}
+{"type":"pairResponse","pairResponse":{"hostID":"…","hostName":"Studio Mac","publicKey":"base64","nonce":"base64"}}
+{"type":"pairResult","pairResult":{"accepted":true}}
+```
+
+`publicKey` is a 32-byte X25519 public key and `nonce` is a fresh 32-byte
+random value, both encoded as base64. The transcript is the byte
+concatenation, in this exact order: device public key, host public key,
+device nonce, host nonce. The displayed six-digit code is
+`SHA256(UTF8("nib-pair") ‖ transcript)`, interpreted as the first four bytes
+big-endian, modulo 1,000,000, and zero-padded. Both users must confirm the
+same code. A cancel or timeout discards the ephemeral key and nonce and stores
+nothing.
+
+The stored pairing key is
+`HKDF-SHA256(ikm: X25519 shared secret, salt: SHA256(transcript),
+info: UTF8("nib-pair-key"), output: 32 bytes)`. It is stored by the peer ID.
+
+After pairing, `hello` includes fresh base64 `nonce` and `proof` fields:
+
+```json
+{"type":"hello","hello":{"protocolVersion":2,"appVersion":"0.3.0","deviceID":"…","deviceName":"iPad Pro","surfaceWidth":1024,"surfaceHeight":768,"nonce":"base64","proof":"base64"}}
+```
+
+The proof is `HMAC-SHA256(pairKey, UTF8("nib-hello") ‖ UTF8(deviceID) ‖ nonce)`.
+The accepting host includes its fresh base64 `nonce` and `proof` in
+`helloAck`, using its stable `hostID` in the same formula. Each side verifies
+the other proof with a constant-time HMAC comparison. Missing or invalid
+proofs are rejected with a next step to pair again. Frame and sample
+encryption begins in the subsequent encrypted-sessions version.
+
 ### geometry
 
 `{"type":"geometry","geometry":{"surfaceWidth":768,"surfaceHeight":1024}}`

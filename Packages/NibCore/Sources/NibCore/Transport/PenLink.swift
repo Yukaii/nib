@@ -151,8 +151,64 @@ public struct ReceiverSession: Sendable, Equatable {
   public private(set) var lastReceived: TimeInterval?
   private var disconnected = false
   private var sequencer = SampleSequencer()
+  private var pairingKey: Data?
+  private var hostID: String?
 
-  public init() {}
+  public init(pairingKey: Data? = nil, hostID: String? = nil) {
+    self.pairingKey = pairingKey
+    self.hostID = hostID
+  }
+
+  /// Refreshes the key used for the current hello. The receiver calls this
+  /// with the stored key for `hello.deviceID` before verifying, so one
+  /// session object serves any number of paired iPads over time.
+  public mutating func updatePairingKey(_ key: Data?, hostID: String?) {
+    pairingKey = key
+    self.hostID = hostID
+  }
+
+  public var requiresPairingAuthentication: Bool { pairingKey != nil }
+
+  public func verifiesPairingProof(_ hello: ControlMessage.Hello) -> Bool {
+    guard let pairingKey, let nonce = hello.nonce, let proof = hello.proof else { return false }
+    return PairingCrypto.verifyHelloProof(
+      base64Proof: proof, pairKey: pairingKey, identifier: hello.deviceID, base64Nonce: nonce)
+  }
+
+  /// Authenticated hello policy used after pairing. Missing, malformed, or
+  /// incorrect proofs all use the same next step so the UI never reveals
+  /// whether a particular key or nonce was valid.
+  public mutating func hello(
+    _ hello: ControlMessage.Hello, busy: Bool, now: TimeInterval,
+    hostAppVersion: String = "unknown"
+  ) -> HelloDecision {
+    guard let pairingKey else { return .rejected("Pair again") }
+    guard let nonce = hello.nonce, let proof = hello.proof,
+      PairingCrypto.verifyHelloProof(
+        base64Proof: proof, pairKey: pairingKey, identifier: hello.deviceID, base64Nonce: nonce)
+    else { return .rejected("Pair again") }
+    return self.hello(
+      protocolVersion: hello.protocolVersion, busy: busy, acceptResult: true, now: now,
+      hostAppVersion: hostAppVersion)
+  }
+
+  public func authenticatedHelloAck(
+    for nonce: Data, accepted: Bool = true, reason: String? = nil,
+    udpPort: UInt16 = 0, displayWidth: Double = 0, displayHeight: Double = 0,
+    host: ControlMessage.HostInfo? = nil
+  ) -> ControlMessage.HelloAck {
+    guard accepted, let pairingKey, let hostID else {
+      return .init(
+        accepted: accepted, reason: reason, udpPort: udpPort, displayWidth: displayWidth,
+        displayHeight: displayHeight, host: host)
+    }
+    return .init(
+      accepted: true, reason: nil, udpPort: udpPort, displayWidth: displayWidth,
+      displayHeight: displayHeight, host: host,
+      nonce: PairingCrypto.base64(nonce),
+      proof: PairingCrypto.base64(
+        PairingCrypto.helloProof(pairKey: pairingKey, identifier: hostID, nonce: nonce)))
+  }
 
   public static func versionMismatchReason(remoteProtocol: UInt8, hostAppVersion: String) -> String {
     let update =
@@ -538,9 +594,19 @@ public final class PenLinkReceiver {
   private var rttSamples: [Double] = []
   public private(set) var latestRTTMs: Double?
   public private(set) var transportIsUSB = false
+  private let pairingStore: PairingKeyStore?
+  private let pairingHostID: String?
+  private let fallbackPairingKey: Data?
 
-  public init(accept: @escaping AcceptHandler = { _ in true }) throws {
+  public init(
+    pairingKey: Data? = nil, hostID: String? = nil,
+    accept: @escaping AcceptHandler = { _ in true }
+  ) throws {
     self.accept = accept
+    pairingStore = nil
+    pairingHostID = hostID
+    fallbackPairingKey = pairingKey
+    session = ReceiverSession(pairingKey: pairingKey, hostID: hostID)
     let tcpOptions = NWProtocolTCP.Options()
     tcpOptions.noDelay = true
     let tcpParameters = NWParameters(tls: nil, tcp: tcpOptions)
@@ -549,6 +615,34 @@ public final class PenLinkReceiver {
     listener.newConnectionHandler = { [weak self] newConnection in
       Task { @MainActor [weak self] in self?.acceptConnection(newConnection) }
     }
+  }
+
+  /// Store-backed init for the apps: the key is looked up by deviceID on
+  /// every hello, so any number of paired iPads are accepted one at a time.
+  public init(
+    pairingStore: PairingKeyStore, hostID: String,
+    accept: @escaping AcceptHandler = { _ in true }
+  ) throws {
+    self.accept = accept
+    self.pairingStore = pairingStore
+    pairingHostID = hostID
+    fallbackPairingKey = nil
+    session = ReceiverSession(hostID: hostID)
+    let tcpOptions = NWProtocolTCP.Options()
+    tcpOptions.noDelay = true
+    let tcpParameters = NWParameters(tls: nil, tcp: tcpOptions)
+    listener = try NWListener(using: tcpParameters)
+    listener.service = NWListener.Service(type: "_nib._tcp")
+    listener.newConnectionHandler = { [weak self] newConnection in
+      Task { @MainActor [weak self] in self?.acceptConnection(newConnection) }
+    }
+  }
+
+  /// Resolves the stored key for the connecting device before proof
+  /// verification. Single-key sessions (tests) keep their fixed key.
+  private func pairingKey(for deviceID: String) -> Data? {
+    guard let pairingStore else { return fallbackPairingKey }
+    return pairingStore.key(for: deviceID)
   }
 
   public func start() {
@@ -749,6 +843,16 @@ public final class PenLinkReceiver {
     let now = Date.timeIntervalSinceReferenceDate
     switch message {
     case .hello(let hello):
+      if pairingStore != nil {
+        session.updatePairingKey(pairingKey(for: hello.deviceID), hostID: pairingHostID)
+      }
+      if session.requiresPairingAuthentication || pairingStore != nil,
+        !session.verifiesPairingProof(hello)
+      {
+        sendControl(.helloAck(.init(accepted: false, reason: "Pair again")))
+        disconnectSession(notify: false)
+        return
+      }
       let decision = session.hello(
         protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now,
         hostAppVersion: hostInfo?.appVersion ?? "unknown")
@@ -808,11 +912,17 @@ public final class PenLinkReceiver {
       rttSamples.removeAll()
       latestRTTMs = nil
       transportLogger.info("session accepted from \(hello.deviceName, privacy: .public)")
-      sendControl(
-        .helloAck(
-          .init(
-            accepted: true, udpPort: udpPort, displayWidth: displayWidth,
-            displayHeight: displayHeight, host: hostInfo)))
+      let ack: ControlMessage.HelloAck
+      if session.requiresPairingAuthentication {
+        ack = session.authenticatedHelloAck(
+          for: PairingCrypto.randomNonce(), accepted: true, udpPort: udpPort,
+          displayWidth: displayWidth, displayHeight: displayHeight, host: hostInfo)
+      } else {
+        ack = .init(
+          accepted: true, udpPort: udpPort, displayWidth: displayWidth,
+          displayHeight: displayHeight, host: hostInfo)
+      }
+      sendControl(.helloAck(ack))
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):
@@ -841,6 +951,7 @@ public final class PenLinkReceiver {
       if rttSamples.count > 10 { rttSamples.removeFirst() }
       latestRTTMs = rttSamples.sorted()[rttSamples.count / 2]
     case .helloAck: break
+    case .pairRequest, .pairResponse, .pairResult: break
     }
   }
 

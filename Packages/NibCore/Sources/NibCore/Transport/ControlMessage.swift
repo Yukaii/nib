@@ -42,12 +42,17 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     public var deviceName: String
     public var surfaceWidth: Double
     public var surfaceHeight: Double
+    /// Fresh base64-encoded nonce and HMAC proof used after pairing.
+    public var nonce: String?
+    public var proof: String?
 
     public init(
       protocolVersion: UInt8 = ProtocolVersion.control, appVersion: String, deviceID: String = "",
       deviceName: String,
       surfaceWidth: Double,
-      surfaceHeight: Double
+      surfaceHeight: Double,
+      nonce: String? = nil,
+      proof: String? = nil
     ) {
       self.protocolVersion = protocolVersion
       self.appVersion = appVersion
@@ -55,10 +60,12 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       self.deviceName = deviceName
       self.surfaceWidth = surfaceWidth
       self.surfaceHeight = surfaceHeight
+      self.nonce = nonce
+      self.proof = proof
     }
 
     private enum CodingKeys: String, CodingKey {
-      case protocolVersion, appVersion, deviceID, deviceName, surfaceWidth, surfaceHeight
+      case protocolVersion, appVersion, deviceID, deviceName, surfaceWidth, surfaceHeight, nonce, proof
     }
 
     public init(from decoder: Decoder) throws {
@@ -69,6 +76,8 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       deviceName = try values.decode(String.self, forKey: .deviceName)
       surfaceWidth = try values.decode(Double.self, forKey: .surfaceWidth)
       surfaceHeight = try values.decode(Double.self, forKey: .surfaceHeight)
+      nonce = try values.decodeIfPresent(String.self, forKey: .nonce)
+      proof = try values.decodeIfPresent(String.self, forKey: .proof)
     }
   }
 
@@ -79,10 +88,12 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     public var displayWidth: Double
     public var displayHeight: Double
     public var host: HostInfo?
+    public var nonce: String?
+    public var proof: String?
 
     public init(
       accepted: Bool, reason: String? = nil, udpPort: UInt16 = 0, displayWidth: Double = 0,
-      displayHeight: Double = 0, host: HostInfo? = nil
+      displayHeight: Double = 0, host: HostInfo? = nil, nonce: String? = nil, proof: String? = nil
     ) {
       self.accepted = accepted
       self.reason = reason
@@ -90,6 +101,43 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       self.displayWidth = displayWidth
       self.displayHeight = displayHeight
       self.host = host
+      self.nonce = nonce
+      self.proof = proof
+    }
+  }
+
+  public struct PairRequest: Codable, Equatable, Sendable {
+    public var deviceID: String
+    public var deviceName: String
+    public var publicKey: String
+    public var nonce: String
+    public init(deviceID: String, deviceName: String, publicKey: String, nonce: String) {
+      self.deviceID = deviceID
+      self.deviceName = deviceName
+      self.publicKey = publicKey
+      self.nonce = nonce
+    }
+  }
+
+  public struct PairResponse: Codable, Equatable, Sendable {
+    public var hostID: String
+    public var hostName: String
+    public var publicKey: String
+    public var nonce: String
+    public init(hostID: String, hostName: String, publicKey: String, nonce: String) {
+      self.hostID = hostID
+      self.hostName = hostName
+      self.publicKey = publicKey
+      self.nonce = nonce
+    }
+  }
+
+  public struct PairResult: Codable, Equatable, Sendable {
+    public var accepted: Bool
+    public var reason: String?
+    public init(accepted: Bool, reason: String? = nil) {
+      self.accepted = accepted
+      self.reason = reason
     }
   }
 
@@ -132,12 +180,16 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   case probeReply(sentAtNs: UInt64)
   case gesture(Gesture)
   case frontApp(FrontApp)
+  case pairRequest(PairRequest)
+  case pairResponse(PairResponse)
+  case pairResult(PairResult)
 
   private enum CodingKeys: String, CodingKey {
-    case type, hello, helloAck, geometry, sentAtNs, gesture, frontApp
+    case type, hello, helloAck, geometry, sentAtNs, gesture, frontApp, pairRequest, pairResponse, pairResult
   }
   private enum Kind: String, Codable, CaseIterable {
-    case hello, helloAck, geometry, ping, probe, probeReply, gesture, frontApp
+    case hello, helloAck, geometry, ping, probe, probeReply, gesture, frontApp, pairRequest, pairResponse,
+      pairResult
   }
 
   static func isKnownType(_ value: String) -> Bool { Kind(rawValue: value) != nil }
@@ -153,6 +205,9 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .probeReply: self = .probeReply(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
     case .gesture: self = .gesture(try container.decode(Gesture.self, forKey: .gesture))
     case .frontApp: self = .frontApp(try container.decode(FrontApp.self, forKey: .frontApp))
+    case .pairRequest: self = .pairRequest(try container.decode(PairRequest.self, forKey: .pairRequest))
+    case .pairResponse: self = .pairResponse(try container.decode(PairResponse.self, forKey: .pairResponse))
+    case .pairResult: self = .pairResult(try container.decode(PairResult.self, forKey: .pairResult))
     }
   }
 
@@ -182,6 +237,15 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .frontApp(let frontApp):
       try container.encode(Kind.frontApp, forKey: .type)
       try container.encode(frontApp, forKey: .frontApp)
+    case .pairRequest(let request):
+      try container.encode(Kind.pairRequest, forKey: .type)
+      try container.encode(request, forKey: .pairRequest)
+    case .pairResponse(let response):
+      try container.encode(Kind.pairResponse, forKey: .type)
+      try container.encode(response, forKey: .pairResponse)
+    case .pairResult(let result):
+      try container.encode(Kind.pairResult, forKey: .type)
+      try container.encode(result, forKey: .pairResult)
     }
   }
 }
