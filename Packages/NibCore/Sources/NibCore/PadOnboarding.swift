@@ -12,9 +12,13 @@ public enum MacSelectionPolicy {
   /// Keeps the first Bonjour result for each service name. A service can be
   /// reported once per network interface, so callers must not build a
   /// unique-keys dictionary directly from browse results.
-  public static func deduplicatedNames(_ results: [String]) -> [String] {
+  public static func deduplicated<T>(_ results: [(String, T)]) -> [(String, T)] {
     var seen = Set<String>()
-    return results.filter { seen.insert($0).inserted }
+    return results.filter { seen.insert($0.0).inserted }
+  }
+
+  public static func deduplicatedNames(_ results: [String]) -> [String] {
+    deduplicated(results.map { ($0, ()) }).map(\.0)
   }
 
   public static func choose(remembered: String?, results: [String]) -> MacSelection {

@@ -318,9 +318,7 @@ public final class PenLinkSender {
           guard case .service(let name, _, _, _) = result.endpoint else { return nil }
           return (name, result)
         }
-        var unique: [(String, NWBrowser.Result)] = []
-        var seen = Set<String>()
-        for item in named where seen.insert(item.0).inserted { unique.append(item) }
+        let unique = MacSelectionPolicy.deduplicated(named)
         self.resultsByName = unique.reduce(into: [:]) { $0[$1.0] = $1.1 }
         self.discoveredHosts = unique.map(\.0).sorted()
         self.latestResult = unique.first(where: { $0.0 == self.selectedHost })?.1

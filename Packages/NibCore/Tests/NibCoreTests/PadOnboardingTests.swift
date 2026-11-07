@@ -5,7 +5,8 @@ import Testing
 struct PadOnboardingTests {
   @Test func duplicateBonjourNamesKeepFirstResult() {
     #expect(
-      MacSelectionPolicy.deduplicatedNames(["Studio", "Studio", "Travel"])
+      MacSelectionPolicy.deduplicated([("Studio", 1), ("Studio", 2), ("Travel", 3)])
+        .map(\.0)
         == ["Studio", "Travel"])
   }
   @Test func rememberedMacWinsWhenPresent() {
