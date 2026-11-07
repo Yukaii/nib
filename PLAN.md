@@ -5,7 +5,8 @@ Started 2026-11-07. Integration branch: `main`. Keep under 120 lines.
 ## Current focus
 
 M1 — prove the hard requirement end to end: a Pencil stroke on the iPad
-arrives in Krita on the Mac with varying pressure.
+arrives in Krita on the Mac with varying pressure. All M1 tasks are merged;
+waiting on the manual exit check below (needs the iPad, Accessibility, Krita).
 
 ## Milestones
 
