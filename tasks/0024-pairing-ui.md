@@ -1,7 +1,7 @@
 ---
 id: "0024"
 title: Pairing UI on Mac and iPad, Keychain keys, retire the allow list
-status: todo
+status: doing
 milestone: M3
 depends: ["0022"]
 ---

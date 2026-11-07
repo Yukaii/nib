@@ -365,8 +365,9 @@ struct PairingTests {
     } else {
       Issue.record("bad proof must reject")
     }
-    // Valid proof → needsAccept, then acceptHello mints a verifiable host proof.
-    if case .needsAccept(let h) = link.receiveHello(
+    // Valid proof → authenticated (no accept prompt), then acceptHello mints a
+    // verifiable host proof.
+    if case .authenticated(let h) = link.receiveHello(
       hello(nonce: nonce, proof: proof), connectionGeneration: 1, busy: false, now: 0)
     {
       let ack = link.acceptHello(
@@ -470,10 +471,10 @@ struct PairingTests {
     let fresh = deviceLink.makeHello()
     #expect(fresh.nonce != nil)
     guard
-      case .needsAccept(let h) = hostLink.receiveHello(
+      case .authenticated(let h) = hostLink.receiveHello(
         fresh, connectionGeneration: 1, busy: false, now: 1)
     else {
-      Issue.record("fresh authenticated hello must need accept, got pairingRequired or reject")
+      Issue.record("fresh authenticated hello must be accepted without a prompt")
       return
     }
     let acceptedAck = hostLink.acceptHello(

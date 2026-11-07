@@ -741,6 +741,9 @@ public final class PenLinkReceiver {
   private let lockedStats = LockedStats()
   private let sampleSink = SampleSink()
   private let lastPacketAt = LockedTimestamp()
+  // Closed while a USB connection is pairing-only, so unauthenticated samples
+  // are never injected. One uncontended lock per sample (~20 ns against a
+  // ~4 ms sample interval); `Atomic` would need macOS 15.
   private let sampleGate = LockedFlag()
   private var linkStats = LinkStats()
   private var rttSamples: [Double] = []
@@ -1095,16 +1098,22 @@ public final class PenLinkReceiver {
         // Keep the connection open in a pairing-only state.
         sendControl(.helloAck(ack))
         return
-      case .needsAccept:
+      case .needsAccept, .authenticated:
         break
       }
       // The prompt may take seconds; a newer unaccepted connection can
       // replace this one meanwhile, and must not inherit the answer.
       let asking = connection
-      let allowed = await accept(hello)
-      guard let asking, connection === asking, !hostLink.sessionConnected else {
-        asking?.cancel()
-        return
+      let allowed: Bool
+      if case .authenticated = outcome {
+        // A paired iPad proved its key; pairing already had the user's consent.
+        allowed = true
+      } else {
+        allowed = await accept(hello)
+        guard let asking, connection === asking, !hostLink.sessionConnected else {
+          asking?.cancel()
+          return
+        }
       }
       guard allowed else {
         sendControl(.helloAck(.init(accepted: false, reason: "rejected")))

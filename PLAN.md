@@ -9,8 +9,8 @@ notarized DMG for the Mac, App Store for the iPad, GitHub Sponsors. Rust
 hosts for Windows/Linux later (M5).
 
 M3 in progress: protocol v2 (0016-0018), CI, Mac and iPad onboarding merged.
-Pairing core (0022) in review round 2; pairing UI (0024) and encrypted
-sessions (0023) follow. Then the iPad
+Pairing core (0022) merged; pairing UI (0024) running, encrypted sessions
+(0023) next. Then the iPad
 settings restructure and the Mac settings window.
 
 ## Milestones
@@ -41,7 +41,7 @@ settings restructure and the Mac settings window.
 - [x] 0020 Mac onboarding: setup window, Accessibility + auto-relaunch,
   pressure test canvas, launch at login
 - [x] 0021 iPad onboarding: welcome, choose a Mac, pressure check, gesture guide
-- [ ] 0022 Pairing core: commit-reveal numeric code, proofs, transport handling
+- [x] 0022 Pairing core: commit-reveal numeric code, proofs, transport handling
 - [ ] 0024 Pairing UI on Mac and iPad, Keychain keys, retire the allow list
 - [ ] 0023 Encrypted sessions: ChaCha20-Poly1305 control frames and samples
 - [ ] iPad settings restructure (Pen / Profiles / Gestures / Display / Advanced)

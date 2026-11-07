@@ -39,7 +39,11 @@ public struct HostLink: Sendable {
   public enum HelloOutcome: Sendable, Equatable {
     case reject(ControlMessage.HelloAck, disconnect: Bool)
     case pairingRequired(ControlMessage.HelloAck)
+    /// Legacy path (no key store): the app's accept prompt decides.
     case needsAccept(ControlMessage.Hello)
+    /// Verified proof under a stored key: pairing already had the user's
+    /// consent, so no prompt.
+    case authenticated(ControlMessage.Hello)
     case busy(ControlMessage.HelloAck)
   }
 
@@ -76,10 +80,10 @@ public struct HostLink: Sendable {
       _ = key
       return .reject(.init(accepted: false, reason: "Pair again"), disconnect: true)
     }
-    // Authenticated and not busy: the caller runs its accept prompt, then
-    // calls `acceptHello` to mint the host proof.
+    // Authenticated and not busy: the caller calls `acceptHello` (no prompt)
+    // to mint the host proof.
     pairingOnlyGeneration = nil
-    return .needsAccept(hello)
+    return .authenticated(hello)
   }
 
   /// Called after the user accept prompt allows the hello. Returns the ack to
