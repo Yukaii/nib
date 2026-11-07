@@ -227,8 +227,8 @@ public final class PenLinkSender {
       }
       state = .connected(name)
       startHeartbeat()
-    case .ping:
-      sendControl(.ping)
+    // Pings are never echoed: both sides send their own every second, and
+    // echoing would make each one ping-pong forever.
     default: break
     }
   }
@@ -433,7 +433,15 @@ public final class PenLinkReceiver {
         connection = nil
         return
       }
-      guard await accept(hello) else {
+      // The prompt may take seconds; a newer unaccepted connection can
+      // replace this one meanwhile, and must not inherit the answer.
+      let asking = connection
+      let allowed = await accept(hello)
+      guard let asking, connection === asking, !sessionConnected else {
+        asking?.cancel()
+        return
+      }
+      guard allowed else {
         sendControl(.helloAck(.init(accepted: false, reason: "rejected")))
         connection?.cancel()
         connection = nil
@@ -457,7 +465,6 @@ public final class PenLinkReceiver {
     case .ping:
       guard sessionConnected else { return }
       session.received(at: now)
-      sendControl(.ping)
     case .helloAck: break
     }
   }

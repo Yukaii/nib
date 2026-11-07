@@ -93,5 +93,8 @@ Manual checks: Not run. Steps:
 - Draw and watch the pressure values rise and fall on the Mac.
 - Ctrl-C `nib-receive` → the HUD shows searching within ~3 s; restart it → reconnects.
 - Turn the iPad's Wi-Fi off → the Mac prints session disconnected within ~3 s.
+Review fixes (orchestrator): pings are no longer echoed (both sides
+  echoed → unbounded ping-pong); accept() answer is applied only to the
+  connection that asked.
 Not done / risks: Manual iPad/Mac checks were not run; pairing/encryption and display geometry values remain task 0006 scope.
 ```
