@@ -83,8 +83,8 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
 
   private func modifier(for value: PadSettings.ZoomModifier) -> Gesture.Modifier {
     switch value {
-    case .command: return .command
-    case .option: return .option
+    case .primary: return .primary
+    case .alt: return .alt
     case .control: return .control
     }
   }

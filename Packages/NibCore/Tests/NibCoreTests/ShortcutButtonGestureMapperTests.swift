@@ -2,7 +2,7 @@ import NibCore
 import Testing
 
 struct ShortcutButtonGestureMapperTests {
-  private let chord = Gesture.KeyChord(keyCode: 11, modifiers: [.command])
+  private let chord = Gesture.KeyChord(key: "KeyB", modifiers: [.primary])
 
   @Test func tapButtonEmitsOneTapOnRelease() {
     let button = PadSettings.ShortcutButton(label: "B", chord: chord)

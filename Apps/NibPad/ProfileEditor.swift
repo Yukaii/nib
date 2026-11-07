@@ -173,8 +173,8 @@ struct ProfileEditor: View {
       }
       Toggle("Two-finger rotate", isOn: profile.gestures.rotate)
       Picker("Zoom modifier", selection: profile.gestures.zoomModifier) {
-        Text("⌘").tag(PadSettings.ZoomModifier.command)
-        Text("⌥").tag(PadSettings.ZoomModifier.option)
+        Text("⌘").tag(PadSettings.ZoomModifier.primary)
+        Text("⌥").tag(PadSettings.ZoomModifier.alt)
         Text("⌃").tag(PadSettings.ZoomModifier.control)
       }
       .pickerStyle(.segmented)
@@ -192,7 +192,8 @@ private struct ButtonRow: View {
   let delete: () -> Void
 
   private static let modifiers: [(NibCore.Gesture.Modifier, String)] = [
-    (.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘"),
+    (.primary, "⌘ Primary"), (.control, "⌃ Control"), (.alt, "⌥ Alt"),
+    (.shift, "⇧ Shift"), (.meta, "Meta"),
   ]
 
   var body: some View {
@@ -219,9 +220,9 @@ private struct ButtonRow: View {
         }
         Spacer()
         NavigationLink {
-          KeyPicker(keyCode: $button.chord.keyCode)
+          KeyPicker(key: $button.chord.key)
         } label: {
-          Text("Key: \(button.chord.keyCode.flatMap(KeyNames.name(for:)) ?? "None")")
+          Text("Key: \(button.chord.key.flatMap(KeyNames.name(for:)) ?? "None")")
         }
         .fixedSize()
       }
@@ -246,7 +247,7 @@ private struct ButtonRow: View {
 
 /// Keyboard-free key choice from the NibCore table.
 private struct KeyPicker: View {
-  @Binding var keyCode: UInt16?
+  @Binding var key: String?
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
@@ -258,18 +259,18 @@ private struct KeyPicker: View {
           Text("None (modifiers only)").frame(maxWidth: .infinity).padding(10)
         }
         .buttonStyle(.bordered)
-        .tint(keyCode == nil ? .cyan : .gray)
+        .tint(key == nil ? .cyan : .gray)
         ForEach(KeyNames.Group.allCases, id: \.self) { group in
           Text(group.rawValue).font(.headline)
           LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
-            ForEach(KeyNames.keys(in: group), id: \.code) { key in
+            ForEach(KeyNames.keys(in: group), id: \.code) { item in
               Button {
-                select(key.code)
+                select(item.code)
               } label: {
-                Text(key.name).frame(maxWidth: .infinity).padding(.vertical, 10)
+                Text(item.name).frame(maxWidth: .infinity).padding(.vertical, 10)
               }
               .buttonStyle(.bordered)
-              .tint(keyCode == key.code ? .cyan : .gray)
+              .tint(self.key == item.code ? .cyan : .gray)
             }
           }
         }
@@ -280,8 +281,8 @@ private struct KeyPicker: View {
     .navigationBarTitleDisplayMode(.inline)
   }
 
-  private func select(_ code: UInt16?) {
-    keyCode = code
+  private func select(_ code: String?) {
+    key = code
     dismiss()
   }
 }

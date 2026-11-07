@@ -30,7 +30,7 @@ import Testing
   let defaults = UserDefaults(suiteName: suite)!
   defer { defaults.removePersistentDomain(forName: suite) }
   let store = PadSettingsStore(defaults: defaults)
-  store.settings = PadSettings(pressure: .firm, gestures: .init(pinchZoom: false, zoomModifier: .option))
+  store.settings = PadSettings(pressure: .firm, gestures: .init(pinchZoom: false, zoomModifier: .alt))
   let reloaded = PadSettingsStore(defaults: defaults)
   #expect(reloaded.settings == store.settings)
 }
