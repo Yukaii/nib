@@ -59,9 +59,20 @@ ignores fingers, and can show a debug HUD of the live values.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3-15dfc55b @ b64392a026c2ec10f39e1cddc14fa725ef8fb3d7
+Verify: verify: ok (Test run with 5 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added platform-neutral PencilNormalizer with bounds, pressure, angle, and hover mapping.
+- Added deterministic normalizer tests for clamping, zero-force maximum, azimuth wrapping, and hover endpoints.
+- Added UIKit Pencil capture surface with pencil-only touch handling, coalesced/predicted samples, hover/proximity events, sequence/timestamp generation, eraser toggle tap/squeeze, and LoggingSink.
+- Added black full-screen SwiftUI wrapper, screen-off brightness/idle behavior, and three-finger debug HUD with pressure, pose, hover, rate placeholder, and trace.
+Manual checks: Not run (requires iPad mini hardware). Install the unsigned NibPad build on an iPad mini, open the HUD with a three-finger tap, press harder to see the pressure bar rise, tilt to see altitude change, and draw with a finger to confirm no samples are emitted.
+Review fixes (orchestrator): live HUD rate, 1 s fading trace only while HUD is
+  visible, re-dim on didBecomeActive, proximityExit debounced 150 ms and
+  suppressed during contact (also sent after lift on hover-less Pencil 2),
+  HUD tap counts fingers only, NaN-safe normalizer, corner tests.
+Manual checks (added): with HUD on, lift and re-hover quickly → no exit
+  sample between strokes; background/foreground → screen dims again.
+Not done / risks: predicted samples are sent as kind .move with flag
+  .predicted; the Mac (0006) must not inject them. Networking is task 0005.
 ```

@@ -1,11 +1,12 @@
-import NibCore
 import SwiftUI
 
 @main
 struct NibPadApp: App {
+  @MainActor private let sink = LoggingSink()
+
   var body: some Scene {
     WindowGroup {
-      Color.black
+      PenCaptureRepresentable(sink: sink)
         .ignoresSafeArea()
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
