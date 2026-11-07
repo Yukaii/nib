@@ -1,0 +1,58 @@
+name: Nib
+options:
+  bundleIdPrefix: dev.yukai.nib
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "0.1.0"
+packages:
+  NibCore:
+    path: Packages/NibCore
+targets:
+  NibMac:
+    type: application
+    platform: macOS
+    sources: [Apps/NibMac]
+    dependencies:
+      - package: NibCore
+    info:
+      path: Apps/NibMac/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: Nib
+        NSLocalNetworkUsageDescription: Nib receives Apple Pencil input from your iPad over the local network.
+        NSBonjourServices: [_nib._udp, _nib._tcp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.yukai.nib.mac
+        ENABLE_HARDENED_RUNTIME: YES
+  NibPad:
+    type: application
+    platform: iOS
+    sources: [Apps/NibPad]
+    dependencies:
+      - package: NibCore
+    info:
+      path: Apps/NibPad/Info.plist
+      properties:
+        CFBundleDisplayName: Nib
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        NSLocalNetworkUsageDescription: Nib sends Apple Pencil input to your Mac over the local network.
+        NSBonjourServices: [_nib._udp, _nib._tcp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.yukai.nib.pad
+        TARGETED_DEVICE_FAMILY: "2"
