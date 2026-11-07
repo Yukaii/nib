@@ -71,5 +71,6 @@ Manual checks:
 - Open Krita, create a new canvas, select a pressure-size brush such as “Basic-5 Size”, then open Settings › Configure Krita › Tablet settings tester and watch the pressure/tilt values.
 - Expected result: the demo draws a thin-thick-thin S-curve of about 400 pt width while the tester shows changing pressure and tilt.
 - Not run: this requires Accessibility permission, Krita, and a live desktop session.
+Review fix (orchestrator): device/vendor/pointer IDs kept within UInt16 (IOLLEvent.h field width).
 Not done / risks: Real drawing-app behavior remains for the orchestrator's manual Krita check; no decision document change was needed.
 ```

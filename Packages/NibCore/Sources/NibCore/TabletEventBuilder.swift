@@ -4,12 +4,14 @@
 
   /// Builds the Quartz event sequence for one Pencil stream.
   public struct TabletEventBuilder {
-    public static let defaultDeviceID: Int64 = 0x4E49_4201
+    // IOLLEvent.h stores device, vendor and pointer IDs as UInt16; wider
+    // values are silently truncated, so keep them in range.
+    public static let defaultDeviceID: Int64 = 0x4E42
 
     private static let penPointerType: Int64 = 1
     private static let eraserPointerType: Int64 = 3
-    private static let pointerID: Int64 = 0x4E49_4201
-    private static let vendorID: Int64 = 0x4E49_4202
+    private static let pointerID: Int64 = 0x0001
+    private static let vendorID: Int64 = 0x4E42
     // IOLLEvent.h capability bits: device id, absolute axes, buttons, tilt and pressure.
     private static let capabilityDeviceID: Int64 = 0x0001
     private static let capabilityAbsoluteX: Int64 = 0x0002
