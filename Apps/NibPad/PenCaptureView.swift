@@ -41,6 +41,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private var pendingProximityExit: Task<Void, Never>?
   private var inkPoints: [(point: CGPoint, time: TimeInterval)] = []
   private var sampleTimes: [TimeInterval] = []
+  private var edgeTouchRoutes: [ObjectIdentifier: EdgeControlsView.Route] = [:]
   private static let traceLifetime: TimeInterval = 1.0
   // Hover ends the moment the Pencil touches the glass, and a lifted Pencil
   // may resume hovering a few frames later; only a lasting absence is an exit.
@@ -105,7 +106,11 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     if window != nil { activateScreenOffMode() } else { restoreScreen() }
   }
 
-  @objc private func willResignActive() { restoreScreen() }
+  @objc private func willResignActive() {
+    edgeControls.releaseAll()
+    edgeTouchRoutes.removeAll()
+    restoreScreen()
+  }
 
   @objc private func didBecomeActive() {
     if window != nil { activateScreenOffMode() }
@@ -137,6 +142,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     guard panelOpen != open else { return }
     panelOpen = open
     if open {
+      edgeControls.releaseAll()
+      edgeTouchRoutes.removeAll()
       // Sends stop while the panel is open; release the pen on the Mac first so
       // a stroke or hover in progress cannot leave the button held.
       cancelProximityExit()
@@ -189,19 +196,44 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   }
 
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    edgeControls.refresh()
+    for touch in touches where touch.type == .direct {
+      let id = ObjectIdentifier(touch)
+      if let route = edgeControls.route(at: touch.location(in: edgeControls)) {
+        edgeTouchRoutes[id] = route
+        edgeControls.touchBegan(route, touchID: id, point: touch.location(in: edgeControls))
+      }
+    }
     handle(touches, kind: .down, event: event)
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for touch in touches where touch.type == .direct {
+      let id = ObjectIdentifier(touch)
+      if let route = edgeTouchRoutes[id] {
+        edgeControls.touchMoved(route, point: touch.location(in: edgeControls))
+      }
+    }
     handle(touches, kind: .move, event: event)
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    finishEdgeTouches(touches, cancelled: false)
     handle(touches, kind: .up, event: event)
   }
 
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    finishEdgeTouches(touches, cancelled: true)
     handle(touches, kind: .cancel, event: event)
+  }
+
+  private func finishEdgeTouches(_ touches: Set<UITouch>, cancelled: Bool) {
+    for touch in touches where touch.type == .direct {
+      let id = ObjectIdentifier(touch)
+      if let route = edgeTouchRoutes.removeValue(forKey: id) {
+        edgeControls.touchEnded(route, touchID: id, cancelled: cancelled)
+      }
+    }
   }
 
   private func handle(_ touches: Set<UITouch>, kind: PenSample.Kind, event: UIEvent?) {
