@@ -1,7 +1,7 @@
 ---
 id: "0006"
 title: NibMac wiring — receive, map to display, inject; Accessibility onboarding
-status: todo
+status: doing
 milestone: M1
 depends: ["0003", "0005"]
 ---
