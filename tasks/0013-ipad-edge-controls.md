@@ -64,7 +64,7 @@ active profile.
 ## Handoff
 
 ```
-Branch/commit: t3/ipad-edge-controls @ 9a1508650ec6576b6c9c0da217165c5bd6ab99b4
+Branch/commit: t3/ipad-edge-controls @ b42e7cc94e997c22aae8be00de52aaf98be420d8
 Verify: verify: ok (Test run with 84 tests; NibMac + NibPad built)
 Done:
 - Added faint edge shortcut buttons with tap and hold/cancel key lifecycle mapping.
