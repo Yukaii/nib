@@ -1,7 +1,17 @@
 import Foundation
 
 /// The host platforms understood by protocol v2.
-public enum HostPlatform: String, Codable, Sendable { case macos, windows, linux }
+public enum HostPlatform: String, Codable, Sendable {
+  case macos, windows, linux
+
+  public var displayName: String {
+    switch self {
+    case .macos: "macOS"
+    case .windows: "Windows"
+    case .linux: "Linux"
+    }
+  }
+}
 
 /// Finger input sent over the reliable control channel.
 public enum Gesture: Codable, Equatable, Sendable {
@@ -66,7 +76,9 @@ public enum Gesture: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case type, dx, dy, scaleDelta, degreesDelta, phase, modifier, method, chord, action
   }
-  private enum Kind: String, Codable { case scroll, zoom, rotate, undo, redo, key }
+  private enum Kind: String, Codable, CaseIterable { case scroll, zoom, rotate, undo, redo, key }
+
+  static func isKnownType(_ value: String) -> Bool { Kind(rawValue: value) != nil }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)

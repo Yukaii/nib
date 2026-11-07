@@ -118,8 +118,11 @@ struct TransportTests {
   @Test func receiverSessionRejectsVersionAndBusy() {
     var version = ReceiverSession()
     #expect(
-      version.hello(protocolVersion: PenSample.version, busy: false, acceptResult: true, now: 0)
-        == .rejected("This Mac runs Nib 0.2 (protocol 2). Update Nib on your iPad."))
+      version.hello(protocolVersion: 1, busy: false, acceptResult: true, now: 0, hostAppVersion: "0.4.1")
+        == .rejected("This Mac runs Nib 0.4.1 (protocol 2). Update Nib on your iPad."))
+    #expect(
+      version.hello(protocolVersion: 3, busy: false, acceptResult: true, now: 0, hostAppVersion: "0.4.1")
+        == .rejected("This Mac runs Nib 0.4.1 (protocol 2). Update Nib on your Mac."))
     #expect(
       version.hello(
         protocolVersion: ControlMessage.ProtocolVersion.control, busy: false, acceptResult: false, now: 0)
@@ -158,8 +161,24 @@ extension TransportTests {
     }
   }
 
+  @Test func unknownGestureKindsAreSkippedOnControlAndUSB() throws {
+    let body = #"{"type":"gesture","gesture":{"type":"futureGesture","x":1}}"#
+    let bytes =
+      ControlFramer.encode(.ping)
+      + [UInt8(body.utf8.count), 0, 0, 0] + Array(body.utf8)
+      + ControlFramer.encode(.probe(sentAtNs: 9))
+    var control = ControlFramer()
+    #expect(try control.append(bytes) == [.ping, .probe(sentAtNs: 9)])
+    var usb = StreamFramer()
+    let unknownFrame = [StreamFramer.controlType, UInt8(body.utf8.count), 0, 0, 0] + Array(body.utf8)
+    let usbBytes =
+      StreamFramer.encode(.control(.ping)) + unknownFrame
+      + StreamFramer.encode(.control(.probe(sentAtNs: 9)))
+    #expect(try usb.append(usbBytes) == [.control(.ping), .control(.probe(sentAtNs: 9))])
+  }
+
   @Test func frontAppRoundTripsThroughControlAndUSBFramers() throws {
-    let message = ControlMessage.frontApp(.init(bundleID: "org.kde.krita", name: "Krita"))
+    let message = ControlMessage.frontApp(.init(appID: "org.kde.krita", name: "Krita"))
     var control = ControlFramer()
     #expect(try control.append(control.encode(message)) == [message])
     var stream = StreamFramer()

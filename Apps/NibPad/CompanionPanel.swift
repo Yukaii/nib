@@ -24,7 +24,7 @@ struct CompanionPanel: View {
             Text("Link: \(linkState)").font(.footnote).foregroundStyle(.secondary)
             if let hostInfo {
               Text(
-                "Connected to \(hostInfo.name) (\(hostInfo.platform.rawValue), Nib \(hostInfo.appVersion))"
+                "Connected to \(hostInfo.name) (\(hostInfo.platform.displayName), Nib \(hostInfo.appVersion))"
               )
               .font(.footnote).foregroundStyle(.secondary)
             }

@@ -17,6 +17,7 @@ import Testing
   #expect(
     KeyNames.displayName(for: .init(key: "KeyZ", modifiers: [.primary, .shift]), platform: .windows)
       == "Ctrl+Shift+Z")
+  #expect(KeyNames.modifierSymbols([.primary, .control], platform: .linux) == "Ctrl")
   #expect(KeyNames.displayName(for: .init(modifiers: [.control])) == "⌃")
   #expect(KeyNames.displayName(for: .init()) == "None")
   #expect(KeyNames.displayName(for: .init(key: "Lang9", modifiers: [.primary])) == "⌘Lang9")

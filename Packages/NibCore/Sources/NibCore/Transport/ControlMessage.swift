@@ -109,12 +109,6 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       self.appID = appID
       self.name = name
     }
-    public init(bundleID: String, name: String) { self.init(appID: bundleID, name: name) }
-    public var bundleID: String {
-      get { appID }
-      set { appID = newValue }
-    }
-
     private enum CodingKeys: String, CodingKey { case appID, bundleID, name }
     public init(from decoder: Decoder) throws {
       let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -142,9 +136,11 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case type, hello, helloAck, geometry, sentAtNs, gesture, frontApp
   }
-  private enum Kind: String, Codable {
+  private enum Kind: String, Codable, CaseIterable {
     case hello, helloAck, geometry, ping, probe, probeReply, gesture, frontApp
   }
+
+  static func isKnownType(_ value: String) -> Bool { Kind(rawValue: value) != nil }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -231,11 +227,15 @@ public struct ControlFramer: Sendable {
       guard let object = try? JSONSerialization.jsonObject(with: Data(body)),
         let dictionary = object as? [String: Any], let type = dictionary["type"] as? String
       else { throw Error.malformed }
-      let knownTypes = [
-        "hello", "helloAck", "geometry", "ping", "probe", "probeReply", "gesture", "frontApp",
-      ]
-      guard knownTypes.contains(type) else { continue }
+      guard ControlMessage.isKnownType(type) else { continue }
       do { messages.append(try decoder.decode(ControlMessage.self, from: Data(body))) } catch {
+        if type == "gesture",
+          let gesture = dictionary["gesture"] as? [String: Any],
+          let gestureType = gesture["type"] as? String,
+          !Gesture.isKnownType(gestureType)
+        {
+          continue
+        }
         throw Error.malformed
       }
     }

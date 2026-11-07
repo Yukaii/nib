@@ -78,7 +78,11 @@ public enum KeyNames {
     let names: [(Gesture.Modifier, String)] = [
       (.primary, "Ctrl"), (.control, "Ctrl"), (.alt, "Alt"), (.shift, "Shift"), (.meta, "Meta"),
     ]
-    return names.filter { modifiers.contains($0.0) }.map(\.1).joined(separator: "+")
+    var result: [String] = []
+    for (modifier, name) in names where modifiers.contains(modifier) && !result.contains(name) {
+      result.append(name)
+    }
+    return result.joined(separator: "+")
   }
 
   public static func displayName(for chord: Gesture.KeyChord, platform: HostPlatform = .macos) -> String {

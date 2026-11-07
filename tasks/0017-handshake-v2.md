@@ -74,14 +74,14 @@ reason.
 ## Handoff
 
 ```
-Branch/commit: t3/handshake-v2-migration @ c8dbc4e9d41ac18552f134fe31102cae7a06bf52
-Verify: verify: ok (Test run with 112 tests; NibMac + NibPad built)
+Branch/commit: t3/handshake-v2-review-fixes @ c390fdc
+Verify: verify: ok (Test run with 115 tests; NibMac + NibPad built)
 Done:
-- Added protocol v2 handshake fields, host metadata, capabilities, stable iPad device ID, and bundle-derived app versions.
-- Added forward-compatible control framing on TCP and USB, with malformed known messages still rejected.
-- Added lossless `bundleIDPrefixes` to `appIDPrefixes` settings migration and app ID front-app wiring.
-- Added host capability-aware iPad profile controls and device-ID-based Mac acceptance.
-- Added deterministic handshake and framer tests.
+- Preserved saved zoom and rotate choices offline and applied host capability fallback only when sending gestures.
+- Centralized protocol mismatch reasons using the Mac's advertised app version and update direction for TCP and USB.
+- Ignored unknown gesture kinds while retaining malformed-message rejection, with control and USB tests.
+- Removed requested compatibility shims, deduplicated Windows/Linux modifier labels, and added platform display names.
+- Added deterministic regression tests for capability policy, version directions, unknown gestures, and modifier display.
 Manual checks: Real iPad/Mac handshake, remembered-device behavior, and capability fallback not run (hardware/manual UI required).
 Not done / risks: USB and Wi-Fi runtime handshake were not exercised on hardware; existing Swift concurrency warnings in USB receive code remain.
-```
+

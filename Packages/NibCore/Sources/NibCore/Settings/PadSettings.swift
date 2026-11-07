@@ -107,18 +107,6 @@ public struct PadSettings: Codable, Equatable, Sendable {
       self.strip = strip
       self.gestures = gestures
     }
-    public init(
-      id: UUID = UUID(), name: String, bundleIDPrefixes: [String], buttons: [ShortcutButton] = [],
-      strip: Strip = Strip(), gestures: Gestures = Gestures()
-    ) {
-      self.init(
-        id: id, name: name, appIDPrefixes: bundleIDPrefixes, buttons: buttons, strip: strip,
-        gestures: gestures)
-    }
-    public var bundleIDPrefixes: [String] {
-      get { appIDPrefixes }
-      set { appIDPrefixes = newValue }
-    }
     private enum CodingKeys: String, CodingKey {
       case id, name, appIDPrefixes, bundleIDPrefixes, buttons, strip, gestures
     }
@@ -178,7 +166,6 @@ public struct PadSettings: Codable, Equatable, Sendable {
       $0.appIDPrefixes.contains(where: { !$0.isEmpty && appID.hasPrefix($0) })
     }) ?? profiles.first ?? Profile(name: "Default")
   }
-  public func profile(forBundleID bundleID: String) -> Profile { profile(forAppID: bundleID) }
   public func isDefault(_ id: UUID) -> Bool { profiles.first?.id == id }
   /// Adds a copy of Default's buttons and gestures, unbound to any app.
   @discardableResult

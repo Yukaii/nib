@@ -143,12 +143,22 @@ public struct ReceiverSession: Sendable, Equatable {
 
   public init() {}
 
+  public static func versionMismatchReason(remoteProtocol: UInt8, hostAppVersion: String) -> String {
+    let update =
+      remoteProtocol < ControlMessage.ProtocolVersion.control
+      ? "Update Nib on your iPad" : "Update Nib on your Mac"
+    return
+      "This Mac runs Nib \(hostAppVersion) (protocol \(ControlMessage.ProtocolVersion.control)). \(update)."
+  }
+
   public mutating func hello(
-    protocolVersion: UInt8, busy: Bool, acceptResult: Bool, now: TimeInterval
+    protocolVersion: UInt8, busy: Bool, acceptResult: Bool, now: TimeInterval,
+    hostAppVersion: String = "unknown"
   ) -> HelloDecision {
     guard !busy else { return .rejected("busy") }
     guard protocolVersion == ControlMessage.ProtocolVersion.control else {
-      return .rejected("This Mac runs Nib 0.2 (protocol 2). Update Nib on your iPad.")
+      return .rejected(
+        Self.versionMismatchReason(remoteProtocol: protocolVersion, hostAppVersion: hostAppVersion))
     }
     guard acceptResult else { return .rejected("rejected") }
     accepted = true
@@ -677,16 +687,10 @@ public final class PenLinkReceiver {
     switch message {
     case .hello(let hello):
       let decision = session.hello(
-        protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now)
+        protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now,
+        hostAppVersion: hostInfo?.appVersion ?? "unknown")
       if case .rejected(let reason) = decision, reason != "rejected" && reason != "busy" {
         sendControl(.helloAck(.init(accepted: false, reason: reason)))
-        disconnectSession(notify: false)
-        return
-      }
-      if hello.protocolVersion != ControlMessage.ProtocolVersion.control {
-        sendControl(
-          .helloAck(
-            .init(accepted: false, reason: "This Mac runs Nib 0.2 (protocol 2). Update Nib on your iPad.")))
         disconnectSession(notify: false)
         return
       }

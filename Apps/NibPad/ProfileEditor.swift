@@ -49,13 +49,6 @@ struct ProfileEditor: View {
         }
       }
     }
-    .onAppear {
-      if !supports(ControlMessage.Capability.zoomNative),
-        profile.wrappedValue.gestures.zoomMethod == .nativeGesture
-      {
-        profile.wrappedValue.gestures.zoomMethod = .modifierScroll
-      }
-    }
     .preferredColorScheme(.dark)
   }
 
@@ -197,7 +190,7 @@ struct ProfileEditor: View {
   }
 
   private func supports(_ capability: String) -> Bool {
-    hostInfo?.capabilities.contains(capability) ?? false
+    hostInfo?.capabilities.contains(capability) ?? true
   }
 }
 
