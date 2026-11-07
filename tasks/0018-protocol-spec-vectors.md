@@ -1,7 +1,7 @@
 ---
 id: "0018"
 title: Language-neutral protocol spec and golden test vectors
-status: doing
+status: review
 milestone: M3
 depends: ["0016", "0017"]
 ---
@@ -74,9 +74,13 @@ and the vectors agree.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/protocol-spec-vectors @ a31c54a3fe0b4108bdb07087b288d0b0dd561db5
+Verify: verify: ok (Test run with 126 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added the language-neutral v2 protocol specification with discovery, session, framing, controls, gestures, capabilities, samples, and compatibility rules.
+- Added control, sample, invalid-input, and W3C key translation vectors.
+- Added `ProtocolVectorTests` covering decoding, byte-for-byte re-encoding, invalid outcomes, and complete control/gesture case coverage.
+- Enabled sorted JSON object keys for deterministic control framing.
+Manual checks: Corrupted one sample vector hex digit; `swift test --package-path Packages/NibCore --filter sampleVectorsRoundTrip` failed, then restored the vector. Hardware/iPad/Krita checks not run.
+Not done / risks: The implementation intentionally differs from decision 0008 in three documented ways: `ControlFramer` skips unknown control `type`s and unknown gesture `type`s; `frontApp` decodes the legacy `bundleID` key; and the version-mismatch reason comes from `ReceiverSession.versionMismatchReason`.
 ```
