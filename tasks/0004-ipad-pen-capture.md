@@ -59,9 +59,13 @@ ignores fingers, and can show a debug HUD of the live values.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3-15dfc55b @ 9da88288ddc7090bdef1c1f5a8de4660ee4ff40c
+Verify: verify: ok (Test run with 5 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added platform-neutral PencilNormalizer with bounds, pressure, angle, and hover mapping.
+- Added deterministic normalizer tests for clamping, zero-force maximum, azimuth wrapping, and hover endpoints.
+- Added UIKit Pencil capture surface with pencil-only touch handling, coalesced/predicted samples, hover/proximity events, sequence/timestamp generation, eraser toggle tap/squeeze, and LoggingSink.
+- Added black full-screen SwiftUI wrapper, screen-off brightness/idle behavior, and three-finger debug HUD with pressure, pose, hover, rate placeholder, and trace.
+Manual checks: Not run (requires iPad mini hardware). Install the unsigned NibPad build on an iPad mini, open the HUD with a three-finger tap, press harder to see the pressure bar rise, tilt to see altitude change, and draw with a finger to confirm no samples are emitted.
+Not done / risks: Sample-rate HUD currently displays 0 Hz; networking remains task 0005.
 ```
