@@ -49,7 +49,10 @@ private final class NibMacModel: ObservableObject {
       Task { @MainActor in self?.refreshDisplays() }
     }
     accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-      Task { @MainActor in self?.accessibilityTrusted = TabletInjector.isTrusted }
+      Task { @MainActor in
+        guard let self else { return }
+        self.accessibilityTrusted = self.injection.refreshTrust()
+      }
     }
   }
 
@@ -108,6 +111,9 @@ private final class NibMacModel: ObservableObject {
   private func accept(_ hello: ControlMessage.Hello) async -> Bool {
     let rememberKey = "acceptedDevice.\(hello.deviceName)"
     if defaults.bool(forKey: rememberKey) { return true }
+    // A menu-bar-only app is never frontmost; without this the prompt can
+    // open behind the user's drawing app.
+    NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     alert.messageText = "Allow \u{201c}\(hello.deviceName)\u{201d} to control your pointer?"
     alert.informativeText = "Nib will receive Apple Pencil input from this iPad."
@@ -137,7 +143,7 @@ private final class NibMacModel: ObservableObject {
 
 @main
 struct NibMacApp: App {
-  @State private var model = NibMacModel()
+  @StateObject private var model = NibMacModel()
 
   var body: some Scene {
     MenuBarExtra("Nib", systemImage: "pencil.tip") {

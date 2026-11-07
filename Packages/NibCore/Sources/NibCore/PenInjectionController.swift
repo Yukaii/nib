@@ -19,11 +19,19 @@
       mapper = DisplayMapper(surfaceSize: surfaceSize, displayRect: displayRect)
       self.post = post
       trust = isTrusted
+      accessibilityTrusted = isTrusted()
+    }
+
+    /// The trust check is too slow for the 240 Hz sample path; the host
+    /// refreshes it on a timer instead.
+    @discardableResult
+    public mutating func refreshTrust() -> Bool {
+      accessibilityTrusted = trust()
+      return accessibilityTrusted
     }
 
     @discardableResult
     public mutating func handle(_ sample: PenSample) -> Bool {
-      accessibilityTrusted = trust()
       guard accessibilityTrusted else { return false }
       let events = builder.events(for: sample, at: mapper.map(sample))
       guard !events.isEmpty else { return true }
@@ -40,7 +48,6 @@
     }
 
     public mutating func sessionEnded() {
-      accessibilityTrusted = trust()
       guard accessibilityTrusted else { return }
       let sample = PenSample(
         kind: .proximityExit, sequence: 0, timestamp: 0, x: 0, y: 0, pressure: 0, altitude: 0,
