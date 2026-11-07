@@ -3,20 +3,23 @@ import Testing
 @testable import NibCore
 
 @Test func keyNamesForKnownCodes() {
-  #expect(KeyNames.name(for: 6) == "Z")
-  #expect(KeyNames.name(for: 49) == "Space")
-  #expect(KeyNames.name(for: 33) == "[")
-  #expect(KeyNames.name(for: 9999) == nil)
+  #expect(KeyNames.name(for: "KeyZ") == "Z")
+  #expect(KeyNames.name(for: "Space") == "Space")
+  #expect(KeyNames.name(for: "BracketLeft") == "[")
+  #expect(KeyNames.name(for: "Lang9") == nil)
 }
 
 @Test func chordDisplayUsesAppleModifierOrder() {
-  #expect(KeyNames.displayName(for: .init(keyCode: 6, modifiers: [.shift, .command])) == "⇧⌘Z")
+  #expect(KeyNames.displayName(for: .init(key: "KeyZ", modifiers: [.shift, .primary])) == "⇧⌘Z")
   #expect(
-    KeyNames.displayName(for: .init(keyCode: 49, modifiers: [.command, .control, .option, .shift]))
+    KeyNames.displayName(for: .init(key: "Space", modifiers: [.primary, .control, .alt, .shift]))
       == "⌃⌥⇧⌘Space")
+  #expect(
+    KeyNames.displayName(for: .init(key: "KeyZ", modifiers: [.primary, .shift]), platform: .windows)
+      == "Ctrl+Shift+Z")
   #expect(KeyNames.displayName(for: .init(modifiers: [.control])) == "⌃")
   #expect(KeyNames.displayName(for: .init()) == "None")
-  #expect(KeyNames.displayName(for: .init(keyCode: 200, modifiers: [.command])) == "⌘Key 200")
+  #expect(KeyNames.displayName(for: .init(key: "Lang9", modifiers: [.primary])) == "⌘Lang9")
 }
 
 @Test func pickerTableHasUniqueCodesAndNames() {
@@ -29,7 +32,7 @@ import Testing
 @Test func presetKeysAreNameable() {
   for profile in PadSettings().profiles {
     for button in profile.buttons {
-      if let code = button.chord.keyCode { #expect(KeyNames.name(for: code) != nil) }
+      if let code = button.chord.key { #expect(KeyNames.name(for: code) != nil) }
     }
   }
 }

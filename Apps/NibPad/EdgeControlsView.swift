@@ -185,7 +185,7 @@ private final class EdgeStripView: UIView {
     case .brushSize:
       let count = stepper.add(Double(-delta))
       guard count != 0 else { return }
-      let chord = Gesture.KeyChord(keyCode: count > 0 ? 30 : 33)
+      let chord = Gesture.KeyChord(key: count > 0 ? "BracketRight" : "BracketLeft")
       for _ in 0..<abs(count) { send(.key(chord, action: .tap)) }
     case .off: break
     }
@@ -207,8 +207,8 @@ private final class EdgeStripView: UIView {
   func cancel() { if activeMode != .off { end(cancelled: true) } }
   private func zoomModifier(_ modifier: PadSettings.ZoomModifier) -> Gesture.Modifier {
     switch modifier {
-    case .command: .command
-    case .option: .option
+    case .primary: .primary
+    case .alt: .alt
     case .control: .control
     }
   }

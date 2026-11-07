@@ -1,36 +1,54 @@
 import Foundation
 
+/// The host platforms understood by protocol v2.
+public enum HostPlatform: String, Codable, Sendable { case macos, windows, linux }
+
 /// Finger input sent over the reliable control channel.
 public enum Gesture: Codable, Equatable, Sendable {
-  public enum Phase: String, Codable, Sendable {
-    case began, changed, ended, cancelled
-  }
+  public enum Phase: String, Codable, Sendable { case began, changed, ended, cancelled }
 
   public enum Modifier: String, Codable, Sendable {
-    case command, option, control
-    case shift
+    case primary, control, alt, shift, meta
+
+    public init(from decoder: Decoder) throws {
+      let value = try decoder.singleValueContainer().decode(String.self)
+      switch value {
+      case "command": self = .primary
+      case "option": self = .alt
+      default:
+        guard let modifier = Self(rawValue: value) else {
+          throw DecodingError.dataCorruptedError(
+            in: try decoder.singleValueContainer(),
+            debugDescription: "Unknown modifier \(value)")
+        }
+        self = modifier
+      }
+    }
   }
 
   public struct KeyChord: Codable, Equatable, Sendable {
-    /// The virtual key to press, or nil for a modifier-only chord.
-    public var keyCode: UInt16?
+    /// The W3C KeyboardEvent.code, or nil for a modifier-only chord.
+    public var key: String?
     public var modifiers: Set<Modifier>
-    public init(keyCode: UInt16? = nil, modifiers: Set<Modifier> = []) {
-      self.keyCode = keyCode
+    public init(key: String? = nil, modifiers: Set<Modifier> = []) {
+      self.key = key
       self.modifiers = modifiers
     }
 
-    private enum CodingKeys: String, CodingKey { case keyCode, modifiers }
+    private enum CodingKeys: String, CodingKey { case key, keyCode, modifiers }
 
     public init(from decoder: Decoder) throws {
       let values = try decoder.container(keyedBy: CodingKeys.self)
-      keyCode = try values.decodeIfPresent(UInt16.self, forKey: .keyCode)
-      modifiers = try values.decode(Set<Modifier>.self, forKey: .modifiers)
+      key = try values.decodeIfPresent(String.self, forKey: .key)
+      if key == nil, let keyCode = try values.decodeIfPresent(UInt16.self, forKey: .keyCode) {
+        key = KeyNames.w3cCode(forMacKeyCode: keyCode)
+      }
+      modifiers = try values.decodeIfPresent(Set<Modifier>.self, forKey: .modifiers) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
       var values = encoder.container(keyedBy: CodingKeys.self)
-      try values.encodeIfPresent(keyCode, forKey: .keyCode)
+      try values.encodeIfPresent(key, forKey: .key)
       try values.encode(modifiers, forKey: .modifiers)
     }
   }
@@ -55,8 +73,7 @@ public enum Gesture: Codable, Equatable, Sendable {
     switch try values.decode(Kind.self, forKey: .type) {
     case .scroll:
       self = .scroll(
-        dx: try values.decode(Double.self, forKey: .dx),
-        dy: try values.decode(Double.self, forKey: .dy),
+        dx: try values.decode(Double.self, forKey: .dx), dy: try values.decode(Double.self, forKey: .dy),
         phase: try values.decode(Phase.self, forKey: .phase))
     case .zoom:
       self = .zoom(

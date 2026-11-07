@@ -5,7 +5,7 @@ import Testing
 
 @Test func padSettingsRoundTripAndDefaults() throws {
   let settings = PadSettings(
-    pressure: .firm, gestures: .init(pinchZoom: false, zoomModifier: .option))
+    pressure: .firm, gestures: .init(pinchZoom: false, zoomModifier: .alt))
   let data = try JSONEncoder().encode(settings)
   #expect(try JSONDecoder().decode(PadSettings.self, from: data) == settings)
   #expect(PadSettings().pressure == .linear)
@@ -18,7 +18,7 @@ import Testing
   let settings = try JSONDecoder().decode(PadSettings.self, from: Data(json.utf8))
   #expect(settings.pressure == .init(softness: 0.6, minimum: 0.1, maximum: 0.9))
   #expect(settings.profiles.map(\.name) == ["Default", "Krita", "Photoshop", "Affinity"])
-  #expect(settings.profiles[0].gestures.zoomModifier == .option)
+  #expect(settings.profiles[0].gestures.zoomModifier == .alt)
   #expect(settings.profiles[0].gestures.zoomMethod == .nativeGesture)
   #expect(settings.profiles[0].gestures.rotate)
 }
@@ -46,11 +46,11 @@ import Testing
 @Test func editedButtonPersistsThroughEncodeDecode() throws {
   var settings = PadSettings()
   settings.profiles[1].buttons[0] = .init(
-    label: "Redo", chord: .init(keyCode: 16, modifiers: [.command, .shift]), hold: true)
+    label: "Redo", chord: .init(key: "KeyY", modifiers: [.primary, .shift]), hold: true)
   let data = try JSONEncoder().encode(settings)
   let decoded = try JSONDecoder().decode(PadSettings.self, from: data)
   #expect(decoded.profiles[1].buttons[0].label == "Redo")
-  #expect(decoded.profiles[1].buttons[0].chord == .init(keyCode: 16, modifiers: [.command, .shift]))
+  #expect(decoded.profiles[1].buttons[0].chord == .init(key: "KeyY", modifiers: [.primary, .shift]))
   #expect(decoded.profiles[1].buttons[0].hold)
 }
 
@@ -99,4 +99,19 @@ import Testing
   #expect(PadSettings(edgeBrightness: 1.5).edgeBrightness == 1)
   let json = #"{"pressure":{"softness":0,"minimum":0,"maximum":1},"edgeBrightness":-2}"#
   #expect(try JSONDecoder().decode(PadSettings.self, from: Data(json.utf8)).edgeBrightness == 0)
+}
+
+@Test func v1SettingsMigrateProfilesWithoutLoss() throws {
+  let json =
+    #"{"pressure":{"softness":0.2,"minimum":0.1,"maximum":0.95},"profiles":[{"id":"11111111-1111-1111-1111-111111111111","name":"Daily","bundleIDPrefixes":["com.example."],"buttons":[{"label":"Undo","chord":{"keyCode":6,"modifiers":["command"]},"hold":false}],"strip":{"mode":"off","side":"right"},"gestures":{"twoFingerScroll":true,"pinchZoom":true,"zoomMethod":"modifierScroll","zoomModifier":"option","rotate":true,"tapUndoRedo":true}}]}"#
+  let settings = try JSONDecoder().decode(PadSettings.self, from: Data(json.utf8))
+  #expect(settings.pressure == .init(softness: 0.2, minimum: 0.1, maximum: 0.95))
+  #expect(settings.profiles[0].buttons[0].chord == .init(key: "KeyZ", modifiers: [.primary]))
+  #expect(settings.profiles[0].gestures.zoomModifier == .alt)
+  let encoded = String(decoding: try JSONEncoder().encode(settings), as: UTF8.self)
+  #expect(!encoded.contains("keyCode") && !encoded.contains("command") && !encoded.contains("option"))
+}
+
+@Test func everyPickerKeyHasStableMacMapping() {
+  #expect(KeyNames.pickerKeys.allSatisfy { KeyNames.w3cCode(forMacKeyCode: $0.macKeyCode) == $0.code })
 }

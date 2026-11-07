@@ -1,7 +1,7 @@
 ---
 id: "0016"
 title: Protocol v2 — platform-neutral key chords and settings migration
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -67,9 +67,13 @@ iPad profiles survive the upgrade.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/neutral-key-chords-migration @ 82ab04eda27f02397a70ddc837bc15742b5a5f64
+Verify: verify: ok (Test run with 109 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Replaced keyCode and command/option wire/settings values with W3C codes and neutral modifiers.
+- Added lossless v1 chord and zoom modifier decoding with v2-only re-encoding.
+- Added neutral picker mappings, platform display names, Mac event translation, unknown-key logging, and updated iPad editors/presets.
+- Added migration, mapping, round-trip, display, and event-builder tests.
+Manual checks: Real iPad Pencil settings migration and drawing-app shortcuts not run (hardware/manual check).
+Not done / risks: Unknown legacy macOS key codes outside the existing picker table cannot be translated to a W3C code and decode as an empty key.
 ```

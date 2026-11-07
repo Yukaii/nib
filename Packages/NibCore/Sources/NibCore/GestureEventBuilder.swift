@@ -1,5 +1,8 @@
 #if os(macOS)
   import CoreGraphics
+  import os
+
+  private let gestureEventLogger = Logger(subsystem: "dev.yukai.nib", category: "gesture")
 
   /// Converts the wire gesture model into ordered Quartz events.
   ///
@@ -43,10 +46,10 @@
       case .rotate(let degrees, let phase):
         return releaseHeldModifier() + nativeBuilder.rotate(degrees: degrees, phase: phase)
       case .undo:
-        return releaseHeldModifier() + shortcut(.init(keyCode: 6, modifiers: [.command]), action: .tap)
+        return releaseHeldModifier() + shortcut(.init(key: "KeyZ", modifiers: [.primary]), action: .tap)
       case .redo:
         return releaseHeldModifier()
-          + shortcut(.init(keyCode: 6, modifiers: [.command, .shift]), action: .tap)
+          + shortcut(.init(key: "KeyZ", modifiers: [.primary, .shift]), action: .tap)
       case .key(let chord, let action): return releaseHeldModifier() + shortcut(chord, action: action)
       }
     }
@@ -61,7 +64,7 @@
     public mutating func releaseAll() -> [CGEvent] {
       var events: [CGEvent] = []
       for chord in heldChords.reversed() {
-        if let keyCode = chord.keyCode {
+        if let keyCode = chord.key.flatMap({ KeyNames.key(for: $0)?.macKeyCode }) {
           events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyUp, flags: heldFlags))
         }
       }
@@ -75,13 +78,17 @@
       return events
     }
 
-    private let modifierOrder: [Gesture.Modifier] = [.command, .option, .control, .shift]
+    private let modifierOrder: [Gesture.Modifier] = [.primary, .meta, .alt, .control, .shift]
     private mutating func shortcut(_ chord: Gesture.KeyChord, action: Gesture.KeyAction) -> [CGEvent] {
+      if let key = chord.key, KeyNames.key(for: key) == nil {
+        gestureEventLogger.info("Ignoring unmapped key code \(key, privacy: .public)")
+        return []
+      }
       switch action {
       case .tap:
         let pressedModifiers = chord.modifiers.subtracting(heldFlagsToModifiers)
         var events = pressModifiers(pressedModifiers)
-        if let keyCode = chord.keyCode {
+        if let keyCode = chord.key.flatMap({ KeyNames.key(for: $0)?.macKeyCode }) {
           events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyDown, flags: heldFlags))
           events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyUp, flags: heldFlags))
         }
@@ -89,7 +96,7 @@
         return events
       case .down:
         var events = pressModifiers(chord.modifiers)
-        if let keyCode = chord.keyCode {
+        if let keyCode = chord.key.flatMap({ KeyNames.key(for: $0)?.macKeyCode }) {
           events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyDown, flags: heldFlags))
         }
         heldChords.append(chord)
@@ -98,7 +105,7 @@
         guard let index = heldChords.lastIndex(of: chord) else { return [] }
         heldChords.remove(at: index)
         var events: [CGEvent] = []
-        if let keyCode = chord.keyCode {
+        if let keyCode = chord.key.flatMap({ KeyNames.key(for: $0)?.macKeyCode }) {
           events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyUp, flags: heldFlags))
         }
         let remaining = Set(heldChords.flatMap(\.modifiers))
@@ -140,8 +147,8 @@
     }
     private static func flags(for modifier: Gesture.Modifier) -> CGEventFlags {
       switch modifier {
-      case .command: return .maskCommand
-      case .option: return .maskAlternate
+      case .primary, .meta: return .maskCommand
+      case .alt: return .maskAlternate
       case .control: return .maskControl
       case .shift: return .maskShift
       }
@@ -151,8 +158,8 @@
     }
     private static func keyCode(for modifier: Gesture.Modifier) -> CGKeyCode {
       switch modifier {
-      case .command: return 55
-      case .option: return 58
+      case .primary, .meta: return 55
+      case .alt: return 58
       case .control: return 59
       case .shift: return 56
       }

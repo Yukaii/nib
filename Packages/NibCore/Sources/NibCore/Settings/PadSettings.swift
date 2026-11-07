@@ -19,7 +19,22 @@ public struct PadSettings: Codable, Equatable, Sendable {
     public static let linear = Pressure()
     public static let firm = Pressure(softness: 0.6)
   }
-  public enum ZoomModifier: String, Codable, CaseIterable, Sendable { case command, option, control }
+  public enum ZoomModifier: String, Codable, CaseIterable, Sendable {
+    case primary, alt, control
+    public init(from decoder: Decoder) throws {
+      let value = try decoder.singleValueContainer().decode(String.self)
+      switch value {
+      case "command": self = .primary
+      case "option": self = .alt
+      default:
+        guard let modifier = Self(rawValue: value) else {
+          throw DecodingError.dataCorruptedError(
+            in: try decoder.singleValueContainer(), debugDescription: "Unknown zoom modifier")
+        }
+        self = modifier
+      }
+    }
+  }
   public enum ZoomMethod: String, Codable, CaseIterable, Sendable { case nativeGesture, modifierScroll }
   public enum StripMode: String, Codable, Sendable { case scroll, zoom, brushSize, off }
   public enum StripSide: String, Codable, Sendable { case left, right }
@@ -33,7 +48,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
     public var tapUndoRedo: Bool
     public init(
       twoFingerScroll: Bool = true, pinchZoom: Bool = true, zoomMethod: ZoomMethod = .nativeGesture,
-      zoomModifier: ZoomModifier = .command, rotate: Bool = true, tapUndoRedo: Bool = true
+      zoomModifier: ZoomModifier = .primary, rotate: Bool = true, tapUndoRedo: Bool = true
     ) {
       self.twoFingerScroll = twoFingerScroll
       self.pinchZoom = pinchZoom
@@ -51,7 +66,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
         twoFingerScroll: try values.decodeIfPresent(Bool.self, forKey: .twoFingerScroll) ?? true,
         pinchZoom: try values.decodeIfPresent(Bool.self, forKey: .pinchZoom) ?? true,
         zoomMethod: try values.decodeIfPresent(ZoomMethod.self, forKey: .zoomMethod) ?? .nativeGesture,
-        zoomModifier: try values.decodeIfPresent(ZoomModifier.self, forKey: .zoomModifier) ?? .command,
+        zoomModifier: try values.decodeIfPresent(ZoomModifier.self, forKey: .zoomModifier) ?? .primary,
         rotate: try values.decodeIfPresent(Bool.self, forKey: .rotate) ?? true,
         tapUndoRedo: try values.decodeIfPresent(Bool.self, forKey: .tapUndoRedo) ?? true)
     }
@@ -167,22 +182,22 @@ public struct PadSettings: Codable, Equatable, Sendable {
     try values.encode(edgeBrightness, forKey: .edgeBrightness)
     try values.encode(profiles, forKey: .profiles)
   }
-  private static func chord(_ code: UInt16, _ modifiers: Set<Gesture.Modifier> = []) -> Gesture.KeyChord {
-    .init(keyCode: code, modifiers: modifiers)
+  private static func chord(_ code: String, _ modifiers: Set<Gesture.Modifier> = []) -> Gesture.KeyChord {
+    .init(key: code, modifiers: modifiers)
   }
   private static func buttons(_ pairs: [(String, Gesture.KeyChord, Bool)]) -> [ShortcutButton] {
     pairs.map { .init(label: $0.0, chord: $0.1, hold: $0.2) }
   }
   private static func presets(defaultGestures: Gestures = Gestures()) -> [Profile] {
-    let command: Set<Gesture.Modifier> = [.command]
-    let shiftCommand: Set<Gesture.Modifier> = [.command, .shift]
-    let z = chord(6, command)
-    let redo = chord(6, shiftCommand)
-    let b = chord(11)
-    let e = chord(14)
-    let space = chord(49)
-    let left = chord(33)
-    let right = chord(30)
+    let primary: Set<Gesture.Modifier> = [.primary]
+    let shiftPrimary: Set<Gesture.Modifier> = [.primary, .shift]
+    let z = chord("KeyZ", primary)
+    let redo = chord("KeyZ", shiftPrimary)
+    let b = chord("KeyB")
+    let e = chord("KeyE")
+    let space = chord("Space")
+    let left = chord("BracketLeft")
+    let right = chord("BracketRight")
     let pan = ShortcutButton(label: "Pan", chord: space, hold: true)
     let base = buttons([
       ("Undo", z, false), ("Redo", redo, false), ("B", b, false), ("E", e, false), ("[", left, false),
@@ -196,11 +211,11 @@ public struct PadSettings: Codable, Equatable, Sendable {
         gestures: .init(zoomModifier: .control)),
       Profile(
         name: "Photoshop", bundleIDPrefixes: ["com.adobe.Photoshop"],
-        buttons: base + [pan, .init(label: "Alt", chord: .init(modifiers: [.option]), hold: true)],
-        gestures: .init(zoomModifier: .option)),
+        buttons: base + [pan, .init(label: "Alt", chord: .init(modifiers: [.alt]), hold: true)],
+        gestures: .init(zoomModifier: .alt)),
       Profile(
         name: "Affinity", bundleIDPrefixes: ["com.seriflabs."], buttons: base,
-        gestures: .init(zoomModifier: .command)),
+        gestures: .init(zoomModifier: .primary)),
     ]
   }
 }

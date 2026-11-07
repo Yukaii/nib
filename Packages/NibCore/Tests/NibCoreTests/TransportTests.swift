@@ -121,11 +121,11 @@ extension TransportTests {
       .scroll(dx: -3, dy: 4, phase: .changed),
       .scroll(dx: 0, dy: 0, phase: .ended),
       .scroll(dx: 0, dy: 0, phase: .cancelled),
-      .zoom(scaleDelta: 1.2, phase: .changed, modifier: .command),
-      .zoom(scaleDelta: 0.8, phase: .ended, modifier: .option),
+      .zoom(scaleDelta: 1.2, phase: .changed, modifier: .primary),
+      .zoom(scaleDelta: 0.8, phase: .ended, modifier: .alt),
       .zoom(scaleDelta: 1, phase: .cancelled, modifier: .control),
       .undo, .redo,
-      .key(.init(keyCode: 6, modifiers: [.command, .shift]), action: .tap),
+      .key(.init(key: "KeyZ", modifiers: [.primary, .shift]), action: .tap),
     ]
     for gesture in gestures {
       let message = ControlMessage.gesture(gesture)
@@ -145,7 +145,7 @@ extension TransportTests {
   @Test func oldZoomJSONDefaultsToModifierScrollAndRotateRoundTrips() throws {
     let old = #"{"type":"zoom","scaleDelta":1.1,"phase":"changed","modifier":"command"}"#
     let decoded = try JSONDecoder().decode(Gesture.self, from: Data(old.utf8))
-    #expect(decoded == .zoom(scaleDelta: 1.1, phase: .changed, modifier: .command))
+    #expect(decoded == .zoom(scaleDelta: 1.1, phase: .changed, modifier: .primary))
     let rotate = Gesture.rotate(degreesDelta: 12, phase: .changed)
     var framer = ControlFramer()
     #expect(try framer.append(framer.encode(.gesture(rotate))) == [.gesture(rotate)])
@@ -159,4 +159,25 @@ extension TransportTests {
     #expect(policy.suppresses(at: 10.299))
     #expect(!policy.suppresses(at: 10.3))
   }
+}
+
+@Test func keyChordV2RoundTripsNeutralAndModifierOnlyChords() throws {
+  let chords = [
+    Gesture.KeyChord(key: "KeyZ", modifiers: [.primary, .shift]),
+    Gesture.KeyChord(modifiers: [.primary, .control, .alt, .shift, .meta]),
+  ]
+  for chord in chords {
+    let data = try JSONEncoder().encode(chord)
+    let json = String(decoding: data, as: UTF8.self)
+    #expect(!json.contains("keyCode") && !json.contains("command") && !json.contains("option"))
+    #expect(try JSONDecoder().decode(Gesture.KeyChord.self, from: data) == chord)
+  }
+}
+
+@Test func v1KeyChordMigratesToNeutralWireShape() throws {
+  let old = #"{"keyCode":6,"modifiers":["command","shift"]}"#
+  let chord = try JSONDecoder().decode(Gesture.KeyChord.self, from: Data(old.utf8))
+  #expect(chord == .init(key: "KeyZ", modifiers: [.primary, .shift]))
+  let encoded = String(decoding: try JSONEncoder().encode(chord), as: UTF8.self)
+  #expect(encoded.contains("KeyZ") && !encoded.contains("keyCode") && !encoded.contains("command"))
 }
