@@ -23,10 +23,15 @@ public struct LinkStats: Sendable {
 
   public init() {}
 
+  /// Called per sample at up to 240 Hz, so it stays O(1) amortized: the
+  /// receiver's sequencer has already dropped duplicates, and expired
+  /// samples are only at the front.
   public mutating func record(sequence: UInt32, senderTimestampNs: UInt64, arrivalNs: UInt64) {
-    guard !samples.contains(where: { $0.sequence == sequence }) else { return }
+    if let last = samples.last, last.sequence == sequence { return }
     samples.append(.init(sequence: sequence, senderTimestampNs: senderTimestampNs, arrivalNs: arrivalNs))
-    samples.removeAll { arrivalNs > $0.arrivalNs && arrivalNs - $0.arrivalNs > Self.windowNs }
+    let expired = samples.prefix { arrivalNs > $0.arrivalNs && arrivalNs - $0.arrivalNs > Self.windowNs }
+      .count
+    if expired > 0 { samples.removeFirst(expired) }
   }
 
   public func snapshot(nowNs: UInt64) -> Snapshot {

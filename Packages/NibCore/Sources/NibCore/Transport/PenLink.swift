@@ -315,9 +315,6 @@ public final class PenLinkReceiver {
   private var busyFramers: [ObjectIdentifier: ControlFramer] = [:]
   private var linkStats = LinkStats()
   private var rttSamples: [Double] = []
-  public private(set) var latestLinkStats: LinkStats.Snapshot = .init(
-    sampleRateHz: 0, lossPercent: 0, interArrivalP50Ms: 0, interArrivalP95Ms: 0, interArrivalMaxMs: 0,
-    delayVariationP50Ms: 0, delayVariationP95Ms: 0)
   public private(set) var latestRTTMs: Double?
 
   public init(accept: @escaping AcceptHandler = { _ in true }) throws {
@@ -356,6 +353,7 @@ public final class PenLinkReceiver {
     }
   }
 
+  /// Computed on demand (percentiles sort the window); never per sample.
   public func linkStatsSnapshot(nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> LinkStats.Snapshot {
     linkStats.snapshot(nowNs: nowNs)
   }
@@ -488,7 +486,6 @@ public final class PenLinkReceiver {
       }
       sessionConnected = true
       linkStats = LinkStats()
-      latestLinkStats = linkStats.snapshot(nowNs: DispatchTime.now().uptimeNanoseconds)
       rttSamples.removeAll()
       latestRTTMs = nil
       transportLogger.info("session accepted from \(hello.deviceName, privacy: .public)")
@@ -567,7 +564,6 @@ public final class PenLinkReceiver {
           self.linkStats.record(
             sequence: sample.sequence, senderTimestampNs: sample.timestamp,
             arrivalNs: DispatchTime.now().uptimeNanoseconds)
-          self.latestLinkStats = self.linkStats.snapshot(nowNs: DispatchTime.now().uptimeNanoseconds)
           self.onSample?(sample)
         }
         if error == nil, self.sessionConnected { self.receiveUDP(udp) }
@@ -582,7 +578,6 @@ public final class PenLinkReceiver {
     connection = nil
     session.disconnect()
     linkStats = LinkStats()
-    latestLinkStats = linkStats.snapshot(nowNs: DispatchTime.now().uptimeNanoseconds)
     rttSamples.removeAll()
     latestRTTMs = nil
     sessionConnected = false
