@@ -107,24 +107,45 @@ four pairing messages, in order, are:
 ```
 
 `publicKey` is a 32-byte X25519 public key, `nonce` is a fresh 32-byte random
-value, and `commitment` is `SHA256(UTF8("nib-commit") ‖ devicePublicKey ‖
-deviceNonce)`, all encoded as base64. The iPad sends only the commitment
-first; the host replies with its key and nonce; only then does the iPad
-reveal its nonce. The host verifies the reveal against the commitment with a
-constant-time comparison before deriving anything or showing a code. A
-mismatch fails pairing and stores nothing.
+value (verifiers require exactly 32 bytes), and `commitment` is
+`SHA256(UTF8("nib-commit") ‖ len(deviceID) ‖ UTF8(deviceID) ‖
+devicePublicKey ‖ deviceNonce)`, all encoded as base64. `len` is a 2-byte
+big-endian length. The deviceID binds the commitment to one iPad so a relay
+cannot relabel it. The iPad sends only the commitment first; the host replies
+with its key and nonce; only then does the iPad reveal its nonce. The host
+verifies the reveal against the commitment with a constant-time comparison
+before deriving anything or showing a code. A mismatch fails pairing, clears
+all ephemeral secrets, enters a terminal failed phase, and stores nothing.
 
-The transcript is the byte concatenation, in this exact order: device public
-key, host public key, device nonce, host nonce. The displayed six-digit code
-is `SHA256(UTF8("nib-pair") ‖ transcript)`, interpreted as the first four
+The transcript is the byte concatenation, in this exact order: `len(deviceID)
+‖ deviceID ‖ len(hostID) ‖ hostID ‖ devicePublicKey ‖ hostPublicKey ‖
+deviceNonce ‖ hostNonce`, where `len` is a 2-byte big-endian length and keys
+and nonces are raw 32 bytes. Both IDs are bound so a relay cannot relabel and
+overwrite another iPad's key. The displayed six-digit code is
+`SHA256(UTF8("nib-pair-code") ‖ transcript)`, interpreted as the first four
 bytes big-endian, modulo 1,000,000, and zero-padded. Both users must confirm
-the same code. A cancel or a timeout (60 seconds) discards the ephemeral keys
+the same code. A second `pairRequest` mid-flow is ignored, not a failure; an
+early, duplicate or late `pairResult` from a terminal phase is ignored and
+never re-fires. A cancel or a timeout (60 seconds) discards the ephemeral keys
 and nonces and stores nothing.
 
 The stored pairing key is
 `HKDF-SHA256(ikm: X25519 shared secret, salt: SHA256(transcript),
 info: UTF8("nib-pair-key"), output: 32 bytes)`. It is stored by the peer ID
 (`deviceID` on the host, `hostID` on the iPad).
+
+Labels are prefix-free: none of `nib-hello`, `nib-ack`, `nib-commit`,
+`nib-pair-code`, `nib-pair-key` is a prefix of another, so HMAC/SHA256 domains
+never collide.
+
+First pairing stays on one connection: an unpaired iPad's unauthenticated
+`hello` gets `helloAck{accepted:false, reason:"Pair with this Mac",
+pairingRequired:true}` and the host keeps the connection open in a
+pairing-only state. In that state only `hello`, `pairRequest`, `pairReveal`,
+`pairResult` and `ping` are processed; no samples, gestures or UDP gate are
+active. After the user confirms on both sides, the iPad sends a fresh
+authenticated `hello` on the same connection. USB uses the same flow over the
+USB stream.
 
 After pairing, `hello` includes fresh base64 `nonce` and `proof` fields:
 
@@ -140,12 +161,19 @@ UTF8(deviceID) ‖ deviceNonce)`. The accepting host includes its fresh base64
 {"type":"helloAck","helloAck":{"accepted":true,"udpPort":47812,"displayWidth":2560,"displayHeight":1664,"nonce":"base64","proof":"base64"}}
 ```
 
-The host proof is `HMAC-SHA256(pairKey, UTF8("nib-hello-ack") ‖
+The host proof is `HMAC-SHA256(pairKey, UTF8("nib-ack") ‖
 UTF8(hostID) ‖ deviceNonce ‖ hostNonce)` with a distinct label, so a recorded
 ack cannot be replayed against a fresh device nonce. Each side verifies the
-other proof with a constant-time HMAC comparison. Missing or invalid proofs
-are rejected with a next step to pair again. Frame and sample encryption
-begins in the subsequent encrypted-sessions version.
+other proof with a constant-time HMAC comparison and requires exactly 32-byte
+nonces. Missing or invalid proofs are rejected with a next step to pair again.
+When a key is held, the device applies `hostInfo` and acts on a rejection
+reason only after proof verification; an unauthenticated rejection is shown
+but never deletes a stored key. Frame and sample encryption begins in the
+subsequent encrypted-sessions version.
+
+After 3 failed or cancelled pairings within 5 minutes, the host refuses new
+`pairRequest`s for 60 seconds with `pairResult{accepted:false,
+reason:"Too many pairing attempts. Try again in a minute."}`.
 
 ### geometry
 

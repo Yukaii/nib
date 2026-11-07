@@ -71,6 +71,22 @@ private final class LockedTimestamp: @unchecked Sendable {
   }
 }
 
+/// Thread-safe gate for USB samples: only the accepted session may inject.
+private final class LockedFlag: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = false
+  func set(_ value: Bool) {
+    lock.lock()
+    self.value = value
+    lock.unlock()
+  }
+  func get() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+}
+
 private final class SampleSink: @unchecked Sendable {
   private let lock = NSLock()
   private var handler: ((PenSample, UInt64) -> Void)?
@@ -175,23 +191,6 @@ public struct ReceiverSession: Sendable, Equatable {
       base64Proof: proof, pairKey: pairingKey, identifier: hello.deviceID, base64Nonce: nonce)
   }
 
-  /// Authenticated hello policy used after pairing. Missing, malformed, or
-  /// incorrect proofs all use the same next step so the UI never reveals
-  /// whether a particular key or nonce was valid.
-  public mutating func hello(
-    _ hello: ControlMessage.Hello, busy: Bool, now: TimeInterval,
-    hostAppVersion: String = "unknown"
-  ) -> HelloDecision {
-    guard let pairingKey else { return .rejected("Pair again") }
-    guard let nonce = hello.nonce, let proof = hello.proof,
-      PairingCrypto.verifyHelloProof(
-        base64Proof: proof, pairKey: pairingKey, identifier: hello.deviceID, base64Nonce: nonce)
-    else { return .rejected("Pair again") }
-    return self.hello(
-      protocolVersion: hello.protocolVersion, busy: busy, acceptResult: true, now: now,
-      hostAppVersion: hostAppVersion)
-  }
-
   public func authenticatedHelloAck(
     deviceNonce: Data, hostNonce: Data, accepted: Bool = true, reason: String? = nil,
     udpPort: UInt16 = 0, displayWidth: Double = 0, displayHeight: Double = 0,
@@ -289,13 +288,10 @@ public final class PenLinkSender {
   public private(set) var hostInfo: ControlMessage.HostInfo?
   public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
   public var onPairingEvent: ((PairingTransportEvent) -> Void)?
-  private var pairingMachine: PairingStateMachine?
-  private var pairingTimeout: Task<Void, Never>?
-  private var pairingStore: PairingKeyStore?
-  private var pairingHostID: String?
-  private var lastDeviceNonce: Data?
-  public var pairingPhase: PairingPhase? { pairingMachine?.phase }
-  private var senderSession: SenderSession { pairingSession() }
+  private var pairingDriver: PairingDriver?
+  private var deviceLink = DeviceLink()
+  private var pairingStoreRef: PairingKeyStore?
+  public var pairingPhase: PairingPhase? { pairingDriver?.phase }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
@@ -318,6 +314,7 @@ public final class PenLinkSender {
 
   public func start(hello: ControlMessage.Hello, rememberedHost: String? = nil) {
     self.hello = hello
+    deviceLink.updateBaseHello(hello)
     selectedHost = rememberedHost
     startBrowser()
   }
@@ -336,8 +333,8 @@ public final class PenLinkSender {
     reconnectTask = nil
     pingTask?.cancel()
     pingTask = nil
-    cancelPairingTimeout()
-    pairingMachine = nil
+    if let id = currentConnectionID { pairingDriver?.connectionLost(id) }
+    pairingDriver = nil
     browser?.cancel()
     browser = nil
     connection?.cancel()
@@ -356,99 +353,75 @@ public final class PenLinkSender {
   /// Opts the sender into authenticated hello + pairing. With nil store the
   /// sender keeps today's behaviour (no proofs, no pairing).
   public func configurePairing(store: PairingKeyStore?, hostID: String?) {
-    pairingStore = store
-    pairingHostID = hostID
+    pairingStoreRef = store
+    deviceLink.updateStore(store: store, hostID: hostID)
+    if let base = hello { deviceLink.updateBaseHello(base) }
+    if let store, hostID != nil {
+      if pairingDriver == nil {
+        let driver = PairingDriver(
+          role: .device, localID: hello?.deviceID ?? "",
+          localName: { [weak self] in
+            self?.hello?.deviceName ?? "iPad"
+          }, store: store)
+        driver.onSend = { [weak self] message in
+          guard let self, let current = self.connection,
+            let bound = self.pairingDriver?.boundConnection,
+            ObjectIdentifier(current) == bound
+          else { return }
+          self.sendControl(message)
+        }
+        driver.onEvent = { [weak self] event in self?.handleDriverEvent(event) }
+        pairingDriver = driver
+      } else {
+        pairingDriver?.updateLocal(
+          id: hello?.deviceID ?? "",
+          name: { [weak self] in self?.hello?.deviceName ?? "iPad" })
+      }
+    } else {
+      pairingDriver = nil
+    }
   }
 
-  private func pairingSession() -> SenderSession {
-    let key: Data? = {
-      guard let pairingStore, let pairingHostID else { return nil }
-      return pairingStore.key(for: pairingHostID)
-    }()
-    return SenderSession(
-      pairKey: key, hostID: pairingHostID, deviceID: hello?.deviceID)
+  private var currentConnectionID: ObjectIdentifier? {
+    connection.map(ObjectIdentifier.init)
   }
 
   public func beginPairing(deviceID: String, deviceName: String) {
-    guard let pairingStore else { return }
-    var machine = PairingStateMachine(
-      role: .device, id: deviceID, name: deviceName, store: pairingStore)
-    guard let event = try? machine.begin() else { return }
-    pairingMachine = machine
-    startPairingTimeout()
-    if case .send(let message) = event { sendControl(message) }
+    guard let id = currentConnectionID, let driver = pairingDriver else { return }
+    driver.beginPairing(deviceID: deviceID, deviceName: deviceName, connectionID: id)
   }
 
   public func confirmPairing() {
-    guard var machine = pairingMachine else { return }
-    let events = machine.confirm()
-    pairingMachine = machine
-    processPairingEvents(events)
+    guard let id = currentConnectionID else { return }
+    pairingDriver?.confirm(connectionID: id)
   }
 
   public func cancelPairing() {
-    guard var machine = pairingMachine else { return }
-    let event = machine.cancel()
-    pairingMachine = machine
-    if case .send(let message) = event { sendControl(message) }
-    finishPairing(with: .cancelled)
+    guard let id = currentConnectionID else { return }
+    pairingDriver?.cancel(connectionID: id)
   }
 
   private func handlePairingMessage(_ message: ControlMessage) {
-    guard pairingMachine != nil else { return }
-    guard var machine = pairingMachine else { return }
-    let events = machine.receive(message)
-    pairingMachine = machine
-    processPairingEvents(events)
+    guard let id = currentConnectionID else { return }
+    pairingDriver?.receive(message, connectionID: id)
   }
 
-  private func processPairingEvents(_ events: [PairingEvent]) {
-    for event in events {
-      switch event {
-      case .send(let message):
-        sendControl(message)
-      case .showCode(let code):
-        let peer = pairingMachine?.peerDisplayName ?? "Mac"
-        onPairingEvent?(.showCode(code, peerName: peer))
-      case .paired(let peerID):
-        cancelPairingTimeout()
-        pairingHostID = peerID
-        pairingMachine = nil
-        onPairingEvent?(.paired(peerID: peerID))
-      case .cancelled:
-        finishPairing(with: .cancelled)
-      case .timedOut:
-        finishPairing(with: .timedOut)
-      case .failed(let reason):
-        finishPairing(with: .failed(reason))
-      }
+  private func handleDriverEvent(_ event: PairingTransportEvent) {
+    switch event {
+    case .paired(let peerID):
+      // Fresh authenticated hello on the same connection.
+      deviceLink.updateStore(store: pairingStoreRef, hostID: peerID)
+      onPairingEvent?(.paired(peerID: peerID))
+      sendControl(.hello(authenticatedHello()))
+    case .showCode(let code, let peerName):
+      onPairingEvent?(.showCode(code, peerName: peerName))
+    case .cancelled:
+      onPairingEvent?(.cancelled)
+    case .timedOut:
+      onPairingEvent?(.timedOut)
+    case .failed(let reason):
+      onPairingEvent?(.failed(reason))
     }
-    if let machine = pairingMachine, machine.isTerminal, machine.phase != .waitingForPeer {
-      if machine.phase != .paired { pairingMachine = nil }
-    }
-  }
-
-  private func finishPairing(with event: PairingTransportEvent) {
-    cancelPairingTimeout()
-    pairingMachine = nil
-    onPairingEvent?(event)
-  }
-
-  private func startPairingTimeout() {
-    cancelPairingTimeout()
-    pairingTimeout = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.timeoutSeconds)))
-      guard let self, !Task.isCancelled else { return }
-      guard var machine = self.pairingMachine, !machine.isTerminal else { return }
-      let event = machine.timeout()
-      self.pairingMachine = machine
-      if case .timedOut = event { self.finishPairing(with: .timedOut) }
-    }
-  }
-
-  private func cancelPairingTimeout() {
-    pairingTimeout?.cancel()
-    pairingTimeout = nil
   }
 
   public func send(_ sample: PenSample) {
@@ -465,6 +438,7 @@ public final class PenLinkSender {
     lastGeometry = (width, height)
     hello?.surfaceWidth = width
     hello?.surfaceHeight = height
+    if let base = hello { deviceLink.updateBaseHello(base) }
     guard connection != nil, case .connected = state else { return }
     sendControl(.geometry(.init(surfaceWidth: width, surfaceHeight: height)))
   }
@@ -549,20 +523,10 @@ public final class PenLinkSender {
   }
 
   private func authenticatedHello() -> ControlMessage.Hello {
-    let base = hello ?? .init(appVersion: "", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)
-    guard let pairingStore, let pairingHostID,
-      let pairKey = pairingStore.key(for: pairingHostID)
-    else {
-      lastDeviceNonce = nil
-      return base
+    if let base = hello {
+      deviceLink.updateBaseHello(base)
     }
-    let nonce = PairingCrypto.randomNonce()
-    lastDeviceNonce = nonce
-    var authenticated = base
-    authenticated.nonce = PairingCrypto.base64(nonce)
-    authenticated.proof = PairingCrypto.base64(
-      PairingCrypto.helloProof(pairKey: pairKey, identifier: base.deviceID, nonce: nonce))
-    return authenticated
+    return deviceLink.makeHello()
   }
 
   private func receiveControl(from expected: NWConnection) {
@@ -588,31 +552,45 @@ public final class PenLinkSender {
     lastReceivedAt = Date.timeIntervalSinceReferenceDate
     switch message {
     case .helloAck(let ack):
-      hostInfo = ack.host
-      onHostInfo(ack.host)
-      guard ack.accepted, let connection else {
-        transportLogger.info("session rejected: \(ack.reason ?? "unknown", privacy: .public)")
-        if PenLinkRejectionPolicy.decision(reason: ack.reason) == .retryLater {
+      // Verify before trusting hostInfo or the reason when a key is held.
+      // An unauthenticated rejection is shown but never deletes a stored key.
+      let outcome = deviceLink.receiveHelloAck(ack)
+      switch outcome {
+      case .invalidProof:
+        state = .rejected("Pair again")
+        connectionLost(reconnect: false)
+        return
+      case .pairingRequired(let reason, let info):
+        hostInfo = info
+        onHostInfo(info)
+        state = .searching
+        transportLogger.info("pairing required: \(reason, privacy: .public)")
+        // Keep the connection open in a pairing-only state; beginPairing
+        // sends pairRequest on this same connection.
+        return
+      case .rejected(let reason, let info, let retryLater):
+        if info != nil {
+          hostInfo = info
+          onHostInfo(info)
+        }
+        transportLogger.info("session rejected: \(reason, privacy: .public)")
+        if retryLater {
           connectionLost(reconnectDelay: .seconds(2))
         } else {
-          state = .rejected(ack.reason ?? "rejected")
+          state = .rejected(reason)
           connectionLost(reconnect: false)
         }
         return
-      }
-      if pairingStore != nil {
-        let session = pairingSession()
-        if session.requiresAuthentication {
-          guard let deviceNonce = lastDeviceNonce,
-            session.verifiesHelloAck(ack, deviceNonce: deviceNonce)
-          else {
-            state = .rejected("Pair again")
-            connectionLost(reconnect: false)
-            return
-          }
+      case .connected(let info):
+        hostInfo = info
+        onHostInfo(info)
+        guard connection != nil else {
+          connectionLost()
+          return
         }
       }
-      guard let remote = connection.currentPath?.remoteEndpoint,
+      guard let connection,
+        let remote = connection.currentPath?.remoteEndpoint,
         case .hostPort(let host, _) = remote,
         let port = NWEndpoint.Port(rawValue: ack.udpPort)
       else {
@@ -669,6 +647,7 @@ public final class PenLinkSender {
   }
 
   private func connectionLost(reconnect: Bool = true, reconnectDelay: Duration? = nil) {
+    if let id = currentConnectionID { pairingDriver?.connectionLost(id) }
     connection?.cancel()
     udpConnection?.cancel()
     connection = nil
@@ -724,35 +703,33 @@ public final class PenLinkReceiver {
   #endif
   private var udpListener: NWListener?
   private var framer = ControlFramer()
-  private var session = ReceiverSession()
+  private var hostLink: HostLink
+  private var pairingDriver: PairingDriver?
+  private var pairingStoreRef: PairingKeyStore?
+  private var pairingHostIDRef: String?
   private var heartbeatTask: Task<Void, Never>?
-  private var sessionConnected = false
   private var busyFramers: [ObjectIdentifier: ControlFramer] = [:]
   private let udpGate = UDPGate()
   private let lockedStats = LockedStats()
   private let sampleSink = SampleSink()
   private let lastPacketAt = LockedTimestamp()
+  private let sampleGate = LockedFlag()
   private var linkStats = LinkStats()
   private var rttSamples: [Double] = []
   public private(set) var latestRTTMs: Double?
   public private(set) var transportIsUSB = false
-  private let pairingStore: PairingKeyStore?
-  private let pairingHostID: String?
-  private let fallbackPairingKey: Data?
   public var onPairingEvent: ((PairingTransportEvent) -> Void)?
-  private var pairingMachine: PairingStateMachine?
-  private var pairingTimeout: Task<Void, Never>?
-  public var pairingPhase: PairingPhase? { pairingMachine?.phase }
+  public var pairingPhase: PairingPhase? { pairingDriver?.phase }
 
   public init(
     pairingKey: Data? = nil, hostID: String? = nil,
     accept: @escaping AcceptHandler = { _ in true }
   ) throws {
     self.accept = accept
-    pairingStore = nil
-    pairingHostID = hostID
-    fallbackPairingKey = pairingKey
-    session = ReceiverSession(pairingKey: pairingKey, hostID: hostID)
+    pairingStoreRef = nil
+    pairingHostIDRef = hostID
+    hostLink = HostLink(store: nil, hostID: hostID, fallbackKey: pairingKey)
+    pairingDriver = nil
     let tcpOptions = NWProtocolTCP.Options()
     tcpOptions.noDelay = true
     let tcpParameters = NWParameters(tls: nil, tcp: tcpOptions)
@@ -770,10 +747,10 @@ public final class PenLinkReceiver {
     accept: @escaping AcceptHandler = { _ in true }
   ) throws {
     self.accept = accept
-    self.pairingStore = pairingStore
-    pairingHostID = hostID
-    fallbackPairingKey = nil
-    session = ReceiverSession(hostID: hostID)
+    pairingStoreRef = pairingStore
+    pairingHostIDRef = hostID
+    hostLink = HostLink(store: pairingStore, hostID: hostID)
+    pairingDriver = nil
     let tcpOptions = NWProtocolTCP.Options()
     tcpOptions.noDelay = true
     let tcpParameters = NWParameters(tls: nil, tcp: tcpOptions)
@@ -782,95 +759,59 @@ public final class PenLinkReceiver {
     listener.newConnectionHandler = { [weak self] newConnection in
       Task { @MainActor [weak self] in self?.acceptConnection(newConnection) }
     }
-  }
-
-  /// Resolves the stored key for the connecting device before proof
-  /// verification. Single-key sessions (tests) keep their fixed key.
-  private func pairingKey(for deviceID: String) -> Data? {
-    guard let pairingStore else { return fallbackPairingKey }
-    return pairingStore.key(for: deviceID)
+    let driver = PairingDriver(
+      role: .host, localID: hostID,
+      localName: { [weak self] in
+        self?.hostInfo?.name ?? "Mac"
+      }, store: pairingStore)
+    driver.onSend = { [weak self] message in
+      guard let self, let current = self.connection,
+        let bound = self.pairingDriver?.boundConnection,
+        ObjectIdentifier(current) == bound
+      else { return }
+      self.sendControl(message)
+    }
+    driver.onEvent = { [weak self] event in self?.handleDriverEvent(event) }
+    pairingDriver = driver
   }
 
   // MARK: - Host-role pairing (NibCore only; UI lives in the apps)
 
   public func confirmPairing() {
-    guard var machine = pairingMachine else { return }
-    let events = machine.confirm()
-    pairingMachine = machine
-    processPairingEvents(events)
+    guard let id = connection.map(ObjectIdentifier.init) else { return }
+    pairingDriver?.confirm(connectionID: id)
   }
 
   public func cancelPairing() {
-    guard var machine = pairingMachine else { return }
-    let event = machine.cancel()
-    pairingMachine = machine
-    if case .send(let message) = event { sendControl(message) }
-    finishPairing(with: .cancelled)
+    guard let id = connection.map(ObjectIdentifier.init) else { return }
+    pairingDriver?.cancel(connectionID: id)
+  }
+
+  private func handleDriverEvent(_ event: PairingTransportEvent) {
+    // After pairing the iPad sends a fresh authenticated hello on the same
+    // connection; the host clears pairing-only then and accepts it.
+    switch event {
+    case .paired(let peerID):
+      if let id = connection.map(ObjectIdentifier.init) { hostLink.clearPairingOnly(id) }
+      onPairingEvent?(.paired(peerID: peerID))
+    case .showCode(let code, let peerName):
+      onPairingEvent?(.showCode(code, peerName: peerName))
+    case .cancelled:
+      onPairingEvent?(.cancelled)
+    case .timedOut:
+      onPairingEvent?(.timedOut)
+    case .failed(let reason):
+      onPairingEvent?(.failed(reason))
+    }
   }
 
   private func handlePairingMessage(_ message: ControlMessage) {
-    guard let pairingStore, let hostID = pairingHostID else { return }
-    if pairingMachine == nil, case .pairRequest = message {
-      pairingMachine = PairingStateMachine(
-        role: .host, id: hostID, name: hostInfo?.name ?? "Mac", store: pairingStore)
-      startPairingTimeout()
-    }
-    guard var machine = pairingMachine else { return }
-    let events = machine.receive(message)
-    pairingMachine = machine
-    processPairingEvents(events)
-  }
-
-  private func processPairingEvents(_ events: [PairingEvent]) {
-    for event in events {
-      switch event {
-      case .send(let message):
-        sendControl(message)
-      case .showCode(let code):
-        let peer = pairingMachine?.peerDisplayName ?? "iPad"
-        onPairingEvent?(.showCode(code, peerName: peer))
-      case .paired(let peerID):
-        cancelPairingTimeout()
-        let paired = peerID
-        pairingMachine = nil
-        onPairingEvent?(.paired(peerID: paired))
-      case .cancelled:
-        finishPairing(with: .cancelled)
-      case .timedOut:
-        finishPairing(with: .timedOut)
-      case .failed(let reason):
-        finishPairing(with: .failed(reason))
-      }
-    }
-    if let machine = pairingMachine, machine.isTerminal, machine.phase != .waitingForPeer {
-      // Terminal phases without a paired key clear the slot; paired already nils it.
-      if machine.phase != .paired { pairingMachine = nil }
-    }
-  }
-
-  private func finishPairing(with event: PairingTransportEvent) {
-    cancelPairingTimeout()
-    pairingMachine = nil
-    onPairingEvent?(event)
-  }
-
-  private func startPairingTimeout() {
-    cancelPairingTimeout()
-    pairingTimeout = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.timeoutSeconds)))
-      guard let self, !Task.isCancelled else { return }
-      guard var machine = self.pairingMachine, !machine.isTerminal else { return }
-      let event = machine.timeout()
-      self.pairingMachine = machine
-      if case .timedOut = event {
-        self.finishPairing(with: .timedOut)
-      }
-    }
-  }
-
-  private func cancelPairingTimeout() {
-    pairingTimeout?.cancel()
-    pairingTimeout = nil
+    guard let id = connection.map(ObjectIdentifier.init) else { return }
+    // In pairing-only only pair*/ping are processed; full sessions ignore
+    // stray pairing traffic.
+    if hostLink.sessionConnected { return }
+    if !hostLink.allows(message, connectionID: id) { return }
+    pairingDriver?.receive(message, connectionID: id)
   }
 
   public func start() {
@@ -918,9 +859,12 @@ public final class PenLinkReceiver {
   public func stop() {
     listener.cancel()
     udpListener?.cancel()
-    cancelPairingTimeout()
-    pairingMachine = nil
-    disconnectSession(notify: sessionConnected)
+    if let id = connection.map(ObjectIdentifier.init) {
+      pairingDriver?.connectionLost(id)
+      hostLink.connectionLost(id)
+    }
+    pairingDriver = nil
+    disconnectSession(notify: hostLink.sessionConnected)
     #if os(macOS)
       usbClient?.stop()
       usbClient = nil
@@ -929,7 +873,7 @@ public final class PenLinkReceiver {
 
   #if os(macOS)
     private func acceptUSBConnection(device: UsbmuxClient.Device, connection newConnection: NWConnection) {
-      let current: USBTransport = sessionConnected ? (usbMode ? .usb : .wifi) : .none
+      let current: USBTransport = hostLink.sessionConnected ? (usbMode ? .usb : .wifi) : .none
       switch USBTransportArbitration.decide(current: current, newcomer: .usb) {
       case .busy:
         newConnection.start(queue: queue)
@@ -940,6 +884,12 @@ public final class PenLinkReceiver {
       case .replace:
         disconnectSession(notify: true)
       case .accept: break
+      }
+      if let old = connection.map(ObjectIdentifier.init) {
+        pairingDriver?.newConnection(ObjectIdentifier(newConnection))
+        _ = old
+      } else {
+        pairingDriver?.newConnection(ObjectIdentifier(newConnection))
       }
       connection?.cancel()
       connection = newConnection
@@ -970,6 +920,7 @@ public final class PenLinkReceiver {
                   await self.handle(message)
                 }
               case .sample(let sample):
+                guard self.sampleGate.get() else { continue }
                 let arrival = DispatchTime.now().uptimeNanoseconds
                 self.lastPacketAt.set(Date.timeIntervalSinceReferenceDate)
                 self.lockedStats.record(sequence: sample.sequence, sender: sample.timestamp, arrival: arrival)
@@ -977,7 +928,8 @@ public final class PenLinkReceiver {
               }
             }
           } catch {
-            Task { @MainActor [weak self] in self?.disconnectSession(notify: self?.sessionConnected ?? false)
+            Task { @MainActor [weak self] in
+              self?.disconnectSession(notify: self?.hostLink.sessionConnected ?? false)
             }
             return
           }
@@ -985,7 +937,7 @@ public final class PenLinkReceiver {
         if complete || error != nil {
           Task { @MainActor [weak self] in
             guard let self, self.usbConnection === expected else { return }
-            self.disconnectSession(notify: self.sessionConnected)
+            self.disconnectSession(notify: self.hostLink.sessionConnected)
           }
         } else {
           self.receiveUSB(from: expected)
@@ -995,11 +947,14 @@ public final class PenLinkReceiver {
   #endif
 
   private func acceptConnection(_ newConnection: NWConnection) {
-    if sessionConnected {
+    if hostLink.sessionConnected {
       newConnection.start(queue: queue)
       receiveBusy(newConnection)
       return
     }
+    let newID = ObjectIdentifier(newConnection)
+    pairingDriver?.newConnection(newID)
+    // A new connection never inherits pairing-only or the pairing machine.
     connection?.cancel()
     connection = newConnection
     framer = ControlFramer()
@@ -1009,7 +964,7 @@ public final class PenLinkReceiver {
         guard let self, self.connection === newConnection else { return }
         // The path is available here; accept-time state does not need to guess it.
         if case .hostPort(let host, _) = newConnection.currentPath?.remoteEndpoint {
-          self.session.setRemoteHost(String(describing: host))
+          self.hostLink.session.setRemoteHost(String(describing: host))
         }
       }
     }
@@ -1056,12 +1011,12 @@ public final class PenLinkReceiver {
           do {
             for message in try self.framer.append(Array(data)) { await self.handle(message) }
           } catch {
-            self.disconnectSession(notify: self.sessionConnected)
+            self.disconnectSession(notify: self.hostLink.sessionConnected)
             return
           }
         }
         if complete || error != nil {
-          self.disconnectSession(notify: self.sessionConnected)
+          self.disconnectSession(notify: self.hostLink.sessionConnected)
         } else {
           self.receiveControl(from: expected)
         }
@@ -1071,37 +1026,40 @@ public final class PenLinkReceiver {
 
   private func handle(_ message: ControlMessage) async {
     let now = Date.timeIntervalSinceReferenceDate
+    let connectionID = connection.map(ObjectIdentifier.init)
+    // Pairing-only gating: only hello, pairRequest/pairReveal/pairResult and
+    // ping are processed; samples, gestures and the UDP gate stay idle.
+    if let id = connectionID, !hostLink.allows(message, connectionID: id) {
+      return
+    }
     switch message {
     case .hello(let hello):
-      if pairingStore != nil {
-        session.updatePairingKey(pairingKey(for: hello.deviceID), hostID: pairingHostID)
-      }
-      if session.requiresPairingAuthentication || pairingStore != nil,
-        !session.verifiesPairingProof(hello)
-      {
-        sendControl(.helloAck(.init(accepted: false, reason: "Pair again")))
-        disconnectSession(notify: false)
-        return
-      }
-      let decision = session.hello(
-        protocolVersion: hello.protocolVersion, busy: sessionConnected, acceptResult: false, now: now,
+      guard let id = connectionID else { return }
+      let outcome = hostLink.receiveHello(
+        hello, connectionID: id, busy: hostLink.sessionConnected, now: now,
         hostAppVersion: hostInfo?.appVersion ?? "unknown")
-      if case .rejected(let reason) = decision, reason != "rejected" && reason != "busy" {
-        sendControl(.helloAck(.init(accepted: false, reason: reason)))
+      switch outcome {
+      case .reject(let ack, _):
+        sendControl(.helloAck(ack))
         disconnectSession(notify: false)
         return
-      }
-      if sessionConnected {
-        sendControl(.helloAck(.init(accepted: false, reason: "busy")))
+      case .busy(let ack):
+        sendControl(.helloAck(ack))
         connection?.cancel()
         connection = nil
         return
+      case .pairingRequired(let ack):
+        // Keep the connection open in a pairing-only state.
+        sendControl(.helloAck(ack))
+        return
+      case .needsAccept:
+        break
       }
       // The prompt may take seconds; a newer unaccepted connection can
       // replace this one meanwhile, and must not inherit the answer.
       let asking = connection
       let allowed = await accept(hello)
-      guard let asking, connection === asking, !sessionConnected else {
+      guard let asking, connection === asking, !hostLink.sessionConnected else {
         asking?.cancel()
         return
       }
@@ -1110,7 +1068,6 @@ public final class PenLinkReceiver {
         disconnectSession(notify: false)
         return
       }
-      _ = session.hello(protocolVersion: hello.protocolVersion, busy: false, acceptResult: true, now: now)
       let udpPort = udpListener?.port?.rawValue ?? 0
       #if os(macOS)
         if !usbMode && udpListener?.port == nil {
@@ -1125,9 +1082,11 @@ public final class PenLinkReceiver {
           return
         }
       #endif
-      sessionConnected = true
+      let ack = hostLink.acceptHello(
+        hello, now: now, udpPort: udpPort, displayWidth: displayWidth,
+        displayHeight: displayHeight, host: hostInfo)
       // Only the accepted control connection's host may send samples.
-      var tcpHost = session.remoteHost
+      var tcpHost = hostLink.session.remoteHost
       if tcpHost == nil, case .hostPort(let host, _) = connection?.currentPath?.remoteEndpoint {
         tcpHost = String(describing: host)
       }
@@ -1136,46 +1095,41 @@ public final class PenLinkReceiver {
       #else
         udpGate.configure(host: tcpHost)
       #endif
+      sampleGate.set(true)
       lastPacketAt.set(now)
       lockedStats.reset()
       linkStats = LinkStats()
       rttSamples.removeAll()
       latestRTTMs = nil
       transportLogger.info("session accepted from \(hello.deviceName, privacy: .public)")
-      let ack: ControlMessage.HelloAck
-      if session.requiresPairingAuthentication {
-        let deviceNonceData =
-          (hello.nonce.flatMap { Data(base64Encoded: $0) }) ?? PairingCrypto.randomNonce()
-        ack = session.authenticatedHelloAck(
-          deviceNonce: deviceNonceData, hostNonce: PairingCrypto.randomNonce(), accepted: true,
-          udpPort: udpPort, displayWidth: displayWidth, displayHeight: displayHeight, host: hostInfo)
-      } else {
-        ack = .init(
-          accepted: true, udpPort: udpPort, displayWidth: displayWidth,
-          displayHeight: displayHeight, host: hostInfo)
-      }
+      // A .send never goes to a different connection: verify the asker is
+      // still current before sending the ack.
+      guard connection === asking else { return }
       sendControl(.helloAck(ack))
       onSession?(.connected(hello))
       startHeartbeat()
     case .geometry(let geometry):
-      guard sessionConnected else { return }
-      session.received(at: now)
+      guard hostLink.sessionConnected else { return }
+      hostLink.session.received(at: now)
       onSession?(.geometryChanged(geometry))
     case .ping:
-      guard sessionConnected else { return }
-      session.received(at: now)
+      if hostLink.sessionConnected {
+        hostLink.session.received(at: now)
+      }
+      // In pairing-only ping keeps the connection open; no session to refresh.
+      return
     case .probe(let sentAtNs):
-      guard sessionConnected else { return }
-      session.received(at: now)
+      guard hostLink.sessionConnected else { return }
+      hostLink.session.received(at: now)
       sendControl(.probeReply(sentAtNs: sentAtNs))
     case .gesture(let gesture):
-      guard sessionConnected else { return }
-      session.received(at: now)
+      guard hostLink.sessionConnected else { return }
+      hostLink.session.received(at: now)
       onGesture?(gesture)
     case .frontApp:
-      guard sessionConnected else { return }
+      guard hostLink.sessionConnected else { return }
     case .probeReply(let sentAtNs):
-      guard sessionConnected else { return }
+      guard hostLink.sessionConnected else { return }
       let nowNs = DispatchTime.now().uptimeNanoseconds
       guard nowNs >= sentAtNs else { return }
       let rtt = Double(nowNs - sentAtNs) / 1_000_000
@@ -1206,8 +1160,8 @@ public final class PenLinkReceiver {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(1))
         guard let self, !Task.isCancelled else { return }
-        if let packetAt = self.lastPacketAt.get() { self.session.received(at: packetAt) }
-        if self.session.timeoutIfNeeded(at: Date.timeIntervalSinceReferenceDate) {
+        if let packetAt = self.lastPacketAt.get() { self.hostLink.session.received(at: packetAt) }
+        if self.hostLink.session.timeoutIfNeeded(at: Date.timeIntervalSinceReferenceDate) {
           self.disconnectSession(notify: true)
           return
         }
@@ -1218,7 +1172,7 @@ public final class PenLinkReceiver {
   }
 
   private func acceptUDP(_ udp: NWConnection) {
-    guard sessionConnected else {
+    guard hostLink.sessionConnected else {
       udp.cancel()
       return
     }
@@ -1246,6 +1200,10 @@ public final class PenLinkReceiver {
   private func disconnectSession(notify: Bool) {
     heartbeatTask?.cancel()
     heartbeatTask = nil
+    if let id = connection.map(ObjectIdentifier.init) {
+      pairingDriver?.connectionLost(id)
+      hostLink.connectionLost(id)
+    }
     connection?.cancel()
     connection = nil
     #if os(macOS)
@@ -1262,14 +1220,15 @@ public final class PenLinkReceiver {
         usbClient?.deviceConnectionEnded(endedDevice, connection: endedConnection)
       }
     #endif
-    session.disconnect()
+    hostLink.session.disconnect()
     udpGate.disable()
+    sampleGate.set(false)
     lastPacketAt.set(nil)
     lockedStats.reset()
     linkStats = LinkStats()
     rttSamples.removeAll()
     latestRTTMs = nil
-    sessionConnected = false
+    hostLink.sessionConnected = false
     framer = ControlFramer()
     if notify { onSession?(.disconnected) }
     if notify { transportLogger.info("session disconnected") }

@@ -90,10 +90,15 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     public var host: HostInfo?
     public var nonce: String?
     public var proof: String?
+    /// True when an unpaired iPad may pair on this same connection. The
+    /// connection stays open in a pairing-only state; only hello, pairRequest,
+    /// pairReveal, pairResult and ping are processed until pairing completes.
+    public var pairingRequired: Bool?
 
     public init(
       accepted: Bool, reason: String? = nil, udpPort: UInt16 = 0, displayWidth: Double = 0,
-      displayHeight: Double = 0, host: HostInfo? = nil, nonce: String? = nil, proof: String? = nil
+      displayHeight: Double = 0, host: HostInfo? = nil, nonce: String? = nil, proof: String? = nil,
+      pairingRequired: Bool? = nil
     ) {
       self.accepted = accepted
       self.reason = reason
@@ -103,6 +108,24 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       self.host = host
       self.nonce = nonce
       self.proof = proof
+      self.pairingRequired = pairingRequired
+    }
+
+    private enum CodingKeys: String, CodingKey {
+      case accepted, reason, udpPort, displayWidth, displayHeight, host, nonce, proof, pairingRequired
+    }
+
+    public init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      accepted = try values.decode(Bool.self, forKey: .accepted)
+      reason = try values.decodeIfPresent(String.self, forKey: .reason)
+      udpPort = try values.decodeIfPresent(UInt16.self, forKey: .udpPort) ?? 0
+      displayWidth = try values.decodeIfPresent(Double.self, forKey: .displayWidth) ?? 0
+      displayHeight = try values.decodeIfPresent(Double.self, forKey: .displayHeight) ?? 0
+      host = try values.decodeIfPresent(HostInfo.self, forKey: .host)
+      nonce = try values.decodeIfPresent(String.self, forKey: .nonce)
+      proof = try values.decodeIfPresent(String.self, forKey: .proof)
+      pairingRequired = try values.decodeIfPresent(Bool.self, forKey: .pairingRequired)
     }
   }
 
