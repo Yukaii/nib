@@ -38,6 +38,7 @@ visible thin-to-thick pressure stroke.
 - [x] 0012 Per-app profiles model, front-app reporting, key shortcuts on the Mac
 - [x] 0013 iPad edge controls: shortcut buttons + scroll/zoom/brush strip
 - [x] 0014 iPad profile editor in the companion panel
+- [ ] 0015 Native trackpad magnify/rotate from iPad pinch and twist
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
 - [ ] Active-area mapping: aspect-locked letterbox, region selection, multi-display
 - [ ] Eraser via Pencil double-tap / squeeze (toggle exists; verify in apps)
