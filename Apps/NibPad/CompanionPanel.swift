@@ -10,6 +10,7 @@ struct CompanionPanel: View {
   let hostInfo: ControlMessage.HostInfo?
   let showIntroduction: () -> Void
   let changeMac: () -> Void
+  let forgetMac: () -> Void
   let pressureResult: PressureCheckResult
   @Binding var showsHUD: Bool
   @State private var testRaw: Double = 0.5
@@ -45,6 +46,7 @@ struct CompanionPanel: View {
         profilesSection
         Toggle("Debug HUD", isOn: $showsHUD)
         Button("Change Mac") { changeMac() }
+        Button("Forget this Mac", role: .destructive) { forgetMac() }
         Button("Show introduction again") { showIntroduction() }
         HStack {
           Text("Edge brightness")

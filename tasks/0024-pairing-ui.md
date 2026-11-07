@@ -1,7 +1,7 @@
 ---
 id: "0024"
 title: Pairing UI on Mac and iPad, Keychain keys, retire the allow list
-status: doing
+status: review
 milestone: M3
 depends: ["0022"]
 ---
@@ -58,9 +58,19 @@ devices reconnect silently, and either side can forget the other.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/pairing-flow-review-fixes @ 3dabcf0
+Verify: verify: ok (Test run with 159 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added the shared KeychainPairingKeyStore with the required service, account, accessibility policy, and logged OSStatus failures.
+- Made pairing key persistence report failure; failed writes now emit `.failed` and never mark either side paired. Added a failing-store regression test.
+- Replaced the Mac blocking alert with a model-owned, frontmost non-blocking pairing panel that closes on cancel, timeout, failure, and success, and records the real iPad name.
+- Added a reusable iPad pairing view for onboarding and a direct pairing sheet when an existing paired-by-Remember user needs to pair again.
+Manual checks: not run (requires an iPad mini 7 with Apple Pencil Pro and an Apple Silicon Mac).
+  1. On a fresh install, launch Nib on both devices over Wi-Fi. On the iPad choose the Mac, tap Pair, and confirm the same six-digit code on both screens. Draw a pressure stroke in Krita.
+  2. Quit and relaunch both apps. Confirm the iPad reconnects without a pairing prompt and pressure still reaches Krita.
+  3. On the Mac menu open Paired iPads, choose Forget for the iPad, reconnect it, and confirm the iPad asks to pair again.
+  4. On the iPad Companion panel choose Forget this Mac, reconnect, and confirm both screens ask to pair again.
+  5. Turn Wi-Fi off, connect the USB-C cable, and repeat pairing and a pressure stroke. Cancel on either side and confirm no key is stored; verify Keychain Access has no `dev.yukai.nib.pairing` item.
+  6. With a user who previously paired by selecting Remember, update both apps, reconnect, and confirm the iPad shows a pairing sheet over the black screen with Pair and Not now, then guides the user through the code and confirmation.
+Not done / risks: Keychain behavior, stale-panel dismissal, and Wi-Fi/USB pairing need the manual hardware checks above.
 ```

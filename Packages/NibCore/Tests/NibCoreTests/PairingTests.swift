@@ -17,6 +17,12 @@ private func framerRoundTrip(_ message: ControlMessage) throws -> ControlMessage
 
 private final class FakeConn {}
 
+private final class FailingPairingKeyStore: PairingKeyStore, @unchecked Sendable {
+  func key(for peerID: String) -> Data? { nil }
+  @discardableResult func save(_ key: Data, for peerID: String) -> Bool { false }
+  func removeKey(for peerID: String) {}
+}
+
 struct PairingTests {
   private let devicePrivate = hex("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
   private let hostPrivate = hex("2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40")
@@ -296,6 +302,32 @@ struct PairingTests {
     #expect(host.phase == .waitingForReveal)
     #expect(host.timeout() == .timedOut)
     #expect(hostStore.key(for: "device-001") == nil)
+  }
+
+  @Test func failedKeyStoreDoesNotReportPaired() throws {
+    let deviceStore = FailingPairingKeyStore()
+    let hostStore = InMemoryPairingKeyStore()
+    var device = PairingStateMachine(
+      role: .device, id: "device-001", name: "iPad", keyPair: try PairingKeyPair(privateKey: devicePrivate),
+      store: deviceStore)
+    var host = PairingStateMachine(
+      role: .host, id: "host-001", name: "Mac", keyPair: try PairingKeyPair(privateKey: hostPrivate),
+      store: hostStore)
+    let request = try #require(try device.begin(nonce: deviceNonce))
+    let requestMessage = try #require(message(from: request))
+    let responseEvents = host.receive(try framerRoundTrip(requestMessage))
+    let response = try #require(responseEvents.compactMap(message).first)
+    let deviceEvents = device.receive(try framerRoundTrip(response))
+    let reveal = try #require(deviceEvents.compactMap(message).first)
+    _ = host.receive(try framerRoundTrip(reveal))
+    let deviceResult = try #require(device.confirm().compactMap(message).first)
+    _ = host.receive(try framerRoundTrip(deviceResult))
+    let hostResult = try #require(host.confirm().compactMap(message).first)
+    let events = device.receive(try framerRoundTrip(hostResult))
+    #expect(events.contains(.failed("Couldn't save the pairing key. Try pairing again.")))
+    #expect(!events.contains { if case .paired = $0 { true } else { false } })
+    #expect(device.phase == .failed)
+    #expect(deviceStore.key(for: "host-001") == nil)
   }
 
   @Test func hostCancelAndPeerCancelLeaveNoStoredKey() throws {

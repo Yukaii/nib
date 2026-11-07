@@ -19,11 +19,52 @@ struct ConnectionStatusOverlay: View {
   }
 }
 
+struct PairingInstructionsView: View {
+  let pairingCode: String?
+  let pairingPeer: String?
+  let pair: () -> Void
+  let cancel: () -> Void
+  let pairAgain: () -> Void
+  let error: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Image(systemName: "lock.shield").font(.system(size: 42)).foregroundStyle(.cyan)
+      Text("Pair with \(pairingPeer ?? "your Mac")").font(.largeTitle.bold())
+      Text(
+        pairingCode.map { "Check that your Mac shows \($0)." }
+          ?? "Start pairing on your iPad, then check the same code on both screens.")
+      Text("Tap Pair on both devices when the six-digit codes match.")
+        .font(.callout).foregroundStyle(.secondary)
+      HStack {
+        Button("Pair", action: pair).buttonStyle(.borderedProminent).tint(.cyan)
+        Button("Not now", action: cancel).buttonStyle(.plain)
+      }
+      if pairingCode != nil {
+        Text("Waiting for your confirmation…").foregroundStyle(.secondary)
+      }
+      if let error {
+        Text(error).foregroundStyle(.orange)
+        Button("Pair again", action: pairAgain).buttonStyle(.bordered)
+      }
+    }
+    .padding(28)
+    .foregroundStyle(.white)
+    .frame(maxWidth: 520)
+  }
+}
+
 struct OnboardingView: View {
   @Binding var step: Int
   let hosts: [String]
   let linkState: PenLinkState
+  let pairingCode: String?
+  let pairingPeer: String?
   let chooseMac: (String) -> Void
+  let pair: () -> Void
+  let cancelPairing: () -> Void
+  let pairAgain: () -> Void
+  let pairingError: String?
   let finish: (PressureCheckResult) -> Void
   @State private var localNetworkHint = false
   @State private var localPressureSamples: [Float] = []
@@ -40,8 +81,9 @@ struct OnboardingView: View {
           case 0: welcome
           case 1: install
           case 2: choose
-          case 3: pressure
-          case 4: gestures
+          case 3: pairing
+          case 4: pressure
+          case 5: gestures
           default: start
           }
         }
@@ -63,7 +105,7 @@ struct OnboardingView: View {
     HStack {
       Text("Nib").font(.title2.bold())
       Spacer()
-      Text("Step \(min(step + 1, 6)) of 6").font(.caption).foregroundStyle(.secondary)
+      Text("Step \(min(step + 1, 7)) of 7").font(.caption).foregroundStyle(.secondary)
     }
   }
 
@@ -117,6 +159,15 @@ struct OnboardingView: View {
     }
   }
 
+  private var pairing: some View {
+    PairingInstructionsView(
+      pairingCode: pairingCode, pairingPeer: pairingPeer, pair: pair,
+      cancel: {
+        cancelPairing()
+        step = 2
+      }, pairAgain: pairAgain, error: pairingError)
+  }
+
   private var pressure: some View {
     let result = PressureCheckClassifier.classify(localPressureSamples)
     return page(title: "Check your Apple Pencil", symbol: "pencil.tip") {
@@ -143,8 +194,8 @@ struct OnboardingView: View {
         .foregroundStyle(.orange)
       }
       HStack {
-        button("Continue") { step = 4 }
-        if result == .notEnoughData { Button("Skip for now") { step = 4 }.buttonStyle(.plain) }
+        button("Continue") { step = 5 }
+        if result == .notEnoughData { Button("Skip for now") { step = 5 }.buttonStyle(.plain) }
       }
     }
   }
@@ -156,7 +207,7 @@ struct OnboardingView: View {
       gesture("arrow.up.left.and.arrow.down.right", "Pinch or twist", "Zoom or rotate")
       gesture("arrow.uturn.backward", "Two-finger tap", "Undo")
       gesture("arrow.uturn.forward", "Three-finger tap", "Redo")
-      button("Continue") { step = 5 }
+      button("Continue") { step = 6 }
     }
   }
 
