@@ -63,7 +63,7 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit: t3/encrypted-session-integration-fixes @ 68a7ba530fbdcdc29cc0400a372bcbfc4146efc2
+Branch/commit: t3/encrypted-session-integration-fixes @ 385debf3c19a778c22baba8945b384ae4fa151db
 Verify: verify: ok (Test run with 169 tests; NibMac + NibPad built)
 Done:
 - Switched the TCP and USB dispatchers atomically from plaintext helloAck to sealed frames, including bytes buffered in the same read; covered split and combined Wi-Fi/USB dispatcher tests.
