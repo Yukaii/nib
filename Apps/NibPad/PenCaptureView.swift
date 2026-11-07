@@ -116,6 +116,16 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     guard panelOpen != open else { return }
     panelOpen = open
     if open {
+      // Sends stop while the panel is open; release the pen on the Mac first so
+      // a stroke or hover in progress cannot leave the button held.
+      cancelProximityExit()
+      isTouching = false
+      if lastSample?.kind != .proximityExit {
+        sink.send(
+          PenSample(
+            kind: .proximityExit, sequence: nextSequence(), timestamp: timestamp(),
+            x: 0, y: 0, pressure: 0, altitude: 0, azimuth: 0, buttons: buttons))
+      }
       UIScreen.main.brightness = originalBrightness ?? UIScreen.main.brightness
       inkPoints.removeAll()
       sampleTimes.removeAll()

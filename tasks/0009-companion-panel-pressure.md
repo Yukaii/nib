@@ -76,5 +76,8 @@ Done:
 - Added four-finger companion panel with pressure presets, curve controls, test strip, gesture settings, link state, and HUD toggle.
 - Applied mapped pressure before network sends and gated all sends while the panel is open.
 Manual checks: Not run; requires a physical iPad, Pencil, and Krita.
+Review fixes (orchestrator): opening the panel sends proximityExit first
+  (gated sends could leave the Mac button held); test strip now reads real
+  Pencil force instead of finger x-position.
 Not done / risks: Visual panel readability, Pencil marker interaction, pressure comparison in Krita, and persistence across relaunch remain manual checks.
 ```

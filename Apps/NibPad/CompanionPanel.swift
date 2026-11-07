@@ -1,5 +1,6 @@
 import NibCore
 import SwiftUI
+import UIKit
 
 struct CompanionPanel: View {
   @Bindable var store: PadSettingsStore
@@ -56,22 +57,21 @@ struct CompanionPanel: View {
         .frame(height: 100)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
       Text("Test strip").font(.subheadline)
-      GeometryReader { proxy in
-        ZStack(alignment: .leading) {
-          Capsule().fill(.white.opacity(0.18)).frame(height: 34)
-          Capsule().fill(.cyan).frame(
-            width: proxy.size.width * CGFloat(PressureCurve.apply(Float(testRaw), store.settings.pressure)),
-            height: 34)
-          Circle().fill(.white).frame(width: 22, height: 22)
-            .offset(x: proxy.size.width * CGFloat(testRaw) - 11)
+      ZStack(alignment: .leading) {
+        GeometryReader { proxy in
+          ZStack(alignment: .leading) {
+            Capsule().fill(.white.opacity(0.18))
+            Capsule().fill(.cyan).frame(
+              width: proxy.size.width * CGFloat(PressureCurve.apply(Float(testRaw), store.settings.pressure)))
+            Circle().fill(.white).frame(width: 22, height: 22)
+              .offset(x: proxy.size.width * CGFloat(testRaw) - 11)
+          }
         }
-        .contentShape(Rectangle())
-        .gesture(
-          DragGesture(minimumDistance: 0).onChanged { value in
-            testRaw = min(max(value.location.x / proxy.size.width, 0), 1)
-          })
+        PencilPressureProbe { testRaw = Double($0) }
       }
-      .frame(height: 34)
+      .frame(height: 44)
+      Text("Press the Pencil on the strip: dot = raw force, bar = what the Mac receives.")
+        .font(.caption).foregroundStyle(.secondary)
     }
   }
 
@@ -126,6 +126,34 @@ private struct CurvePreview: View {
       }
       context.stroke(path, with: .color(.cyan), lineWidth: 3)
     }
+  }
+}
+
+/// Reports real Pencil force (not position) so the curve can be calibrated by hand.
+private struct PencilPressureProbe: UIViewRepresentable {
+  let onPressure: (Float) -> Void
+
+  func makeUIView(context: Context) -> ProbeView {
+    let view = ProbeView()
+    view.onPressure = onPressure
+    return view
+  }
+
+  func updateUIView(_ uiView: ProbeView, context: Context) { uiView.onPressure = onPressure }
+
+  final class ProbeView: UIView {
+    var onPressure: ((Float) -> Void)?
+
+    private func report(_ touches: Set<UITouch>) {
+      guard let touch = touches.first(where: { $0.type == .pencil }), touch.maximumPossibleForce > 0
+      else { return }
+      onPressure?(Float(min(max(touch.force / touch.maximumPossibleForce, 0), 1)))
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { report(touches) }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { report(touches) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { onPressure?(0) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { onPressure?(0) }
   }
 }
 
