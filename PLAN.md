@@ -4,9 +4,9 @@ Started 2026-11-07. Integration branch: `main`. Keep under 120 lines.
 
 ## Current focus
 
-M1 — prove the hard requirement end to end: a Pencil stroke on the iPad
-arrives in Krita on the Mac with varying pressure. All M1 tasks are merged;
-waiting on the manual exit check below (needs the iPad, Accessibility, Krita).
+M2 — feel like a Wacom. First: measure the link, then smooth it (cursor
+moves in bursts: 240 Hz samples arrive ~4 per 60 Hz iPad frame, plus Wi-Fi
+jitter, and the Mac receives on the main thread).
 
 ## Milestones
 
@@ -22,12 +22,17 @@ waiting on the manual exit check below (needs the iPad, Accessibility, Krita).
 - [x] 0005 Transport: Bonjour/Network.framework sender (iPad) + receiver (Mac)
 - [x] 0006 Mac host app wiring: receive → map → inject, display picker, Accessibility onboarding
 
+- [x] Exit check passed 2026-11-07 (user, iPad mini 7): pressure reaches the
+  Mac. Note: Accessibility granted while NibMac runs needs an app restart.
+
 Exit check (manual): draw in Krita on the Mac from the iPad mini with a
 visible thin-to-thick pressure stroke.
 
 ### M2 — Feels like a Wacom
 
-- [ ] Latency budget and measurement (target < 20 ms pen-to-event on Wi-Fi)
+- [ ] 0007 Link diagnostics: logging, stats (rate, loss, jitter, RTT), HUD brightness
+- [ ] 0008 Smooth delivery: off-main receive, adaptive jitter buffer, low-latency network params
+- [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
 - [ ] Wired USB-C path (usbmux) for lower jitter
 - [ ] Active-area mapping: aspect-locked letterbox, region selection, multi-display
 - [ ] Pressure curve settings; eraser via Pencil double-tap / squeeze
