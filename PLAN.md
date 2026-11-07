@@ -35,7 +35,7 @@ visible thin-to-thick pressure stroke.
 - [x] 0009 iPad companion panel (four-finger tap) + pressure curve applied on iPad
 - [x] 0010 Finger gestures: two-finger scroll, pinch zoom, 2/3-finger tap undo/redo
 - [x] 0011 USB-C mode via usbmuxd, preferred over Wi-Fi
-- [ ] 0012 Per-app profiles model, front-app reporting, key shortcuts on the Mac
+- [x] 0012 Per-app profiles model, front-app reporting, key shortcuts on the Mac
 - [ ] 0013 iPad edge controls: shortcut buttons + scroll/zoom/brush strip
 - [ ] 0014 iPad profile editor in the companion panel
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)

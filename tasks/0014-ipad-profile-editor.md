@@ -1,7 +1,7 @@
 ---
 id: "0014"
 title: iPad companion panel — profile editor for buttons, strip and gestures
-status: todo
+status: doing
 milestone: M2
 depends: ["0012"]
 ---

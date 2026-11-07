@@ -1,7 +1,7 @@
 ---
 id: "0013"
 title: iPad edge controls — shortcut buttons and scroll/zoom strip
-status: todo
+status: doing
 milestone: M2
 depends: ["0012"]
 ---
