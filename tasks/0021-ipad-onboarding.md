@@ -73,7 +73,7 @@ screen. When the link drops while drawing, a dim status tells them why.
 ## Handoff
 
 ```
-Branch/commit: t3/ipad-onboarding-flow @ 67cc2a7
+Branch/commit: t3/ipad-onboarding-flow @ aa0919a
 Verify: verify: ok (Test run with 129 tests; NibMac + NibPad built)
 Done:
 - Added deterministic Mac selection and Pencil pressure classifier policies with tests.
