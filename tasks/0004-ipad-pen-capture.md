@@ -59,7 +59,7 @@ ignores fingers, and can show a debug HUD of the live values.
 ## Handoff
 
 ```
-Branch/commit: t3-15dfc55b @ 9da88288ddc7090bdef1c1f5a8de4660ee4ff40c
+Branch/commit: t3-15dfc55b @ b64392a026c2ec10f39e1cddc14fa725ef8fb3d7
 Verify: verify: ok (Test run with 5 tests; NibMac + NibPad built)
 Done:
 - Added platform-neutral PencilNormalizer with bounds, pressure, angle, and hover mapping.
