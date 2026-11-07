@@ -7,10 +7,12 @@ let package = Package(
   products: [
     .library(name: "NibCore", targets: ["NibCore"]),
     .executable(name: "nib-inject-demo", targets: ["NibInjectDemo"]),
+    .executable(name: "nib-receive", targets: ["nib-receive"]),
   ],
   targets: [
     .target(name: "NibCore"),
     .executableTarget(name: "NibInjectDemo", dependencies: ["NibCore"]),
+    .executableTarget(name: "nib-receive", dependencies: ["NibCore"]),
     .testTarget(name: "NibCoreTests", dependencies: ["NibCore"]),
   ]
 )

@@ -78,9 +78,20 @@ that checks the protocol version and exchanges surface/display geometry.
 Filled in by the worker:
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/fix-transport-reconnect-heartbeat @ 98c75da5206739bc4db74fa4f65a2ddb91bf2e92
+Verify: verify: ok (Test run with 33 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added Codable TCP control messages with length framing, incremental decoding, and size protection.
+- Added Bonjour discovery, reconnecting TCP control, host-gated UDP samples, session heartbeats, geometry updates, and transition triple-send.
+- Added pure receiver session policy and deterministic transport tests, including timeout, busy, version, host, and sequence-boundary cases.
+- Added the macOS `nib-receive` executable and wired NibPad to the network sink and HUD link state.
+Manual checks: Not run. Steps:
+- Run `swift run --package-path Packages/NibCore nib-receive`.
+- Install NibPad on the iPad via Xcode with a personal team.
+- Allow Local Network.
+- Three-finger tap to open the HUD and see `link connected <Mac name>`.
+- Draw and watch the pressure values rise and fall on the Mac.
+- Ctrl-C `nib-receive` → the HUD shows searching within ~3 s; restart it → reconnects.
+- Turn the iPad's Wi-Fi off → the Mac prints session disconnected within ~3 s.
+Not done / risks: Manual iPad/Mac checks were not run; pairing/encryption and display geometry values remain task 0006 scope.
 ```

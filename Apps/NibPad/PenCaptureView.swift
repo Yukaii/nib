@@ -4,13 +4,17 @@ import UIKit
 
 @MainActor
 protocol PenSampleSink: AnyObject {
+  var linkState: String { get }
   func send(_ sample: PenSample)
+  func updateGeometry(width: Double, height: Double)
 }
 
 @MainActor
 final class LoggingSink: PenSampleSink {
   private(set) var latestSample: PenSample?
+  var linkState: String { "preview" }
   func send(_ sample: PenSample) { latestSample = sample }
+  func updateGeometry(width: Double, height: Double) {}
 }
 
 @MainActor
@@ -67,6 +71,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   override func layoutSubviews() {
     super.layoutSubviews()
     hud.frame = bounds
+    sink.updateGeometry(width: Double(bounds.width), height: Double(bounds.height))
   }
 
   override func didMoveToWindow() {
@@ -187,7 +192,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       sampleTimes.append(now)
       sampleTimes.removeAll { $0 < now - 1 }
     }
-    hud.update(sample, rate: sampleTimes.count)
+    hud.update(sample, rate: sampleTimes.count, linkState: sink.linkState)
   }
 
   private func scheduleProximityExit() {
@@ -276,11 +281,11 @@ final class PenHUDView: UIView {
     trace.frame = bounds
   }
 
-  func update(_ sample: PenSample, rate: Int) {
+  func update(_ sample: PenSample, rate: Int, linkState: String = "") {
     pressure.progress = sample.pressure
     values.text = String(
-      format: "pressure %.3f\naltitude %.3f  azimuth %.3f\nhover %u  %d Hz",
-      sample.pressure, sample.altitude, sample.azimuth, sample.hoverDistance, rate
+      format: "link %@\npressure %.3f\naltitude %.3f  azimuth %.3f\nhover %u  %d Hz",
+      linkState, sample.pressure, sample.altitude, sample.azimuth, sample.hoverDistance, rate
     )
   }
 
