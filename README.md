@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/logo.png" width="128" alt="Nib logo"></p>
+
 # Nib
 
 **Turn an iPad and Apple Pencil into a pressure-sensitive drawing tablet for your Mac.**
@@ -129,3 +131,7 @@ Contributor and agent workflow: [`AGENTS.md`](AGENTS.md).
 Pairing is an Allow/Deny prompt remembered by device name; traffic is not yet
 encrypted or authenticated. Use Nib on networks you trust (or over USB).
 Pairing and encryption are planned (`PLAN.md`, M3).
+
+## License
+
+[MIT](LICENSE)
