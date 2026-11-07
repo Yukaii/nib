@@ -22,6 +22,7 @@ private final class NibMacModel: ObservableObject {
   @Published private(set) var connected = false
   @Published private(set) var ipadName: String?
   @Published private(set) var receiverError: String?
+  @Published private(set) var launchAtLoginError: String?
   @Published var setupCompleted: Bool {
     didSet { defaults.set(setupCompleted, forKey: setupCompletedKey) }
   }
@@ -143,18 +144,35 @@ private final class NibMacModel: ObservableObject {
   }
 
   func restartNib() {
-    let configuration = NSWorkspace.OpenConfiguration()
-    configuration.createsNewApplicationInstance = true
-    NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration)
+    stop()
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let bundlePath = shellQuote(Bundle.main.bundleURL.path)
+    let script = "while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done; /usr/bin/open --new \(bundlePath)"
+    let relaunch = Process()
+    relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
+    relaunch.arguments = ["/bin/sh", "-c", script]
+    relaunch.standardInput = FileHandle.nullDevice
+    relaunch.standardOutput = FileHandle.nullDevice
+    relaunch.standardError = FileHandle.nullDevice
+    do {
+      try relaunch.run()
+    } catch {
+      macLogger.error("Could not schedule Nib restart: \(error.localizedDescription, privacy: .public)")
+    }
     NSApplication.shared.terminate(nil)
+  }
+
+  private func shellQuote(_ value: String) -> String {
+    "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
   }
 
   func setLaunchAtLogin(_ enabled: Bool) {
     do {
       if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+      launchAtLoginError = nil
       objectWillChange.send()
     } catch {
-      receiverError = "Nib could not change the launch-at-login setting. Try again."
+      launchAtLoginError = "Nib could not change the launch-at-login setting. Try again."
     }
   }
 
@@ -384,7 +402,7 @@ private struct SetupView: View {
             QRCodeView()
             VStack(alignment: .leading, spacing: 8) {
               Text(
-                "Install Nib from the App Store, then open it on the same Wi-Fi network, or plug it in with USB-C."
+                "Get Nib for iPad, then open it on the same Wi-Fi network, or plug it in with USB-C."
               )
               Text(iPadInstallURL.absoluteString).font(.caption).textSelection(.enabled)
             }
@@ -401,6 +419,7 @@ private struct SetupView: View {
         Toggle(
           "Launch Nib at login",
           isOn: Binding(get: { model.launchAtLoginEnabled }, set: { model.setLaunchAtLogin($0) }))
+        if let error = model.launchAtLoginError { Text(error).foregroundStyle(.secondary) }
         Button("Looks good") { model.setupCompleted = true }
       case .completed:
         Text("Nib is ready. You can reopen this setup window from the menu any time.")
@@ -413,8 +432,20 @@ private struct SetupView: View {
   }
 }
 
+private final class NibMacAppDelegate: NSObject, NSApplicationDelegate {
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    // macOS 14 has no defaultLaunchBehavior API. Window closes immediately
+    // for completed setups, while an incomplete setup remains open.
+    guard UserDefaults.standard.bool(forKey: "setupCompleted") else { return }
+    DispatchQueue.main.async {
+      for window in NSApp.windows { window.close() }
+    }
+  }
+}
+
 @main
 struct NibMacApp: App {
+  @NSApplicationDelegateAdaptor private var appDelegate: NibMacAppDelegate
   @StateObject private var model = NibMacModel()
   @Environment(\.openWindow) private var openWindow
 
@@ -428,6 +459,7 @@ struct NibMacApp: App {
         Text(error).foregroundStyle(.secondary)
         Button("Retry") { model.retryReceiver() }
       }
+      if let error = model.launchAtLoginError { Text(error).foregroundStyle(.secondary) }
       if model.showsDiagnostics && !model.linkDiagnostics.isEmpty {
         ForEach(model.linkDiagnostics, id: \.self) { Text($0).font(.caption) }
       }
@@ -456,11 +488,16 @@ struct NibMacApp: App {
         NSApplication.shared.terminate(nil)
       }.keyboardShortcut("q")
     }
-    WindowGroup("Set up Nib", id: "setup") { SetupView(model: model) }
+    setupScene
+  }
+
+  @SceneBuilder
+  private var setupScene: some Scene {
+    // SceneBuilder cannot conditionally construct a Scene with the macOS 15
+    // defaultLaunchBehavior API. The launch delegate provides the macOS 14
+    // fallback by closing the completed-setup window on the first run loop.
+    Window("Set up Nib", id: "setup") { SetupView(model: model) }
       .defaultSize(width: 560, height: 470)
       .windowResizability(.contentSize)
-      .onChange(of: model.setupCompleted) { _, completed in
-        if completed { NSApp.activate(ignoringOtherApps: true) }
-      }
   }
 }

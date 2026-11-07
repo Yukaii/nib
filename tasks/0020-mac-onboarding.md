@@ -70,13 +70,13 @@ reopened from the menu. Launch at login is available.
 ## Handoff
 
 ```
-Branch/commit: t3/mac-onboarding @ 012f5d0335d3f029131c058a7c211d432e961638
-Verify: verify: ok (Test run with 109 tests; NibMac + NibPad built)
+Branch/commit: t3/fix-mac-onboarding-review @ 1606fdbe49b4b6b412f851138da86246fd1eb28f
+Verify: verify: ok (Test run with 116 tests; NibMac + NibPad built)
 Done:
-- Added pure MacOnboardingStep state resolution with Swift Testing coverage.
-- Added the setup window flow for Accessibility, restart, iPad install/QR, connection, and pressure canvas.
-- Added persistent setup completion, live iPad status, receiver retry/error UI, relaunch, and launch-at-login controls.
-- Removed the NibMac PenLinkReceiver try! path.
-Manual checks: Not run. Fresh defaults/tcc reset walkthrough, pressure stroke in the canvas, and launch-at-login persistence need a real macOS session and iPad.
-Not done / risks: WindowGroup launch behavior should be checked on macOS 14 with setupCompleted true/false; no hardware or Accessibility manual checks were available in this run.
+- Replaced the setup WindowGroup with one single-instance Window and added the macOS 14 launch fallback that closes the completed-setup window on the first run loop; incomplete setup remains automatic, and the menu item reopens the same window.
+- Restart now stops the receiver and schedules `open --new` only after this process exits.
+- Accessibility trust and restart requirements now override persisted completion; added regression tests for revoked trust and pending restart.
+- Isolated launch-at-login errors from receiver errors and changed iPad copy to "Get Nib for iPad".
+Manual checks: Not run. The fresh defaults/tcc reset walkthrough, pressure stroke in the canvas, launch-at-login persistence, and actual launch-window behavior need a macOS session and iPad. Launch behavior was verified by code inspection plus the successful NibMac build: a single Window is used, completed setup is closed from the launch delegate, and incomplete setup is left open.
+Not done / risks: The macOS 15 `defaultLaunchBehavior` API cannot be conditionally composed by SwiftUI's SceneBuilder for a macOS 14 deployment target, so the launch delegate fallback is used on supported systems.
 ```

@@ -12,9 +12,9 @@ public enum MacOnboardingStep: Equatable, Sendable {
     connected: Bool,
     setupCompleted: Bool
   ) -> Self {
-    if setupCompleted { return .completed }
     if !trusted { return .accessibility }
     if needsRestart { return .restart }
+    if setupCompleted { return .completed }
     if !connected { return .connect }
     return .tryIt
   }

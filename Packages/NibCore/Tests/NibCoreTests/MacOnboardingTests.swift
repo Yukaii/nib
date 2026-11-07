@@ -32,4 +32,16 @@ struct MacOnboardingTests {
       MacOnboardingStep.resolve(trusted: true, needsRestart: false, connected: true, setupCompleted: true)
         == .completed)
   }
+
+  @Test func revokedAccessibilityOverridesCompletedSetup() {
+    #expect(
+      MacOnboardingStep.resolve(trusted: false, needsRestart: false, connected: true, setupCompleted: true)
+        == .accessibility)
+  }
+
+  @Test func pendingRestartOverridesCompletedSetup() {
+    #expect(
+      MacOnboardingStep.resolve(trusted: true, needsRestart: true, connected: true, setupCompleted: true)
+        == .restart)
+  }
 }
