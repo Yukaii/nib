@@ -48,7 +48,7 @@ runner. The repo shows a GitHub Sponsors button.
 ## Handoff
 
 ```
-Branch/commit: t3/52c99bb8 @ <sha>
+Branch/commit: t3/ci-github-actions @ ad5a8bf
 Verify: verify: ok (Test run with 104 tests; NibMac + NibPad built)
 Done:
 - .github/workflows/verify.yml runs scripts/verify.sh on push to main and
