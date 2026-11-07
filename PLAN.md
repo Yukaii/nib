@@ -4,9 +4,9 @@ Started 2026-11-07. Integration branch: `main`. Keep under 120 lines.
 
 ## Current focus
 
-M2 — drawing companion. User feedback after 0008: "feels pretty good".
-Now in parallel: iPad companion panel + pressure curve (0009), finger
-gestures (0010), USB-C mode (0011; Wi-Fi jitter p95 is still ~80 ms).
+M2 — drawing companion, app-aware. Pencil dropouts were an iPadOS/Pencil
+pairing bug (fixed by re-pairing). Next: per-app profiles (0012), then edge
+shortcut buttons + strip (0013) and the iPad profile editor (0014) in parallel.
 
 ## Milestones
 
@@ -35,6 +35,9 @@ visible thin-to-thick pressure stroke.
 - [x] 0009 iPad companion panel (four-finger tap) + pressure curve applied on iPad
 - [x] 0010 Finger gestures: two-finger scroll, pinch zoom, 2/3-finger tap undo/redo
 - [x] 0011 USB-C mode via usbmuxd, preferred over Wi-Fi
+- [ ] 0012 Per-app profiles model, front-app reporting, key shortcuts on the Mac
+- [ ] 0013 iPad edge controls: shortcut buttons + scroll/zoom/brush strip
+- [ ] 0014 iPad profile editor in the companion panel
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
 - [ ] Active-area mapping: aspect-locked letterbox, region selection, multi-display
 - [ ] Eraser via Pencil double-tap / squeeze (toggle exists; verify in apps)
@@ -43,7 +46,6 @@ visible thin-to-thick pressure stroke.
 ### M3 — Polish
 
 - [ ] Keep-awake and minimal-brightness screen-off behaviour, palm rejection
-- [ ] Shortcut buttons on the iPad edge (undo, brush size) as keyboard events
 - [ ] Signed builds / install docs
 
 ## Decisions
@@ -53,3 +55,4 @@ visible thin-to-thick pressure stroke.
 - 0003 Injection via `CGEvent` tablet point + proximity events
 - 0004 Transport: Bonjour TCP control + UDP 40-byte samples
 - 0005 USB-C mode via usbmuxd, type-tagged stream, preferred over Wi-Fi
+- 0006 Per-app profiles owned by the iPad; keys as `Gesture.key`
