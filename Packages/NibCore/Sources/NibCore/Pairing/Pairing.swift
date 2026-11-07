@@ -267,6 +267,7 @@ public enum PairingEvent: Sendable, Equatable {
 /// and forwards these to the UI.
 public enum PairingTransportEvent: Sendable, Equatable {
   case showCode(String, peerName: String)
+  case pairingRequired(peerName: String)
   case paired(peerID: String)
   case cancelled
   case timedOut
@@ -277,8 +278,6 @@ public enum PairingTransportPolicy {
   /// Pairing must complete while the user is looking at both screens.
   /// Expiry stores nothing.
   public static let timeoutSeconds: UInt64 = 60
-  /// An invited connection that has not started pairing cannot squat forever.
-  public static let pairingIdleSeconds: TimeInterval = 10
 }
 
 /// Host-side attempt limiting: after 3 failed or cancelled pairings within 5
@@ -289,6 +288,8 @@ public struct PairingAttemptLimiter: Sendable, Equatable {
   public static let windowSeconds: TimeInterval = 300
   public static let blockSeconds: TimeInterval = 60
 
+  // Only the latest three failures can affect the decision. Keeping that
+  // bounded history also makes hostile retry traffic O(1) in memory.
   private var failures: [TimeInterval] = []
 
   public init() {}
@@ -296,6 +297,9 @@ public struct PairingAttemptLimiter: Sendable, Equatable {
   public mutating func recordFailure(at now: TimeInterval) {
     failures.append(now)
     prune(at: now)
+    if failures.count > Self.maxFailures {
+      failures.removeFirst(failures.count - Self.maxFailures)
+    }
   }
 
   public func canAttempt(at now: TimeInterval) -> Bool {

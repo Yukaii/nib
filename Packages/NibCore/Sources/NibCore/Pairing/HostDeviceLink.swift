@@ -14,12 +14,7 @@ import Foundation
 public struct HostLink: Sendable {
   public var session = ReceiverSession()
   public var sessionConnected = false
-  /// Which connection is in pairing-only state, if any.
-  public var pairingOnly: ObjectIdentifier?
   public private(set) var pairingOnlyGeneration: UInt64?
-  private var pairingOnlySince: TimeInterval?
-  private var legacyGenerations: [ObjectIdentifier: UInt64] = [:]
-  private var nextLegacyGeneration: UInt64 = 1
   private var store: PairingKeyStore?
   private var hostID: String?
   private var fallbackKey: Data?
@@ -48,28 +43,9 @@ public struct HostLink: Sendable {
     case busy(ControlMessage.HelloAck)
   }
 
-  /// Pure hello decision used by production and tests.
-  public mutating func receiveHello(
-    _ hello: ControlMessage.Hello, connectionID: ObjectIdentifier, busy: Bool, now: TimeInterval,
-    hostAppVersion: String = "unknown"
-  ) -> HelloOutcome {
-    return receiveHello(
-      hello, connectionGeneration: generation(for: connectionID), busy: busy, now: now,
-      hostAppVersion: hostAppVersion, legacyID: connectionID)
-  }
-
   public mutating func receiveHello(
     _ hello: ControlMessage.Hello, connectionGeneration: UInt64, busy: Bool, now: TimeInterval,
     hostAppVersion: String = "unknown"
-  ) -> HelloOutcome {
-    receiveHello(
-      hello, connectionGeneration: connectionGeneration, busy: busy, now: now,
-      hostAppVersion: hostAppVersion, legacyID: nil)
-  }
-
-  private mutating func receiveHello(
-    _ hello: ControlMessage.Hello, connectionGeneration: UInt64, busy: Bool, now: TimeInterval,
-    hostAppVersion: String, legacyID: ObjectIdentifier?
   ) -> HelloOutcome {
     // Version first: even unpaired iPads get a version rejection, not pairing.
     if hello.protocolVersion != ControlMessage.ProtocolVersion.control {
@@ -89,26 +65,20 @@ public struct HostLink: Sendable {
     let key = pairingKey(for: hello.deviceID)
     // Unpaired: invite to pair on this same connection, keep it open.
     guard let key else {
-      pairingOnly = legacyID
       pairingOnlyGeneration = connectionGeneration
-      pairingOnlySince = now
       let ack = ControlMessage.HelloAck(
         accepted: false, reason: "Pair with this Mac", pairingRequired: true)
       return .pairingRequired(ack)
     }
     // Paired: require a valid proof with exactly 32-byte nonce.
     guard session.verifiesPairingProof(hello) else {
-      pairingOnly = nil
       pairingOnlyGeneration = nil
-      pairingOnlySince = nil
       _ = key
       return .reject(.init(accepted: false, reason: "Pair again"), disconnect: true)
     }
     // Authenticated and not busy: the caller runs its accept prompt, then
     // calls `acceptHello` to mint the host proof.
-    pairingOnly = nil
     pairingOnlyGeneration = nil
-    pairingOnlySince = nil
     return .needsAccept(hello)
   }
 
@@ -125,9 +95,7 @@ public struct HostLink: Sendable {
       return .init(accepted: false, reason: "rejected")
     }
     sessionConnected = true
-    pairingOnly = nil
     pairingOnlyGeneration = nil
-    pairingOnlySince = nil
     if session.requiresPairingAuthentication {
       let deviceNonceData =
         (hello.nonce.flatMap { Data(base64Encoded: $0) }) ?? PairingCrypto.randomNonce()
@@ -144,11 +112,6 @@ public struct HostLink: Sendable {
   /// Whether a non-hello control message may be processed. In pairing-only,
   /// only pairRequest/pairReveal/pairResult/ping (and hello, handled above)
   /// are processed; samples, gestures, geometry and UDP are ignored.
-  public func allows(_ message: ControlMessage, connectionID: ObjectIdentifier) -> Bool {
-    guard let generation = legacyGenerations[connectionID] else { return true }
-    return allows(message, connectionGeneration: generation)
-  }
-
   public func allows(_ message: ControlMessage, connectionGeneration: UInt64) -> Bool {
     guard let pairingOnlyGeneration, pairingOnlyGeneration == connectionGeneration else {
       // Not pairing-only: full session gating is done by sessionConnected.
@@ -162,21 +125,11 @@ public struct HostLink: Sendable {
     }
   }
 
-  public mutating func connectionLost(_ id: ObjectIdentifier) {
-    connectionLost(generation(for: id))
-  }
-
   public mutating func connectionLost(_ generation: UInt64) {
     if pairingOnlyGeneration == generation {
-      pairingOnly = nil
       pairingOnlyGeneration = nil
-      pairingOnlySince = nil
     }
     // Full session loss is handled by the owner (session.disconnect).
-  }
-
-  public mutating func newConnection(_ id: ObjectIdentifier) {
-    newConnection(generation(for: id))
   }
 
   public mutating func newConnection(_ generation: UInt64) {
@@ -184,35 +137,14 @@ public struct HostLink: Sendable {
     // displaced. It clears all pairing-only state before installing the new
     // generation, so a recycled object identity cannot inherit it.
     if pairingOnlyGeneration != generation {
-      pairingOnly = nil
       pairingOnlyGeneration = nil
-      pairingOnlySince = nil
     }
-  }
-
-  public mutating func clearPairingOnly(_ id: ObjectIdentifier) {
-    clearPairingOnly(generation(for: id))
   }
 
   public mutating func clearPairingOnly(_ generation: UInt64) {
     if pairingOnlyGeneration == generation {
-      pairingOnly = nil
       pairingOnlyGeneration = nil
-      pairingOnlySince = nil
     }
-  }
-
-  public func pairingOnlyIsIdle(at now: TimeInterval) -> Bool {
-    guard let since = pairingOnlySince else { return false }
-    return now - since >= PairingTransportPolicy.pairingIdleSeconds
-  }
-
-  private mutating func generation(for id: ObjectIdentifier) -> UInt64 {
-    if let value = legacyGenerations[id] { return value }
-    let value = nextLegacyGeneration
-    nextLegacyGeneration &+= 1
-    legacyGenerations[id] = value
-    return value
   }
 }
 
@@ -230,6 +162,7 @@ public struct DeviceLink: Sendable {
   public var lastDeviceNonce: Data?
   /// Set when the host invites pairing on this connection.
   public var pairingRequired = false
+  public private(set) var knownHostID: String?
 
   public init(
     store: PairingKeyStore? = nil, hostID: String? = nil, baseHello: ControlMessage.Hello? = nil
@@ -242,6 +175,7 @@ public struct DeviceLink: Sendable {
   public mutating func updateStore(store: PairingKeyStore?, hostID: String?) {
     self.store = store
     self.hostID = hostID
+    knownHostID = hostID
   }
 
   public mutating func connectionLost() {

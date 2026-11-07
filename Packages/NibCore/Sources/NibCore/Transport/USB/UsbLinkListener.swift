@@ -25,12 +25,11 @@ public final class UsbLinkListener {
   private var listener: NWListener?
   private var connection: NWConnection?
   private var connectionGeneration: UInt64 = 0
-  private var framer = StreamFramer()
+  private var streamDispatcher: StreamLinkDispatcher?
   private var hello: ControlMessage.Hello?
   private var lastTrafficAt: TimeInterval?
   private var heartbeatTask: Task<Void, Never>?
   private var retryTask: Task<Void, Never>?
-  private var pairingIdleTask: Task<Void, Never>?
   private var listenerReady = false
 
   public init(port: UInt16 = 47811) {
@@ -58,8 +57,6 @@ public final class UsbLinkListener {
     listenerReady = false
     retryTask?.cancel()
     retryTask = nil
-    pairingIdleTask?.cancel()
-    pairingIdleTask = nil
     do {
       let tcp = NWProtocolTCP.Options()
       tcp.noDelay = true
@@ -105,8 +102,6 @@ public final class UsbLinkListener {
     heartbeatTask = nil
     retryTask?.cancel()
     retryTask = nil
-    pairingIdleTask?.cancel()
-    pairingIdleTask = nil
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
     pairingDriver = nil
@@ -124,8 +119,6 @@ public final class UsbLinkListener {
     heartbeatTask = nil
     retryTask?.cancel()
     retryTask = nil
-    pairingIdleTask?.cancel()
-    pairingIdleTask = nil
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
     pairingDriver = nil
@@ -169,10 +162,6 @@ public final class UsbLinkListener {
     }
   }
 
-  private var currentConnectionID: ObjectIdentifier? {
-    connection.map(ObjectIdentifier.init)
-  }
-
   private func authenticatedHello() -> ControlMessage.Hello {
     if let base = hello {
       deviceLink.updateBaseHello(base)
@@ -184,6 +173,14 @@ public final class UsbLinkListener {
     guard connection != nil else { return }
     pairingDriver?.beginPairing(
       deviceID: deviceID, deviceName: deviceName, connectionGeneration: connectionGeneration)
+  }
+
+  /// Explicitly forgets the held key after the user chooses to pair again.
+  public func pairAgain() {
+    guard let store = pairingStoreRef, let hostID = deviceLink.knownHostID else { return }
+    store.removeKey(for: hostID)
+    deviceLink.updateStore(store: store, hostID: hostID)
+    beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
   }
 
   public func confirmPairing() {
@@ -204,6 +201,8 @@ public final class UsbLinkListener {
       send(.hello(authenticatedHello()))
     case .showCode(let code, let peerName):
       onPairingEvent?(.showCode(code, peerName: peerName))
+    case .pairingRequired(let peerName):
+      onPairingEvent?(.pairingRequired(peerName: peerName))
     case .cancelled:
       onPairingEvent?(.cancelled)
     case .timedOut:
@@ -245,7 +244,18 @@ public final class UsbLinkListener {
     pairingDriver?.newConnection(connectionGeneration)
     connection?.cancel()
     connection = newConnection
-    framer = StreamFramer()
+    let generation = connectionGeneration
+    streamDispatcher = StreamLinkDispatcher(
+      transport: NWLinkByteTransport(newConnection),
+      onControl: { [weak self] message in
+        Task { @MainActor [weak self] in
+          guard let self, self.connectionGeneration == generation,
+            self.connection === newConnection
+          else { return }
+          self.handle(message)
+        }
+      },
+      onSample: { _ in })
     newConnection.stateUpdateHandler = { [weak self, weak newConnection] state in
       guard case .ready = state, let newConnection else { return }
       Task { @MainActor [weak self] in
@@ -271,49 +281,7 @@ public final class UsbLinkListener {
         if let data, !data.isEmpty {
           self.lastTrafficAt = Date.timeIntervalSinceReferenceDate
           do {
-            for frame in try self.framer.append(Array(data)) {
-              guard case .control(let message) = frame else { continue }
-              guard self.deviceLink.allows(message) else { continue }
-              switch message {
-              case .helloAck(let ack):
-                let outcome = self.deviceLink.receiveHelloAck(ack)
-                switch outcome {
-                case .invalidProof:
-                  self.setConnected(false)
-                case .pairingRequired(let reason, let info):
-                  if let info {
-                    self.hostInfo = info
-                    self.onHostInfo(info)
-                  }
-                  _ = reason
-                  self.setConnected(false)
-                  self.pairingIdleTask?.cancel()
-                  let generation = self.connectionGeneration
-                  self.pairingIdleTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.pairingIdleSeconds)))
-                    guard let self, self.connectionGeneration == generation else { return }
-                    self.drop(expected)
-                  }
-                // Keep the connection open for pairing; beginPairing sends
-                // pairRequest on this same connection.
-                case .rejected(_, _, _):
-                  // Unauthenticated rejection: show it via disconnected state
-                  // but never delete a stored key on its basis.
-                  self.setConnected(false)
-                case .connected(let info):
-                  self.hostInfo = info
-                  self.onHostInfo(info)
-                  self.setConnected(true)
-                  if self.isConnected { self.startHeartbeat() }
-                }
-              case .probe(let sentAtNs): self.send(.probeReply(sentAtNs: sentAtNs))
-              case .frontApp(let app): self.onFrontApp(app)
-              case .pairResponse, .pairResult:
-                self.handlePairingMessage(message)
-              case .pairRequest, .pairReveal, .hello, .geometry, .ping, .probeReply, .gesture:
-                break
-              }
-            }
+            try self.streamDispatcher?.receive(data)
           } catch {
             self.drop(expected)
             return
@@ -324,12 +292,49 @@ public final class UsbLinkListener {
     }
   }
 
+  private func handle(_ message: ControlMessage) {
+    guard deviceLink.allows(message) else { return }
+    switch message {
+    case .helloAck(let ack):
+      let outcome = deviceLink.receiveHelloAck(ack)
+      switch outcome {
+      case .invalidProof:
+        setConnected(false)
+      case .pairingRequired(let reason, let info):
+        if let info {
+          hostInfo = info
+          onHostInfo(info)
+        }
+        setConnected(false)
+        onPairingEvent?(.pairingRequired(peerName: info?.name ?? "Mac"))
+        usbListenerLogger.info("pairing required: \(String(reason.prefix(200)), privacy: .private)")
+      case .rejected(let reason, let info, _):
+        if let info {
+          hostInfo = info
+          onHostInfo(info)
+        }
+        setConnected(false)
+        usbListenerLogger.info("session rejected: \(String(reason.prefix(200)), privacy: .private)")
+      case .connected(let info):
+        hostInfo = info
+        onHostInfo(info)
+        setConnected(true)
+        if isConnected { startHeartbeat() }
+      }
+    case .probe(let sentAtNs): send(.probeReply(sentAtNs: sentAtNs))
+    case .frontApp(let app): onFrontApp(app)
+    case .pairResponse, .pairResult: handlePairingMessage(message)
+    case .pairRequest, .pairReveal, .hello, .geometry, .ping, .probeReply, .gesture: break
+    }
+  }
+
   private func drop(_ expected: NWConnection) {
     guard connection === expected else { return }
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
     expected.cancel()
     connection = nil
+    streamDispatcher = nil
     heartbeatTask?.cancel()
     heartbeatTask = nil
     lastTrafficAt = nil

@@ -340,8 +340,6 @@ struct PairingTests {
         s.save(pairKey, for: "device-001")
         return s
       }(), hostID: "host-001")
-    let conn = FakeConn()
-    let id = ObjectIdentifier(conn)
     let nonce = PairingCrypto.base64(helloDeviceNonce)
     let proof = PairingCrypto.base64(
       PairingCrypto.helloProof(pairKey: pairKey, identifier: "device-001", nonce: helloDeviceNonce))
@@ -352,7 +350,7 @@ struct PairingTests {
     }
     // Missing proof → reject, disconnect.
     if case .reject(let ack, let disconnect) = link.receiveHello(
-      hello(nonce: nil, proof: nil), connectionID: id, busy: false, now: 0)
+      hello(nonce: nil, proof: nil), connectionGeneration: 1, busy: false, now: 0)
     {
       #expect(ack.accepted == false)
       #expect(disconnect)
@@ -361,7 +359,7 @@ struct PairingTests {
     }
     // Bad proof → reject.
     if case .reject = link.receiveHello(
-      hello(nonce: nonce, proof: String(repeating: "A", count: 44)), connectionID: id, busy: false,
+      hello(nonce: nonce, proof: String(repeating: "A", count: 44)), connectionGeneration: 1, busy: false,
       now: 0)
     {
     } else {
@@ -369,7 +367,7 @@ struct PairingTests {
     }
     // Valid proof → needsAccept, then acceptHello mints a verifiable host proof.
     if case .needsAccept(let h) = link.receiveHello(
-      hello(nonce: nonce, proof: proof), connectionID: id, busy: false, now: 0)
+      hello(nonce: nonce, proof: proof), connectionGeneration: 1, busy: false, now: 0)
     {
       let ack = link.acceptHello(
         h, now: 0, udpPort: 0, displayWidth: 0, displayHeight: 0, host: nil)
@@ -423,28 +421,27 @@ struct PairingTests {
       baseHello: .init(
         appVersion: "0.3.0", deviceID: "device-001", deviceName: "iPad", surfaceWidth: 100,
         surfaceHeight: 100))
-    let conn = FakeConn()
-    let id = ObjectIdentifier(conn)
     // Unpaired hello → pairingRequired, connection stays open.
     let unpaired = ControlMessage.Hello(
       appVersion: "0.3.0", deviceID: "device-001", deviceName: "iPad", surfaceWidth: 100,
       surfaceHeight: 100)
     guard
       case .pairingRequired(let ack) = hostLink.receiveHello(
-        unpaired, connectionID: id, busy: false, now: 0)
+        unpaired, connectionGeneration: 1, busy: false, now: 0)
     else {
       Issue.record("unpaired hello must invite pairing")
       return
     }
     #expect(ack.pairingRequired == true)
-    #expect(hostLink.pairingOnly == id)
+    #expect(hostLink.pairingOnlyGeneration == 1)
     // Pairing-only gating: only pair*/ping pass.
     #expect(
       hostLink.allows(
-        .pairRequest(.init(deviceID: "d", deviceName: "n", publicKey: "k", commitment: "c")), connectionID: id
+        .pairRequest(.init(deviceID: "d", deviceName: "n", publicKey: "k", commitment: "c")),
+        connectionGeneration: 1
       ))
-    #expect(!hostLink.allows(.gesture(.undo), connectionID: id))
-    #expect(!hostLink.allows(.geometry(.init(surfaceWidth: 1, surfaceHeight: 1)), connectionID: id))
+    #expect(!hostLink.allows(.gesture(.undo), connectionGeneration: 1))
+    #expect(!hostLink.allows(.geometry(.init(surfaceWidth: 1, surfaceHeight: 1)), connectionGeneration: 1))
     // Full commit-reveal through the framer.
     var deviceMachine = PairingStateMachine(
       role: .device, id: "device-001", name: "iPad",
@@ -474,7 +471,7 @@ struct PairingTests {
     #expect(fresh.nonce != nil)
     guard
       case .needsAccept(let h) = hostLink.receiveHello(
-        fresh, connectionID: id, busy: false, now: 1)
+        fresh, connectionGeneration: 1, busy: false, now: 1)
     else {
       Issue.record("fresh authenticated hello must need accept, got pairingRequired or reject")
       return
@@ -488,8 +485,8 @@ struct PairingTests {
     } else {
       Issue.record("device must connect on verified ack, got \(outcome)")
     }
-    hostLink.clearPairingOnly(id)
-    #expect(hostLink.pairingOnly == nil)
+    hostLink.clearPairingOnly(1)
+    #expect(hostLink.pairingOnlyGeneration == nil)
   }
 
   @Test func deviceLinkOrdersVerificationBeforeTrust() throws {
@@ -552,10 +549,6 @@ struct PairingTests {
     var events: [PairingTransportEvent] = []
     driver.onSend = { sent.append($0) }
     driver.onEvent = { events.append($0) }
-    let a = FakeConn()
-    let b = FakeConn()
-    let idA = ObjectIdentifier(a)
-    let idB = ObjectIdentifier(b)
     // New connection never inherits: begin on A, then B's pairRequest ignored.
     var device = PairingStateMachine(
       role: .device, id: "device-001", name: "iPad",
@@ -565,7 +558,7 @@ struct PairingTests {
       Issue.record("begin must send")
       return
     }
-    driver.receive(reqMsg, connectionID: idA)
+    driver.receive(reqMsg, connectionGeneration: 1)
     #expect(driver.phase == .waitingForReveal)
     #expect(sent.count == 1)
     // A second connection's pairRequest mid-flow is ignored (no new send).
@@ -574,20 +567,20 @@ struct PairingTests {
       keyPair: try PairingKeyPair(privateKey: devicePrivate), store: InMemoryPairingKeyStore())
     let req2 = try #require(try device2.begin(nonce: hostNonce))
     guard case .send(let reqMsg2) = req2 else { return }
-    driver.receive(reqMsg2, connectionID: idB)
+    driver.receive(reqMsg2, connectionGeneration: 2)
     #expect(sent.count == 1)
     // A .send never goes to a different connection: confirm on B does nothing.
-    driver.confirm(connectionID: idB)
+    driver.confirm(connectionGeneration: 2)
     #expect(events.isEmpty)
     // Loss of A resets; B can now start fresh.
-    driver.connectionLost(idA)
+    driver.connectionLost(1)
     #expect(driver.phase == nil)
-    driver.receive(reqMsg2, connectionID: idB)
+    driver.receive(reqMsg2, connectionGeneration: 2)
     #expect(driver.phase == .waitingForReveal)
     #expect(sent.count == 2)
   }
 
-  @Test func pairingOnlyConnectionHasInjectedIdleDeadline() throws {
+  @Test func pairingOnlyConnectionHasNoIdleDeadline() throws {
     var link = HostLink(store: InMemoryPairingKeyStore(), hostID: "host-001")
     let hello = ControlMessage.Hello(
       appVersion: "0.3.0", deviceID: "device-001", deviceName: "iPad", surfaceWidth: 1,
@@ -599,8 +592,13 @@ struct PairingTests {
       Issue.record("unpaired hello must enter pairing-only")
       return
     }
-    #expect(!link.pairingOnlyIsIdle(at: 109.99))
-    #expect(link.pairingOnlyIsIdle(at: 110))
+    // A human may take longer than ten seconds before tapping Pair.
+    #expect(link.pairingOnlyGeneration == 41)
+    #expect(link.allows(.ping, connectionGeneration: 41))
+    #expect(
+      link.allows(
+        .pairRequest(.init(deviceID: "d", deviceName: "n", publicKey: "k", commitment: "c")),
+        connectionGeneration: 41))
     // A generation replacement clears the policy state explicitly.
     link.newConnection(42)
     #expect(link.pairingOnlyGeneration == nil)
@@ -610,7 +608,11 @@ struct PairingTests {
     let driver = PairingDriver(
       role: .host, localID: "host-001", localName: { "Mac" }, store: InMemoryPairingKeyStore())
     driver.clock = { 100 }
-    for _ in 0..<PairingAttemptLimiter.maxFailures { driver.recordConnectionAttempt() }
+    let failedRequest = ControlMessage.pairRequest(
+      .init(deviceID: "device-001", deviceName: "iPad", publicKey: "bad", commitment: "bad"))
+    for generation in 1...PairingAttemptLimiter.maxFailures {
+      driver.receive(failedRequest, connectionGeneration: UInt64(generation))
+    }
     var sent: (ControlMessage, UInt64)?
     driver.onSendUnbound = { sent = ($0, $1) }
     let request = ControlMessage.pairRequest(
@@ -623,6 +625,54 @@ struct PairingTests {
     #expect(!result.accepted)
     #expect(sent?.1 == 77)
     #expect(driver.phase == nil)
+  }
+
+  @Test @MainActor func busyRetriesDoNotConsumeFailureBudget() throws {
+    let driver = PairingDriver(
+      role: .host, localID: "host-001", localName: { "Mac" }, store: InMemoryPairingKeyStore())
+    driver.clock = { 100 }
+    var device = PairingStateMachine(
+      role: .device, id: "device-001", name: "iPad",
+      keyPair: try PairingKeyPair(privateKey: devicePrivate), store: InMemoryPairingKeyStore())
+    let beginEvent = try #require(try device.begin(nonce: deviceNonce))
+    let active = try #require(message(from: beginEvent))
+    driver.receive(active, connectionGeneration: 1)
+    #expect(driver.phase == .waitingForReveal)
+    // Busy newcomers never reach the driver, so these displaced retries do
+    // not consume its failure budget.
+    for _ in 0..<20 { driver.receive(active, connectionGeneration: 2) }
+    #expect(driver.phase == .waitingForReveal)
+    driver.cancel(connectionGeneration: 1)
+    // One cancellation is below the refusal threshold.
+    var refusal: ControlMessage?
+    driver.onSendUnbound = { message, _ in refusal = message }
+    driver.receive(active, connectionGeneration: 3)
+    #expect(refusal == nil)
+  }
+
+  @Test @MainActor func threeCancelledMachinesTriggerLimiter() throws {
+    let driver = PairingDriver(
+      role: .host, localID: "host-001", localName: { "Mac" }, store: InMemoryPairingKeyStore())
+    driver.clock = { 100 }
+    let device = try PairingKeyPair(privateKey: devicePrivate)
+    var machine = PairingStateMachine(
+      role: .device, id: "device-001", name: "iPad", keyPair: device,
+      store: InMemoryPairingKeyStore())
+    let beginEvent = try #require(try machine.begin(nonce: deviceNonce))
+    let request = try #require(message(from: beginEvent))
+    for generation in 1...3 {
+      driver.receive(request, connectionGeneration: UInt64(generation))
+      #expect(driver.phase == .waitingForReveal)
+      driver.cancel(connectionGeneration: UInt64(generation))
+    }
+    var refusal: ControlMessage?
+    driver.onSendUnbound = { message, _ in refusal = message }
+    driver.receive(request, connectionGeneration: 4)
+    guard case .pairResult(let result)? = refusal else {
+      Issue.record("three cancelled pairings must refuse the next request")
+      return
+    }
+    #expect(result.reason?.contains("Too many pairing attempts") == true)
   }
 
   @Test func pairingRequiredAckDoesNotPublishUntrustedHostInfo() throws {

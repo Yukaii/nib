@@ -2,16 +2,11 @@ import Foundation
 
 /// Shared pairing/timeout driving used by the Wi-Fi receiver, the Wi-Fi sender
 /// and the USB listener. The machine belongs to the connection that started it
-/// A monotonically increasing connection generation owns the machine. Object
-/// identifiers are retained only as a source-compatible test shim; production
-/// transports must pass their generation so allocator reuse cannot resurrect a
-/// stale pairing flow.
+/// A monotonically increasing connection generation owns the machine.
 @MainActor
 public final class PairingDriver {
   private var machine: PairingStateMachine?
   private var connection: UInt64?
-  private var legacyGenerations: [ObjectIdentifier: UInt64] = [:]
-  private var nextLegacyGeneration: UInt64 = 1
   private var timeoutTask: Task<Void, Never>?
   private let store: PairingKeyStore
   private let role: PairingRole
@@ -41,12 +36,6 @@ public final class PairingDriver {
   public var hasActiveMachine: Bool { machine != nil }
   public var peerDisplayName: String? { machine?.peerDisplayName }
   public var boundGeneration: UInt64? { connection }
-  /// Deprecated compatibility view for older tests and callers.
-  public var boundConnection: ObjectIdentifier? {
-    guard let connection else { return nil }
-    return legacyGenerations.first(where: { $0.value == connection })?.key
-  }
-
   public func updateLocal(id: String, name: @escaping () -> String) {
     localID = id
     localName = name
@@ -63,11 +52,6 @@ public final class PairingDriver {
     connection = connectionGeneration
     startTimeout()
     if case .send(let message) = event { sendIfBound(message, connectionGeneration: connectionGeneration) }
-  }
-
-  public func beginPairing(deviceID: String, deviceName: String, connectionID: ObjectIdentifier) {
-    beginPairing(
-      deviceID: deviceID, deviceName: deviceName, connectionGeneration: generation(for: connectionID))
   }
 
   // MARK: - Common
@@ -95,19 +79,11 @@ public final class PairingDriver {
     process(events, connectionGeneration: connectionGeneration)
   }
 
-  public func receive(_ message: ControlMessage, connectionID: ObjectIdentifier) {
-    receive(message, connectionGeneration: generation(for: connectionID))
-  }
-
   public func confirm(connectionGeneration: UInt64) {
     guard let bound = connection, bound == connectionGeneration, var machine else { return }
     let events = machine.confirm()
     self.machine = machine
     process(events, connectionGeneration: connectionGeneration)
-  }
-
-  public func confirm(connectionID: ObjectIdentifier) {
-    confirm(connectionGeneration: generation(for: connectionID))
   }
 
   public func cancel(connectionGeneration: UInt64) {
@@ -120,19 +96,11 @@ public final class PairingDriver {
     finish(with: .cancelled)
   }
 
-  public func cancel(connectionID: ObjectIdentifier) {
-    cancel(connectionGeneration: generation(for: connectionID))
-  }
-
   public func connectionLost(_ generation: UInt64) {
     guard connection == generation else { return }
     cancelTimeout()
     machine = nil
     connection = nil
-  }
-
-  public func connectionLost(_ id: ObjectIdentifier) {
-    connectionLost(generation(for: id))
   }
 
   public func newConnection(_ generation: UInt64) {
@@ -142,17 +110,6 @@ public final class PairingDriver {
       machine = nil
       connection = nil
     }
-  }
-
-  public func newConnection(_ id: ObjectIdentifier) {
-    newConnection(generation(for: id))
-  }
-
-  /// Counts connection churn against the same host-side limiter as failed
-  /// pairing attempts. This keeps busy/displacement spam from cycling forever.
-  public func recordConnectionAttempt() {
-    guard role == .host else { return }
-    limiter.recordFailure(at: clock())
   }
 
   /// Fires the 60 s timeout immediately (tests and manual expiry).
@@ -195,14 +152,6 @@ public final class PairingDriver {
   private func sendIfBound(_ message: ControlMessage, connectionGeneration: UInt64) {
     guard connection == connectionGeneration else { return }
     onSend?(message)
-  }
-
-  private func generation(for id: ObjectIdentifier) -> UInt64 {
-    if let generation = legacyGenerations[id] { return generation }
-    let generation = nextLegacyGeneration
-    nextLegacyGeneration &+= 1
-    legacyGenerations[id] = generation
-    return generation
   }
 
   private func finish(with event: PairingTransportEvent) {

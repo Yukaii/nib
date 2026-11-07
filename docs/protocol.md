@@ -32,8 +32,9 @@ USB mode does not use Bonjour. The Mac connects through usbmuxd to TCP port
 
 The sender opens one TCP control connection, sends `hello`, and waits for
 `helloAck`. The receiver invokes its user acceptance step before accepting a
-hello. One session is allowed at a time; another sender receives `reason:
-"busy"`.
+hello. One session is allowed at a time. A new connection while a session or
+pairing machine is active receives `helloAck{accepted:false, reason:"busy"}`
+and is closed immediately; it is not queued or counted as a pairing attempt.
 
 Both peers send `ping` every second. Any control traffic, including a ping or
 probe, refreshes the session. No traffic for 3 seconds ends the session. The
@@ -143,9 +144,19 @@ First pairing stays on one connection: an unpaired iPad's unauthenticated
 pairingRequired:true}` and the host keeps the connection open in a
 pairing-only state. In that state only `hello`, `pairRequest`, `pairReveal`,
 `pairResult` and `ping` are processed; no samples, gestures or UDP gate are
-active. After the user confirms on both sides, the iPad sends a fresh
-authenticated `hello` on the same connection. USB uses the same flow over the
-USB stream.
+active. There is no pairing-only idle expiry: the existing 60-second pairing
+machine timeout is the only pairing deadline, and a user-initiated invite may
+wait as long as the user needs before tapping Pair. After the user confirms on
+both sides, the iPad sends a fresh authenticated `hello` on the same
+connection. USB uses the same flow over the USB stream.
+
+When an iPad already holds a key but receives an unauthenticated
+`pairingRequired` hint, it keeps the key and surfaces “Mac asks to pair again.”
+The user must explicitly choose Pair again; that action deletes the old key and
+starts pairing. Until then normal reconnect with backoff continues. The device
+keeps pairing-only gating enabled: it accepts only `helloAck`, `pairResponse`,
+`pairResult` and `ping`, and ignores pen, geometry, probe, gesture and app
+messages.
 
 After pairing, `hello` includes fresh base64 `nonce` and `proof` fields:
 
@@ -171,9 +182,16 @@ reason only after proof verification; an unauthenticated rejection is shown
 but never deletes a stored key. Frame and sample encryption begins in the
 subsequent encrypted-sessions version.
 
-After 3 failed or cancelled pairings within 5 minutes, the host refuses new
-`pairRequest`s for 60 seconds with `pairResult{accepted:false,
-reason:"Too many pairing attempts. Try again in a minute."}`.
+After 3 failed, cancelled, or timed-out pairing machines within 5 minutes, the
+host refuses new `pairRequest`s for 60 seconds with
+`pairResult{accepted:false, reason:"Too many pairing attempts. Try again in a
+minute."}`. Busy rejections, connection attempts, and USB plug-ins do not
+count. The host stores only the bounded recent failure history needed for this
+decision.
+
+Availability against an active LAN or USB attacker is a non-goal: an attacker
+can flood or reset connections. Pairing still guarantees no impersonation or
+pairing without both users confirming, subject to the bounded failure limiter.
 
 ### geometry
 

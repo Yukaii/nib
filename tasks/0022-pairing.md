@@ -71,58 +71,17 @@ checkbox and the device-ID allow list go away.
 
 ## Handoff
 
-```
-Branch/commit: t3/pairing-transport-hardening @ 1fba800, 4ed7aea
-Verify: verify: ok (Test run with 156 tests; NibMac + NibPad built)
+```text
+Branch/commit: t3/simplify-pairing-hardening @ bc0ef21
+Verify: verify: ok (Test run with 158 tests; NibMac + NibPad built)
 Done:
-- First pairing remains reachable: unpaired hello gets
-  helloAck{pairingRequired:true} and stays open in pairing-only state on Wi-Fi
-  and USB; only hello/pair*/ping are accepted.
-- Active pairing machines hold their connection through the 60 s timeout;
-  newcomers receive busy and count against the attempt limiter. Idle invites
-  close after 10 s and may be replaced.
-- Pairing ownership uses monotonically increasing connection generations, with
-  explicit HostLink/DeviceLink/PairingDriver reset on replacement and loss.
-- Attempt-limit refusals use an unbound, generation-targeted send callback, so
-  the requesting connection receives pairResult{accepted:false}.
-- Device-side pairingRequired hints never publish unauthenticated host info or
-  delete a stored key; Wi-Fi and USB ignore probe/frontApp and all other
-  non-pairing messages in pairing-only state.
-- Extracted ControlLinkDispatcher and StreamLinkDispatcher run the production
-  ControlFramer/StreamFramer receive/dispatch paths against byte transports.
-- Existing commit-reveal, proof, authenticated hello, cancellation, timeout,
-  and protocol vector coverage remains intact.
-- fail() now sets phase=.failed and clears pending; invalid reveal leaves no
-  secrets and terminal phase (tested).
-- Identities bound: deviceID in commitment, deviceID+hostID length-prefixed in
-  transcript (fixed order 2-byte BE len). Relay cannot relabel. Spec + vectors.
-- pairing.json self-contained: deviceID/hostID, distinct hello nonces, expected
-  proofs, negative vectors (wrong reveal, tampered transcript, wrong key).
-  Generated from code.
-- Prefix-free labels nib-hello/nib-ack/nib-commit/nib-pair-code/nib-pair-key;
-  both proof verifiers require exactly 32-byte nonces. Spec states it.
-- Removed dead ReceiverSession.hello(_:busy:now:) overload; production routes
-  through HostLink/DeviceLink + protocolVersion overload. Tests exercise it.
-- DeviceLink orders verification before trust: onHostInfo + rejection reason
-  only after proof when a key is held; unauthenticated rejections shown but
-  never delete a key. Same in PenLinkSender and UsbLinkListener.
-- Removed _ = pairingStore and dead isTerminal blocks; triplicated
-  pairing/timeout driving moved into shared PairingDriver used by receiver,
-  sender and USB listener.
-- Host attempt limiting: 3 failures in 5 min → refuse pairRequests 60 s with
-  readable reason. Injected clock, tested.
-- Apps/NibMac/NibMacApp.swift identical to main. No keys/nonces/proofs/codes
-  logged.
-Manual checks: fresh pair over Wi-Fi; reconnect; Forget either side → re-pair;
-  pair over USB with Wi-Fi off; Cancel either side leaves no stored key;
-  NOT RUN (NibCore only, no app UI in this task; deterministic framer and
-  HostLink/DeviceLink tests cover the production dispatch paths).
+- Removed all pairing-only idle expiry and retained the existing 60-second PairingDriver timeout; Wi-Fi and USB pairing-only links stay available while a user compares codes.
+- Busy connections receive an immediate helloAck{accepted:false, reason:"busy"}, close without a holding framer, and do not affect the bounded limiter; only failed, cancelled, and timed-out machines count.
+- Captured Wi-Fi and USB connection generations across dispatcher Task hops; stale queued messages are ignored. USB control traffic now uses StreamLinkDispatcher while the sample callback remains on the transport queue.
+- Added the device-side “Mac asks to pair again” event and explicit pairAgain() action that deletes the stored key only after the user chooses it, then begins pairing.
+- Updated protocol rules for active-attacker availability, busy handling, no idle expiry, limiter accounting, device gating, and the untrusted pairingRequired hint. Apps/NibMac and Apps/NibPad are unchanged. Source lines: 5,636 before round 5, 5,487 after (−149).
+Manual checks: Wi-Fi pair, USB pair, reconnect/backoff, cancel, timeout, and Pair again UI not run (no hardware/app UI in this worker round); deterministic NibCore tests cover the link/driver paths.
 Not done / risks:
-- App UI + KeychainPairingKeyStore live in 0024 (Mac prompt/submenu, iPad
-  code step, Forget buttons, hostID minting, allow-list migration).
-- Single-key sender verification assumes one paired host; SenderSession per
-  known host will be needed if 0024 pairs several Macs.
-- No live-network pairing exercised; only in-memory + framer + link unit
-  tests. Recommend a Wi-Fi + USB manual pair in 0024.
+- The app-facing UI and Keychain stores remain task 0024 work.
+- Usbmux busy rejection calls deviceConnectionEnded after the rejection send; no hardware usbmux loop was available for a manual check.
 ```
-
