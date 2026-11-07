@@ -5,7 +5,7 @@
 
   guard TabletInjector.isTrusted else {
     fputs(
-      "Accessibility permission is required. Enable this app in System Settings > Privacy & Security > Accessibility.\n",
+      "Accessibility permission is required. Grant the terminal app running `swift run` (Terminal, iTerm, etc.) access in System Settings > Privacy & Security > Accessibility.\n",
       stderr)
     exit(1)
   }
@@ -30,7 +30,8 @@
     let kind: PenSample.Kind = index == 0 ? .down : (index == sampleCount ? .up : .move)
     let sample = PenSample(
       kind: kind, sequence: UInt32(index), timestamp: UInt64(t * 1_000_000_000),
-      x: Float(t), y: Float(y), pressure: pressure, altitude: altitude, azimuth: azimuth
+      x: Float(t), y: Float(0.5 + 0.25 * sin(t * 2 * .pi)), pressure: pressure, altitude: altitude,
+      azimuth: azimuth
     )
     injector.post(sample: sample, at: CGPoint(x: x, y: y), using: &builder)
     let target = startTime + Double(index + 1) * interval

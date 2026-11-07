@@ -58,14 +58,18 @@ whose pressure ramps 0→1→0, and Krita shows a thin-thick-thin line.
 ## Handoff
 
 ```
-Branch/commit: t3/mac-tablet-injector @ 6f450593c5ddf0d22cf3094bbb2d8c5cc4cd9274
-Verify: verify: ok (Test run with 5 tests; NibMac + NibPad built)
+Branch/commit: t3/fix-mac-tablet-injector-review @ f5b2316
+Verify: verify: ok (Test run with 26 tests; NibMac + NibPad built)
 Done:
-- Added TabletMath tilt conversion with clamping and deterministic tests.
-- Added stateful macOS CGEvent tablet/proximity builder with stable device IDs, pen/eraser pointer types, capability mask, tilt, and pressure in both Quartz fields.
-- Added TabletInjector Accessibility check and HID event posting.
-- Added the macOS pressure-ramp S-curve `nib-inject-demo` executable.
-- Added NSEvent round-trip coverage for pressure, tilt, subtype, and proximity lifecycle.
-Manual checks: Run `swift run --package-path Packages/NibCore nib-inject-demo` with Krita open on a pressure-sensitive canvas; verify a thin-thick-thin S-curve. Not run (requires Accessibility permission and Krita).
-Not done / risks: Real drawing-app behavior and capability-mask interpretation still require the orchestrator's manual Krita check; no decision document change was needed.
+- Corrected the IOKit tablet capability mask and added stable proximity pointer/vendor IDs.
+- Made button and proximity state resilient to missing, duplicate, and out-of-order samples; deferred eraser changes across an active stroke.
+- Added explicit tablet button/click fields, predicted-sample filtering, and full lifecycle/state transition tests.
+- Fixed the demo's normalized sample coordinates and Accessibility guidance.
+Manual checks:
+- Build/run: `swift run --package-path Packages/NibCore nib-inject-demo`.
+- When prompted, grant the terminal app running `swift run` (Terminal, iTerm, etc.) access under System Settings › Privacy & Security › Accessibility.
+- Open Krita, create a new canvas, select a pressure-size brush such as “Basic-5 Size”, then open Settings › Configure Krita › Tablet settings tester and watch the pressure/tilt values.
+- Expected result: the demo draws a thin-thick-thin S-curve of about 400 pt width while the tester shows changing pressure and tilt.
+- Not run: this requires Accessibility permission, Krita, and a live desktop session.
+Not done / risks: Real drawing-app behavior remains for the orchestrator's manual Krita check; no decision document change was needed.
 ```
