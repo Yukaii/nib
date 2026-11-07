@@ -1,7 +1,7 @@
 ---
 id: "0023"
 title: Encrypted sessions — seal control frames and samples
-status: todo
+status: doing
 milestone: M3
 depends: ["0022", "0024"]
 ---
