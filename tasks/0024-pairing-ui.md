@@ -58,7 +58,7 @@ devices reconnect silently, and either side can forget the other.
 ## Handoff
 
 ```
-Branch/commit: main @ e3ff5aa
+Branch/commit: main @ 4d01cf6
 Verify: verify: ok (Test run with 158 tests; NibMac + NibPad built)
 Done:
 - Added the shared KeychainPairingKeyStore with the required service, account, and accessibility policy.
