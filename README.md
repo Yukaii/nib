@@ -2,6 +2,8 @@
 
 # Nib
 
+[![Verify](https://github.com/Yukaii/nib/actions/workflows/verify.yml/badge.svg)](https://github.com/Yukaii/nib/actions/workflows/verify.yml)
+
 **Turn an iPad and Apple Pencil into a pressure-sensitive drawing tablet for your Mac.**
 
 Nib works like a Wacom Intuos: the iPad screen stays dark, the Pencil maps

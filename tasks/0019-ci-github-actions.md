@@ -1,7 +1,7 @@
 ---
 id: "0019"
 title: CI — GitHub Actions runs verify; FUNDING.yml
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -48,9 +48,20 @@ runner. The repo shows a GitHub Sponsors button.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/ci-github-actions @ 68b02c0 (implementation; tip holds handoff bookkeeping only)
+Verify: verify: ok (Test run with 104 tests; NibMac + NibPad built)
 Done:
-Manual checks:
+- .github/workflows/verify.yml runs scripts/verify.sh on push to main and
+  pull_request (macos-15, newest Xcode via xcode-select, xcodegen, SPM cache,
+  concurrency cancel, contents:read). YAML validated with ruby -ryaml.
+- .github/FUNDING.yml with github: Yukaii.
+- README has the Verify badge under the title.
+Manual checks: workflow first real run happens after the orchestrator pushes
+(could not run Actions locally); YAML parsed and trigger shape verified via
+ruby -ryaml. scripts/verify.sh passed locally.
 Not done / risks:
+- Runner Xcode version unconfirmed; workflow selects the newest installed
+  Xcode rather than pinning, with a comment explaining why.
+- Cache key hashes Package.resolved (absent today, ignored by hashFiles)
+  plus Package.swift and sources, so it stays correct once deps exist.
 ```
