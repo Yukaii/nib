@@ -43,3 +43,4 @@ visible thin-to-thick pressure stroke.
 - 0001 Native iPad app + native Mac host, not a browser client
 - 0002 Wire protocol: fixed 40-byte little-endian `PenSample` packets
 - 0003 Injection via `CGEvent` tablet point + proximity events
+- 0004 Transport: Bonjour TCP control + UDP 40-byte samples
