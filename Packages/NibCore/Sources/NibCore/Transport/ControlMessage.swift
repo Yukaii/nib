@@ -110,12 +110,12 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     public var deviceID: String
     public var deviceName: String
     public var publicKey: String
-    public var nonce: String
-    public init(deviceID: String, deviceName: String, publicKey: String, nonce: String) {
+    public var commitment: String
+    public init(deviceID: String, deviceName: String, publicKey: String, commitment: String) {
       self.deviceID = deviceID
       self.deviceName = deviceName
       self.publicKey = publicKey
-      self.nonce = nonce
+      self.commitment = commitment
     }
   }
 
@@ -128,6 +128,13 @@ public enum ControlMessage: Codable, Equatable, Sendable {
       self.hostID = hostID
       self.hostName = hostName
       self.publicKey = publicKey
+      self.nonce = nonce
+    }
+  }
+
+  public struct PairReveal: Codable, Equatable, Sendable {
+    public var nonce: String
+    public init(nonce: String) {
       self.nonce = nonce
     }
   }
@@ -182,14 +189,16 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   case frontApp(FrontApp)
   case pairRequest(PairRequest)
   case pairResponse(PairResponse)
+  case pairReveal(PairReveal)
   case pairResult(PairResult)
 
   private enum CodingKeys: String, CodingKey {
-    case type, hello, helloAck, geometry, sentAtNs, gesture, frontApp, pairRequest, pairResponse, pairResult
+    case type, hello, helloAck, geometry, sentAtNs, gesture, frontApp, pairRequest, pairResponse,
+      pairReveal, pairResult
   }
   private enum Kind: String, Codable, CaseIterable {
     case hello, helloAck, geometry, ping, probe, probeReply, gesture, frontApp, pairRequest, pairResponse,
-      pairResult
+      pairReveal, pairResult
   }
 
   static func isKnownType(_ value: String) -> Bool { Kind(rawValue: value) != nil }
@@ -207,6 +216,7 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .frontApp: self = .frontApp(try container.decode(FrontApp.self, forKey: .frontApp))
     case .pairRequest: self = .pairRequest(try container.decode(PairRequest.self, forKey: .pairRequest))
     case .pairResponse: self = .pairResponse(try container.decode(PairResponse.self, forKey: .pairResponse))
+    case .pairReveal: self = .pairReveal(try container.decode(PairReveal.self, forKey: .pairReveal))
     case .pairResult: self = .pairResult(try container.decode(PairResult.self, forKey: .pairResult))
     }
   }
@@ -243,6 +253,9 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .pairResponse(let response):
       try container.encode(Kind.pairResponse, forKey: .type)
       try container.encode(response, forKey: .pairResponse)
+    case .pairReveal(let reveal):
+      try container.encode(Kind.pairReveal, forKey: .type)
+      try container.encode(reveal, forKey: .pairReveal)
     case .pairResult(let result):
       try container.encode(Kind.pairResult, forKey: .type)
       try container.encode(result, forKey: .pairResult)

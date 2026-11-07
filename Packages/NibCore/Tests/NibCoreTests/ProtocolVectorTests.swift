@@ -157,8 +157,13 @@ private enum ProtocolVectors {
       privateKey: device.privateKey, peerPublicKey: host.publicKey, transcript: transcript) == expectedPairKey
   )
   let pairKey = expectedPairKey
+  let commitment = PairingCrypto.commitment(publicKey: device.publicKey, nonce: deviceNonce)
+  let expectedCommitment = try data("commitment")
+  #expect(commitment == expectedCommitment)
+  #expect(PairingCrypto.verifyCommitment(commitment, publicKey: device.publicKey, nonce: deviceNonce))
   let deviceProof = PairingCrypto.helloProof(pairKey: pairKey, identifier: "device-001", nonce: deviceNonce)
-  let hostProof = PairingCrypto.helloProof(pairKey: pairKey, identifier: "host-001", nonce: hostNonce)
+  let hostProof = PairingCrypto.hostProof(
+    pairKey: pairKey, hostID: "host-001", deviceNonce: deviceNonce, hostNonce: hostNonce)
   let expectedDeviceProof = try data("deviceProof")
   let expectedHostProof = try data("hostProof")
   #expect(deviceProof == expectedDeviceProof)

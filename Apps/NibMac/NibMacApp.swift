@@ -62,16 +62,6 @@ private final class NibMacModel: ObservableObject {
   var launchAtLoginEnabled: Bool { SMAppService.mainApp.status == .enabled }
 
   init() {
-    // Pairing (0022) replaces the remembered-device allow list. Drop legacy
-    // keys so every iPad pairs once; the code-entry UI lands with the rest
-    // of the pairing wiring.
-    for key in UserDefaults.standard.dictionaryRepresentation().keys
-    where key.hasPrefix("acceptedDevice.") {
-      UserDefaults.standard.removeObject(forKey: key)
-    }
-    if UserDefaults.standard.string(forKey: "hostID") == nil {
-      UserDefaults.standard.set(UUID().uuidString, forKey: "hostID")
-    }
     showsDiagnostics = UserDefaults.standard.bool(forKey: "showsDiagnostics")
     setupCompleted = UserDefaults.standard.bool(forKey: setupCompletedKey)
     trustedAtLaunch = TabletInjector.isTrusted
@@ -255,15 +245,20 @@ private final class NibMacModel: ObservableObject {
   }
 
   private func accept(_ hello: ControlMessage.Hello) async -> Bool {
+    let rememberKey = "acceptedDevice.\(hello.deviceID)"
+    if defaults.bool(forKey: rememberKey) { return true }
     // A menu-bar-only app is never frontmost; without this the prompt can
     // open behind the user's drawing app.
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
-    alert.messageText = "Pair with \u{201c}\(hello.deviceName)\u{201d}?"
+    alert.messageText = "Allow \u{201c}\(hello.deviceName)\u{201d} to control your pointer?"
     alert.informativeText = "Nib will receive Apple Pencil input from this iPad."
-    alert.addButton(withTitle: "Pair")
+    alert.addButton(withTitle: "Allow")
     alert.addButton(withTitle: "Deny")
+    let remember = NSButton(checkboxWithTitle: "Remember", target: nil, action: nil)
+    alert.accessoryView = remember
     let allowed = alert.runModal() == .alertFirstButtonReturn
+    if allowed, remember.state == .on { defaults.set(true, forKey: rememberKey) }
     if !allowed { status = "Rejected \(hello.deviceName)" }
     return allowed
   }

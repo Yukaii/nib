@@ -193,7 +193,7 @@ public struct ReceiverSession: Sendable, Equatable {
   }
 
   public func authenticatedHelloAck(
-    for nonce: Data, accepted: Bool = true, reason: String? = nil,
+    deviceNonce: Data, hostNonce: Data, accepted: Bool = true, reason: String? = nil,
     udpPort: UInt16 = 0, displayWidth: Double = 0, displayHeight: Double = 0,
     host: ControlMessage.HostInfo? = nil
   ) -> ControlMessage.HelloAck {
@@ -205,9 +205,10 @@ public struct ReceiverSession: Sendable, Equatable {
     return .init(
       accepted: true, reason: nil, udpPort: udpPort, displayWidth: displayWidth,
       displayHeight: displayHeight, host: host,
-      nonce: PairingCrypto.base64(nonce),
+      nonce: PairingCrypto.base64(hostNonce),
       proof: PairingCrypto.base64(
-        PairingCrypto.helloProof(pairKey: pairingKey, identifier: hostID, nonce: nonce)))
+        PairingCrypto.hostProof(
+          pairKey: pairingKey, hostID: hostID, deviceNonce: deviceNonce, hostNonce: hostNonce)))
   }
 
   public static func versionMismatchReason(remoteProtocol: UInt8, hostAppVersion: String) -> String {
@@ -287,6 +288,14 @@ public final class PenLinkSender {
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
   public private(set) var hostInfo: ControlMessage.HostInfo?
   public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
+  public var onPairingEvent: ((PairingTransportEvent) -> Void)?
+  private var pairingMachine: PairingStateMachine?
+  private var pairingTimeout: Task<Void, Never>?
+  private var pairingStore: PairingKeyStore?
+  private var pairingHostID: String?
+  private var lastDeviceNonce: Data?
+  public var pairingPhase: PairingPhase? { pairingMachine?.phase }
+  private var senderSession: SenderSession { pairingSession() }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
@@ -327,6 +336,8 @@ public final class PenLinkSender {
     reconnectTask = nil
     pingTask?.cancel()
     pingTask = nil
+    cancelPairingTimeout()
+    pairingMachine = nil
     browser?.cancel()
     browser = nil
     connection?.cancel()
@@ -338,6 +349,106 @@ public final class PenLinkSender {
     discoveredHosts = []
     lastReceivedAt = nil
     state = .searching
+  }
+
+  // MARK: - Device-role pairing (NibCore only; UI lives in the apps)
+
+  /// Opts the sender into authenticated hello + pairing. With nil store the
+  /// sender keeps today's behaviour (no proofs, no pairing).
+  public func configurePairing(store: PairingKeyStore?, hostID: String?) {
+    pairingStore = store
+    pairingHostID = hostID
+  }
+
+  private func pairingSession() -> SenderSession {
+    let key: Data? = {
+      guard let pairingStore, let pairingHostID else { return nil }
+      return pairingStore.key(for: pairingHostID)
+    }()
+    return SenderSession(
+      pairKey: key, hostID: pairingHostID, deviceID: hello?.deviceID)
+  }
+
+  public func beginPairing(deviceID: String, deviceName: String) {
+    guard let pairingStore else { return }
+    var machine = PairingStateMachine(
+      role: .device, id: deviceID, name: deviceName, store: pairingStore)
+    guard let event = try? machine.begin() else { return }
+    pairingMachine = machine
+    startPairingTimeout()
+    if case .send(let message) = event { sendControl(message) }
+  }
+
+  public func confirmPairing() {
+    guard var machine = pairingMachine else { return }
+    let events = machine.confirm()
+    pairingMachine = machine
+    processPairingEvents(events)
+  }
+
+  public func cancelPairing() {
+    guard var machine = pairingMachine else { return }
+    let event = machine.cancel()
+    pairingMachine = machine
+    if case .send(let message) = event { sendControl(message) }
+    finishPairing(with: .cancelled)
+  }
+
+  private func handlePairingMessage(_ message: ControlMessage) {
+    guard pairingMachine != nil else { return }
+    guard var machine = pairingMachine else { return }
+    let events = machine.receive(message)
+    pairingMachine = machine
+    processPairingEvents(events)
+  }
+
+  private func processPairingEvents(_ events: [PairingEvent]) {
+    for event in events {
+      switch event {
+      case .send(let message):
+        sendControl(message)
+      case .showCode(let code):
+        let peer = pairingMachine?.peerDisplayName ?? "Mac"
+        onPairingEvent?(.showCode(code, peerName: peer))
+      case .paired(let peerID):
+        cancelPairingTimeout()
+        pairingHostID = peerID
+        pairingMachine = nil
+        onPairingEvent?(.paired(peerID: peerID))
+      case .cancelled:
+        finishPairing(with: .cancelled)
+      case .timedOut:
+        finishPairing(with: .timedOut)
+      case .failed(let reason):
+        finishPairing(with: .failed(reason))
+      }
+    }
+    if let machine = pairingMachine, machine.isTerminal, machine.phase != .waitingForPeer {
+      if machine.phase != .paired { pairingMachine = nil }
+    }
+  }
+
+  private func finishPairing(with event: PairingTransportEvent) {
+    cancelPairingTimeout()
+    pairingMachine = nil
+    onPairingEvent?(event)
+  }
+
+  private func startPairingTimeout() {
+    cancelPairingTimeout()
+    pairingTimeout = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.timeoutSeconds)))
+      guard let self, !Task.isCancelled else { return }
+      guard var machine = self.pairingMachine, !machine.isTerminal else { return }
+      let event = machine.timeout()
+      self.pairingMachine = machine
+      if case .timedOut = event { self.finishPairing(with: .timedOut) }
+    }
+  }
+
+  private func cancelPairingTimeout() {
+    pairingTimeout?.cancel()
+    pairingTimeout = nil
   }
 
   public func send(_ sample: PenSample) {
@@ -434,8 +545,24 @@ public final class PenLinkSender {
     }
     newConnection.start(queue: queue)
     receiveControl(from: newConnection)
-    sendControl(
-      .hello(hello ?? .init(appVersion: "", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)))
+    sendControl(.hello(authenticatedHello()))
+  }
+
+  private func authenticatedHello() -> ControlMessage.Hello {
+    let base = hello ?? .init(appVersion: "", deviceName: "NibPad", surfaceWidth: 0, surfaceHeight: 0)
+    guard let pairingStore, let pairingHostID,
+      let pairKey = pairingStore.key(for: pairingHostID)
+    else {
+      lastDeviceNonce = nil
+      return base
+    }
+    let nonce = PairingCrypto.randomNonce()
+    lastDeviceNonce = nonce
+    var authenticated = base
+    authenticated.nonce = PairingCrypto.base64(nonce)
+    authenticated.proof = PairingCrypto.base64(
+      PairingCrypto.helloProof(pairKey: pairKey, identifier: base.deviceID, nonce: nonce))
+    return authenticated
   }
 
   private func receiveControl(from expected: NWConnection) {
@@ -473,6 +600,18 @@ public final class PenLinkSender {
         }
         return
       }
+      if pairingStore != nil {
+        let session = pairingSession()
+        if session.requiresAuthentication {
+          guard let deviceNonce = lastDeviceNonce,
+            session.verifiesHelloAck(ack, deviceNonce: deviceNonce)
+          else {
+            state = .rejected("Pair again")
+            connectionLost(reconnect: false)
+            return
+          }
+        }
+      }
       guard let remote = connection.currentPath?.remoteEndpoint,
         case .hostPort(let host, _) = remote,
         let port = NWEndpoint.Port(rawValue: ack.udpPort)
@@ -498,9 +637,12 @@ public final class PenLinkSender {
       sendControl(.probeReply(sentAtNs: sentAtNs))
     case .probeReply: break
     case .frontApp(let frontApp): onFrontApp(frontApp)
+    case .pairResponse, .pairResult:
+      handlePairingMessage(message)
+    case .pairRequest, .pairReveal, .hello, .geometry, .ping, .gesture:
+      break
     // Pings are never echoed: both sides send their own every second, and
     // echoing would make each one ping-pong forever.
-    default: break
     }
   }
 
@@ -597,6 +739,10 @@ public final class PenLinkReceiver {
   private let pairingStore: PairingKeyStore?
   private let pairingHostID: String?
   private let fallbackPairingKey: Data?
+  public var onPairingEvent: ((PairingTransportEvent) -> Void)?
+  private var pairingMachine: PairingStateMachine?
+  private var pairingTimeout: Task<Void, Never>?
+  public var pairingPhase: PairingPhase? { pairingMachine?.phase }
 
   public init(
     pairingKey: Data? = nil, hostID: String? = nil,
@@ -645,6 +791,88 @@ public final class PenLinkReceiver {
     return pairingStore.key(for: deviceID)
   }
 
+  // MARK: - Host-role pairing (NibCore only; UI lives in the apps)
+
+  public func confirmPairing() {
+    guard var machine = pairingMachine else { return }
+    let events = machine.confirm()
+    pairingMachine = machine
+    processPairingEvents(events)
+  }
+
+  public func cancelPairing() {
+    guard var machine = pairingMachine else { return }
+    let event = machine.cancel()
+    pairingMachine = machine
+    if case .send(let message) = event { sendControl(message) }
+    finishPairing(with: .cancelled)
+  }
+
+  private func handlePairingMessage(_ message: ControlMessage) {
+    guard let pairingStore, let hostID = pairingHostID else { return }
+    if pairingMachine == nil, case .pairRequest = message {
+      pairingMachine = PairingStateMachine(
+        role: .host, id: hostID, name: hostInfo?.name ?? "Mac", store: pairingStore)
+      startPairingTimeout()
+    }
+    guard var machine = pairingMachine else { return }
+    let events = machine.receive(message)
+    pairingMachine = machine
+    processPairingEvents(events)
+  }
+
+  private func processPairingEvents(_ events: [PairingEvent]) {
+    for event in events {
+      switch event {
+      case .send(let message):
+        sendControl(message)
+      case .showCode(let code):
+        let peer = pairingMachine?.peerDisplayName ?? "iPad"
+        onPairingEvent?(.showCode(code, peerName: peer))
+      case .paired(let peerID):
+        cancelPairingTimeout()
+        let paired = peerID
+        pairingMachine = nil
+        onPairingEvent?(.paired(peerID: paired))
+      case .cancelled:
+        finishPairing(with: .cancelled)
+      case .timedOut:
+        finishPairing(with: .timedOut)
+      case .failed(let reason):
+        finishPairing(with: .failed(reason))
+      }
+    }
+    if let machine = pairingMachine, machine.isTerminal, machine.phase != .waitingForPeer {
+      // Terminal phases without a paired key clear the slot; paired already nils it.
+      if machine.phase != .paired { pairingMachine = nil }
+    }
+  }
+
+  private func finishPairing(with event: PairingTransportEvent) {
+    cancelPairingTimeout()
+    pairingMachine = nil
+    onPairingEvent?(event)
+  }
+
+  private func startPairingTimeout() {
+    cancelPairingTimeout()
+    pairingTimeout = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(Int(PairingTransportPolicy.timeoutSeconds)))
+      guard let self, !Task.isCancelled else { return }
+      guard var machine = self.pairingMachine, !machine.isTerminal else { return }
+      let event = machine.timeout()
+      self.pairingMachine = machine
+      if case .timedOut = event {
+        self.finishPairing(with: .timedOut)
+      }
+    }
+  }
+
+  private func cancelPairingTimeout() {
+    pairingTimeout?.cancel()
+    pairingTimeout = nil
+  }
+
   public func start() {
     listener.stateUpdateHandler = { [weak self] state in
       if case .failed(let error) = state {
@@ -690,6 +918,8 @@ public final class PenLinkReceiver {
   public func stop() {
     listener.cancel()
     udpListener?.cancel()
+    cancelPairingTimeout()
+    pairingMachine = nil
     disconnectSession(notify: sessionConnected)
     #if os(macOS)
       usbClient?.stop()
@@ -914,9 +1144,11 @@ public final class PenLinkReceiver {
       transportLogger.info("session accepted from \(hello.deviceName, privacy: .public)")
       let ack: ControlMessage.HelloAck
       if session.requiresPairingAuthentication {
+        let deviceNonceData =
+          (hello.nonce.flatMap { Data(base64Encoded: $0) }) ?? PairingCrypto.randomNonce()
         ack = session.authenticatedHelloAck(
-          for: PairingCrypto.randomNonce(), accepted: true, udpPort: udpPort,
-          displayWidth: displayWidth, displayHeight: displayHeight, host: hostInfo)
+          deviceNonce: deviceNonceData, hostNonce: PairingCrypto.randomNonce(), accepted: true,
+          udpPort: udpPort, displayWidth: displayWidth, displayHeight: displayHeight, host: hostInfo)
       } else {
         ack = .init(
           accepted: true, udpPort: udpPort, displayWidth: displayWidth,
@@ -951,7 +1183,8 @@ public final class PenLinkReceiver {
       if rttSamples.count > 10 { rttSamples.removeFirst() }
       latestRTTMs = rttSamples.sorted()[rttSamples.count / 2]
     case .helloAck: break
-    case .pairRequest, .pairResponse, .pairResult: break
+    case .pairRequest, .pairResponse, .pairReveal, .pairResult:
+      handlePairingMessage(message)
     }
   }
 

@@ -72,27 +72,35 @@ checkbox and the device-ID allow list go away.
 ## Handoff
 
 ```
-Branch/commit: t3/pairing-crypto-worker @ 8651831
-Verify: verify: ok (Test run with 144 tests; NibMac + NibPad built)
+Branch/commit: t3/pairing-commit-reveal-fixes @ 9881f60
+Verify: verify: ok (Test run with 146 tests; NibMac + NibPad built)
 Done:
-- NibCore Pairing/ (transcript, X25519+HKDF pairKey, HMAC hello proofs,
-  InMemory store, two-role state machine) reviewed, fixed, tested.
-- ReceiverSession rejects missing/bad hello proofs with "Pair again";
-  PenLinkReceiver resolves the key per deviceID from a store (multi-iPad
-  ready) while keeping the legacy no-store path until apps wire the Keychain.
-- protocol.md Pairing section + protocol/vectors/pairing.json verified:
-  standalone CryptoKit recomputation reproduces every vector byte-for-byte.
-- Mac deletes legacy acceptedDevice.* defaults on launch and mints a stable
-  hostID; Remember checkbox already gone.
-Manual checks: pair over Wi-Fi, forget on either side, re-pair, pair over USB;
-  NOT RUN (no pairing UI yet to exercise).
+- Commit-reveal per amended 0011: pairRequest carries commitment
+  SHA256("nib-commit" ‖ pkD ‖ nD); pairResponse carries nH; new pairReveal
+  carries nD. Host verifies constant-time before deriving/showing a code.
+  Wrong reveal → failed, nothing stored; no code before valid reveal.
+- Nonce-bound host proof: device HMAC("nib-hello" ‖ deviceID ‖ nD), host
+  HMAC("nib-hello-ack" ‖ hostID ‖ nD ‖ nH). SenderSession + UsbLinkListener
+  verify the host proof and reject otherwise; replayed ack fails new nonce.
+- Restored Apps/NibMac/NibMacApp.swift exactly to main (Allow/Remember kept);
+  pairing stays opt-in at NibCore level (no store = today's behaviour). UI +
+  Keychain deferred to 0024.
+- NibCore transport handling: PenLinkReceiver drives host-role machine with
+  onPairingEvent + confirm/cancel + 60 s timeout; PenLinkSender and
+  UsbLinkListener drive device-role + verify host proof; USB shares the path.
+  State-machine tests go through ControlFramer (no network).
+- Regenerated protocol/vectors/pairing.json from code (commitment, new host
+  proof) and rewrote the Pairing section of docs/protocol.md byte by byte
+  (order, commitment, both proofs).
+Manual checks: fresh pair over Wi-Fi; reconnect; Forget either side → re-pair;
+  pair over USB with Wi-Fi off; Cancel either side leaves no Keychain item;
+  NOT RUN (NibCore only, no app UI in this task).
 Not done / risks:
-- UI wiring deferred to keep this session focused (see below); NibCore crypto,
-  state machine, spec and vectors are done and verify is green.
-- Still needed: Keychain PairingKeyStore impls (Mac + Pad); Mac pair prompt
-  with code + Paired-iPads submenu with Forget; iPad onboarding code step +
-  companion "Forget this Mac"; sender pairing flow (pairRequest/response) and
-  receiver host-role pairing handling (currently ignored); hello must skip
-  the Allow prompt when the proof verifies; USB pairing e2e.
+- App UI + KeychainPairingKeyStore live in 0024 (Mac prompt/submenu, iPad
+  code step, Forget buttons, hostID minting, allow-list migration).
+- Single-key sender verification assumes one paired host (pairedHostID); a
+  SenderSession per known host will be needed if 0024 pairs several Macs.
+- No live-network pairing exercised; only state machines + framer + session
+  unit tests. Recommend a Wi-Fi + USB manual pair in 0024.
 ```
 
