@@ -58,9 +58,14 @@ whose pressure ramps 0→1→0, and Krita shows a thin-thick-thin line.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/mac-tablet-injector @ b80b044eb650778e6a9c8597643edf2efff826ee
+Verify: verify: ok (Test run with 5 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added TabletMath tilt conversion with clamping and deterministic tests.
+- Added stateful macOS CGEvent tablet/proximity builder with stable device IDs, pen/eraser pointer types, capability mask, tilt, and pressure in both Quartz fields.
+- Added TabletInjector Accessibility check and HID event posting.
+- Added the macOS pressure-ramp S-curve `nib-inject-demo` executable.
+- Added NSEvent round-trip coverage for pressure, tilt, subtype, and proximity lifecycle.
+Manual checks: Run `swift run --package-path Packages/NibCore nib-inject-demo` with Krita open on a pressure-sensitive canvas; verify a thin-thick-thin S-curve. Not run (requires Accessibility permission and Krita).
+Not done / risks: Real drawing-app behavior and capability-mask interpretation still require the orchestrator's manual Krita check; no decision document change was needed.
 ```
