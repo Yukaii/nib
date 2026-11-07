@@ -1,7 +1,7 @@
 ---
 id: "0022"
 title: Pairing by numeric comparison, stored keys, authenticated hello
-status: doing
+status: review
 milestone: M3
 depends: ["0021"]
 ---
@@ -72,9 +72,27 @@ checkbox and the device-ID allow list go away.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/pairing-crypto-worker @ 8651831
+Verify: verify: ok (Test run with 144 tests; NibMac + NibPad built)
 Done:
-Manual checks:
+- NibCore Pairing/ (transcript, X25519+HKDF pairKey, HMAC hello proofs,
+  InMemory store, two-role state machine) reviewed, fixed, tested.
+- ReceiverSession rejects missing/bad hello proofs with "Pair again";
+  PenLinkReceiver resolves the key per deviceID from a store (multi-iPad
+  ready) while keeping the legacy no-store path until apps wire the Keychain.
+- protocol.md Pairing section + protocol/vectors/pairing.json verified:
+  standalone CryptoKit recomputation reproduces every vector byte-for-byte.
+- Mac deletes legacy acceptedDevice.* defaults on launch and mints a stable
+  hostID; Remember checkbox already gone.
+Manual checks: pair over Wi-Fi, forget on either side, re-pair, pair over USB;
+  NOT RUN (no pairing UI yet to exercise).
 Not done / risks:
+- UI wiring deferred to keep this session focused (see below); NibCore crypto,
+  state machine, spec and vectors are done and verify is green.
+- Still needed: Keychain PairingKeyStore impls (Mac + Pad); Mac pair prompt
+  with code + Paired-iPads submenu with Forget; iPad onboarding code step +
+  companion "Forget this Mac"; sender pairing flow (pairRequest/response) and
+  receiver host-role pairing handling (currently ignored); hello must skip
+  the Allow prompt when the proof verifies; USB pairing e2e.
 ```
+
