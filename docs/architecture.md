@@ -19,7 +19,7 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
   sample fields.
 - `Transport/` (decision 0004)
   - `ControlMessage` + `ControlFramer` — length-prefixed JSON over TCP:
-    hello / helloAck / geometry / ping.
+    hello / helloAck / geometry / ping / probe / gesture.
   - `SampleSequencer` — drops not-newer UDP samples.
   - `PenLink` — `PenLinkSender` (iPad: Bonjour browse, hello, UDP send,
     triple-send of state transitions, 1 s ping, 3 s timeout, reconnect) and
@@ -58,7 +58,7 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
 - `Apps/NibPad` — full-screen black `PenCaptureView`: Pencil-only touches
   with coalesced/predicted samples, hover via `UIHoverGestureRecognizer`,
   debounced proximity exit, eraser toggle via `UIPencilInteraction`,
-  dimmed screen + idle timer off, three-finger-tap debug HUD (pressure,
+  dimmed screen + idle timer off, debug HUD (switch in the panel; pressure,
   angles, rate, link state, fading trace). Four-finger tap opens the
   companion panel (pressure curve with force test strip, gesture options,
   HUD switch). `FingerGestureController`: two-finger scroll, pinch zoom,
