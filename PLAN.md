@@ -75,4 +75,4 @@ pressure stroke in Krita by following only on-screen instructions.
 - 0008 Protocol v2: W3C key codes, `primary` modifier, host capabilities
 - 0009 Distribution: notarized DMG (Mac, not sandboxed), App Store (iPad)
 - 0010 Windows/Linux hosts in Rust; the Mac host stays Swift
-- 0011 (proposed) Pairing by numeric comparison; app-layer AEAD sessions
+- 0011 Pairing by numeric comparison; app-layer AEAD sessions

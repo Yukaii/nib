@@ -1,6 +1,6 @@
 # 0011 — Pairing by numeric comparison; app-layer AEAD sessions
 
-Date: 2026-11-07 · Status: proposed (awaiting user confirmation)
+Date: 2026-11-07 · Status: accepted (user confirmed numeric comparison; USB pairs too)
 
 ## Context
 
