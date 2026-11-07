@@ -50,6 +50,15 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     }
   }
 
+  public struct FrontApp: Codable, Equatable, Sendable {
+    public var bundleID: String
+    public var name: String
+    public init(bundleID: String, name: String) {
+      self.bundleID = bundleID
+      self.name = name
+    }
+  }
+
   case hello(Hello)
   case helloAck(HelloAck)
   case geometry(Geometry)
@@ -57,9 +66,14 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   case probe(sentAtNs: UInt64)
   case probeReply(sentAtNs: UInt64)
   case gesture(Gesture)
+  case frontApp(FrontApp)
 
-  private enum CodingKeys: String, CodingKey { case type, hello, helloAck, geometry, sentAtNs, gesture }
-  private enum Kind: String, Codable { case hello, helloAck, geometry, ping, probe, probeReply, gesture }
+  private enum CodingKeys: String, CodingKey {
+    case type, hello, helloAck, geometry, sentAtNs, gesture, frontApp
+  }
+  private enum Kind: String, Codable {
+    case hello, helloAck, geometry, ping, probe, probeReply, gesture, frontApp
+  }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -71,6 +85,7 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .probe: self = .probe(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
     case .probeReply: self = .probeReply(sentAtNs: try container.decode(UInt64.self, forKey: .sentAtNs))
     case .gesture: self = .gesture(try container.decode(Gesture.self, forKey: .gesture))
+    case .frontApp: self = .frontApp(try container.decode(FrontApp.self, forKey: .frontApp))
     }
   }
 
@@ -97,6 +112,9 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case .gesture(let gesture):
       try container.encode(Kind.gesture, forKey: .type)
       try container.encode(gesture, forKey: .gesture)
+    case .frontApp(let frontApp):
+      try container.encode(Kind.frontApp, forKey: .type)
+      try container.encode(frontApp, forKey: .frontApp)
     }
   }
 }

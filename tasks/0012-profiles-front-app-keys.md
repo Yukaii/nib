@@ -83,10 +83,16 @@ Read `docs/decisions/0006-app-profiles-and-shortcuts.md` first; it is the spec.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/fix-gesture-modifier-handling @ c857459
+Verify: verify: ok (Test run with 79 tests; NibMac + NibPad built)
 Done:
+- Added Codable front-app and key gesture protocol messages over TCP and USB.
+- Added stateful modifier/key injection with releaseAll safety and reused it for undo/redo.
+- Added migrated per-app profiles and active-profile gesture selection on iPad.
+- Added Mac front-app reporting on session acceptance and activation changes.
+- Added modifier-only chords for Krita Pick and Photoshop Alt, preserving held modifiers across taps.
+- Kept shortcut holds through pen contact and added session-end cleanup and regression coverage.
 Manual checks: switch between Krita and Finder with the iPad connected; the
-  iPad panel shows the matching profile name. (needs real iPad)
+  iPad panel shows the matching profile name. (not run; needs real iPad)
 Not done / risks:
 ```

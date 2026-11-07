@@ -60,7 +60,9 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
     fingerGestures = FingerGestureController(
       view: self,
       send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) },
-      settings: { [weak sink] in (sink as? GestureSink)?.padSettings ?? PadSettings() })
+      profile: { [weak sink] in
+        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
+      })
     if #available(iOS 16.0, *) {
       let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
       hoverRecognizer = hover

@@ -43,6 +43,22 @@
     #expect((posted.last?.getIntegerValueField(.tabletProximityEventEnterProximity) ?? 1) == 0)
   }
 
+  @Test func penDownDoesNotReleaseHeldSpaceShortcut() {
+    var posted: [CGEvent] = []
+    var controller = PenInjectionController(
+      displayRect: CGRect(x: 0, y: 0, width: 100, height: 100), post: { posted.append(contentsOf: $0) },
+      isTrusted: { true })
+    _ = controller.handle(.key(.init(keyCode: 49), action: .down))
+    posted.removeAll()
+
+    _ = controller.handle(injectionSample(.down, x: 0.5, y: 0.5, pressure: 0.4))
+
+    #expect(
+      !posted.contains {
+        $0.type == .keyUp && $0.getIntegerValueField(.keyboardEventKeycode) == 49
+      })
+  }
+
   @Test func untrustedControllerPostsNothing() {
     var postCount = 0
     var controller = PenInjectionController(

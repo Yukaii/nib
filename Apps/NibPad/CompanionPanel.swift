@@ -5,6 +5,7 @@ import UIKit
 struct CompanionPanel: View {
   @Bindable var store: PadSettingsStore
   let linkState: String
+  let profileName: String
   @Binding var showsHUD: Bool
   @State private var testRaw: Double = 0.5
 
@@ -15,6 +16,7 @@ struct CompanionPanel: View {
           VStack(alignment: .leading) {
             Text("Nib Companion").font(.title2.bold())
             Text("Link: \(linkState)").font(.footnote).foregroundStyle(.secondary)
+            Text("Profile: \(profileName)").font(.footnote).foregroundStyle(.secondary)
           }
           Spacer()
           Button("Done") { NotificationCenter.default.post(name: .closeCompanionPanel, object: nil) }

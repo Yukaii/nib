@@ -57,6 +57,48 @@
       #expect(redo.last!.flags.isEmpty)
     }
 
+    @Test func tapShiftCommandZUsesCumulativeModifierFlags() {
+      var builder = GestureEventBuilder()
+      let events = builder.events(
+        for: .key(.init(keyCode: 6, modifiers: [.shift, .command]), action: .tap))
+      #expect(
+        events.map(\.type) == [.flagsChanged, .flagsChanged, .keyDown, .keyUp, .flagsChanged, .flagsChanged])
+      #expect(events.map { keyCode($0) } == [55, 56, 6, 6, 56, 55])
+      #expect(events[0].flags == .maskCommand)
+      #expect(events[1].flags == [.maskCommand, .maskShift])
+      #expect(events[2].flags == [.maskCommand, .maskShift])
+      #expect(events[3].flags == [.maskCommand, .maskShift])
+      #expect(events[4].flags == .maskCommand)
+      #expect(events[5].flags.isEmpty)
+    }
+
+    @Test func releaseAllReleasesHeldKeyAndModifierOnlyChord() {
+      var builder = GestureEventBuilder()
+      _ = builder.events(for: .key(.init(keyCode: 49), action: .down))
+      let keyRelease = builder.releaseAll()
+      #expect(keyRelease.map(\.type) == [.keyUp])
+      #expect(keyCode(keyRelease[0]) == 49)
+
+      _ = builder.events(for: .key(.init(modifiers: [.option]), action: .down))
+      let modifierRelease = builder.releaseAll()
+      #expect(modifierRelease.map(\.type) == [.flagsChanged])
+      #expect(keyCode(modifierRelease[0]) == 58)
+      #expect(modifierRelease[0].flags.isEmpty)
+    }
+
+    @Test func tapDoesNotReleaseModifierHeldByAnotherChord() {
+      var builder = GestureEventBuilder()
+      let held = Gesture.KeyChord(keyCode: 49, modifiers: [.shift])
+      _ = builder.events(for: .key(held, action: .down))
+      let tap = builder.events(
+        for: .key(.init(keyCode: 6, modifiers: [.shift, .command]), action: .tap))
+      #expect(tap.map { keyCode($0) } == [55, 6, 6, 55])
+      #expect(tap.last!.flags == .maskShift)
+      let end = builder.releaseAll()
+      #expect(end.map { keyCode($0) } == [49, 56])
+      #expect(end.last!.flags.isEmpty)
+    }
+
     @Test func undoDuringZoomReleasesZoomModifierFirst() {
       var builder = GestureEventBuilder()
       _ = builder.events(for: .zoom(scaleDelta: 1.2, phase: .began, modifier: .control))

@@ -11,6 +11,7 @@ public final class UsbLinkListener {
   public typealias StateHandler = @MainActor (Bool) -> Void
   public private(set) var isConnected = false
   public var stateHandler: StateHandler?
+  public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
 
   private let port: NWEndpoint.Port
   private let queue = DispatchQueue(label: "dev.yukai.nib.usb-listener")
@@ -153,6 +154,7 @@ public final class UsbLinkListener {
                 self.setConnected(ack.accepted)
                 if ack.accepted { self.startHeartbeat() }
               case .probe(let sentAtNs): self.send(.probeReply(sentAtNs: sentAtNs))
+              case .frontApp(let app): self.onFrontApp(app)
               default: break
               }
             }

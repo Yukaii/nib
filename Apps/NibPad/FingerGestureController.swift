@@ -5,6 +5,7 @@ import UIKit
 protocol GestureSink: AnyObject {
   func send(_ gesture: Gesture)
   var padSettings: PadSettings { get }
+  var activeProfile: PadSettings.Profile { get }
 }
 
 /// Owns UIKit recognizers so the capture view only reports Pencil contact state.
@@ -12,7 +13,7 @@ protocol GestureSink: AnyObject {
 final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   private weak var view: UIView?
   private let send: (Gesture) -> Void
-  private let settings: () -> PadSettings
+  private let profile: () -> PadSettings.Profile
   private var palm = GesturePalmRejection()
   // A gesture that began must always end on the Mac, even if palm rejection
   // or a settings change would now suppress it; otherwise apps see a scroll
@@ -25,11 +26,12 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   private let redoTap: UITapGestureRecognizer
 
   init(
-    view: UIView, send: @escaping (Gesture) -> Void, settings: @escaping () -> PadSettings = { PadSettings() }
+    view: UIView, send: @escaping (Gesture) -> Void,
+    profile: @escaping () -> PadSettings.Profile = { PadSettings().profile(forBundleID: "") }
   ) {
     self.view = view
     self.send = send
-    self.settings = settings
+    self.profile = profile
     pan = UIPanGestureRecognizer()
     pinch = UIPinchGestureRecognizer()
     undoTap = UITapGestureRecognizer()
@@ -86,7 +88,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
       send(.scroll(dx: 0, dy: 0, phase: recognizer.state == .ended ? .ended : .cancelled))
       return
     }
-    guard allowed(settings().gestures.twoFingerScroll) else {
+    guard allowed(profile().gestures.twoFingerScroll) else {
       if panActive {
         panActive = false
         send(.scroll(dx: 0, dy: 0, phase: .cancelled))
@@ -114,7 +116,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   }
 
   @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-    let modifierValue = modifier(for: settings().gestures.zoomModifier)
+    let modifierValue = modifier(for: profile().gestures.zoomModifier)
     let finishing =
       recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
     if finishing && pinchActive {
@@ -124,7 +126,7 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
       )
       return
     }
-    guard allowed(settings().gestures.pinchZoom) else {
+    guard allowed(profile().gestures.pinchZoom) else {
       if pinchActive {
         pinchActive = false
         send(.zoom(scaleDelta: 1, phase: .cancelled, modifier: modifierValue))
@@ -153,12 +155,12 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   }
 
   @objc private func handleUndo(_ recognizer: UITapGestureRecognizer) {
-    guard recognizer.state == .ended, allowed(settings().gestures.tapUndoRedo) else { return }
+    guard recognizer.state == .ended, allowed(profile().gestures.tapUndoRedo) else { return }
     send(.undo)
   }
 
   @objc private func handleRedo(_ recognizer: UITapGestureRecognizer) {
-    guard recognizer.state == .ended, allowed(settings().gestures.tapUndoRedo) else { return }
+    guard recognizer.state == .ended, allowed(profile().gestures.tapUndoRedo) else { return }
     send(.redo)
   }
 }
