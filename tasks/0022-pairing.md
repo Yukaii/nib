@@ -72,7 +72,7 @@ checkbox and the device-ID allow list go away.
 ## Handoff
 
 ```text
-Branch/commit: t3/simplify-pairing-hardening @ bc0ef21
+Branch/commit: t3/simplify-pairing-hardening @ a3032db
 Verify: verify: ok (Test run with 158 tests; NibMac + NibPad built)
 Done:
 - Removed all pairing-only idle expiry and retained the existing 60-second PairingDriver timeout; Wi-Fi and USB pairing-only links stay available while a user compares codes.
