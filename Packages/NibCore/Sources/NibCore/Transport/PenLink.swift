@@ -581,8 +581,10 @@ public final class PenLinkSender {
         connectionLost(reconnect: false)
         return
       case .pairingRequired(let reason, let info):
-        hostInfo = info
-        onHostInfo(info)
+        if let info {
+          hostInfo = info
+          onHostInfo(info)
+        }
         state = .searching
         transportLogger.info("pairing required: \(reason, privacy: .public)")
         pairingIdleTask?.cancel()

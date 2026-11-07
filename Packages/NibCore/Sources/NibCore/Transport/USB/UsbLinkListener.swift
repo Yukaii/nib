@@ -281,8 +281,10 @@ public final class UsbLinkListener {
                 case .invalidProof:
                   self.setConnected(false)
                 case .pairingRequired(let reason, let info):
-                  self.hostInfo = info
-                  self.onHostInfo(info)
+                  if let info {
+                    self.hostInfo = info
+                    self.onHostInfo(info)
+                  }
                   _ = reason
                   self.setConnected(false)
                   self.pairingIdleTask?.cancel()
