@@ -72,9 +72,13 @@ unplugged. The menu line shows which transport is active.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/add-usb-transport @ 2af8656844133ecdbe2f83a6b32c1ad9f158dfae
+Verify: verify: ok (Test run with 55 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added usbmuxd plist packet encoding/decoding, USB stream framing, and loopback policy tests.
+- Added Mac usbmuxd discovery/connect retry and iPad loopback-only USB listener.
+- Routed USB samples/control and receiver events through the existing session, stats, heartbeat, and injection path; Wi-Fi remains fallback.
+- Added USB/Wi-Fi menu status and deterministic transport tests.
+Manual checks: Plug in iPad and confirm `via USB` within ~3 seconds, compare jitter p95 while drawing, then unplug and confirm Wi-Fi fallback; not run (no iPad/USB hardware in this environment).
+Not done / risks: Hardware usbmuxd trust, cable latency, and unplug/reconnect behavior still require the manual checks above.
 ```

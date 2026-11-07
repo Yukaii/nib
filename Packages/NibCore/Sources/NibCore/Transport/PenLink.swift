@@ -401,6 +401,12 @@ public final class PenLinkReceiver {
   private let listener: NWListener
   private let queue = DispatchQueue(label: "dev.yukai.nib.receiver")
   private var connection: NWConnection?
+  #if os(macOS)
+    private var usbClient: UsbmuxClient?
+    private var usbConnection: NWConnection?
+    private var usbFramer = StreamFramer()
+    private var usbMode = false
+  #endif
   private var udpListener: NWListener?
   private var framer = ControlFramer()
   private var session = ReceiverSession()
@@ -414,6 +420,7 @@ public final class PenLinkReceiver {
   private var linkStats = LinkStats()
   private var rttSamples: [Double] = []
   public private(set) var latestRTTMs: Double?
+  public private(set) var transportIsUSB = false
 
   public init(accept: @escaping AcceptHandler = { _ in true }) throws {
     self.accept = accept
@@ -435,6 +442,14 @@ public final class PenLinkReceiver {
       }
     }
     listener.start(queue: queue)
+    #if os(macOS)
+      let client = UsbmuxClient()
+      client.onDeviceConnection = { [weak self] _, connection in
+        self?.acceptUSBConnection(connection)
+      }
+      usbClient = client
+      client.start()
+    #endif
     do {
       let udpParameters = NWParameters.udp
       udpParameters.serviceClass = .interactiveVoice
@@ -465,7 +480,70 @@ public final class PenLinkReceiver {
     listener.cancel()
     udpListener?.cancel()
     disconnectSession(notify: sessionConnected)
+    #if os(macOS)
+      usbClient?.stop()
+      usbClient = nil
+    #endif
   }
+
+  #if os(macOS)
+    private func acceptUSBConnection(_ newConnection: NWConnection) {
+      if sessionConnected {
+        newConnection.start(queue: queue)
+        newConnection.send(
+          content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
+          completion: .contentProcessed { _ in newConnection.cancel() })
+        return
+      }
+      connection?.cancel()
+      connection = newConnection
+      usbConnection = newConnection
+      usbMode = true
+      transportIsUSB = true
+      usbFramer = StreamFramer()
+      newConnection.stateUpdateHandler = nil
+      newConnection.start(queue: queue)
+      receiveUSB(from: newConnection)
+    }
+
+    private func receiveUSB(from expected: NWConnection) {
+      expected.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
+        [weak self] data, _, complete, error in
+        guard let self else { return }
+        if let data, !data.isEmpty {
+          do {
+            let frames = try self.usbFramer.append(Array(data))
+            for frame in frames {
+              switch frame {
+              case .control(let message):
+                Task { @MainActor [weak self] in
+                  guard let self, self.usbConnection === expected else { return }
+                  await self.handle(message)
+                }
+              case .sample(let sample):
+                let arrival = DispatchTime.now().uptimeNanoseconds
+                self.lastPacketAt.set(Date.timeIntervalSinceReferenceDate)
+                self.lockedStats.record(sequence: sample.sequence, sender: sample.timestamp, arrival: arrival)
+                self.sampleSink.send(sample, arrivalNs: arrival)
+              }
+            }
+          } catch {
+            Task { @MainActor [weak self] in self?.disconnectSession(notify: self?.sessionConnected ?? false)
+            }
+            return
+          }
+        }
+        if complete || error != nil {
+          Task { @MainActor [weak self] in
+            guard let self, self.usbConnection === expected else { return }
+            self.disconnectSession(notify: self.sessionConnected)
+          }
+        } else {
+          self.receiveUSB(from: expected)
+        }
+      }
+    }
+  #endif
 
   private func acceptConnection(_ newConnection: NWConnection) {
     if sessionConnected {
@@ -581,19 +659,33 @@ public final class PenLinkReceiver {
         return
       }
       _ = session.hello(protocolVersion: hello.protocolVersion, busy: false, acceptResult: true, now: now)
-      guard let port = udpListener?.port?.rawValue else {
-        sendControl(.helloAck(.init(accepted: false, reason: "UDP listener unavailable")))
-        connection?.cancel()
-        connection = nil
-        return
-      }
+      let udpPort = udpListener?.port?.rawValue ?? 0
+      #if os(macOS)
+        if !usbMode && udpListener?.port == nil {
+          sendControl(.helloAck(.init(accepted: false, reason: "UDP listener unavailable")))
+          connection?.cancel()
+          connection = nil
+          return
+        }
+      #else
+        guard udpListener?.port != nil else {
+          sendControl(.helloAck(.init(accepted: false, reason: "UDP listener unavailable")))
+          connection?.cancel()
+          connection = nil
+          return
+        }
+      #endif
       sessionConnected = true
       // Only the accepted control connection's host may send samples.
       var tcpHost = session.remoteHost
       if tcpHost == nil, case .hostPort(let host, _) = connection?.currentPath?.remoteEndpoint {
         tcpHost = String(describing: host)
       }
-      udpGate.configure(host: tcpHost)
+      #if os(macOS)
+        if usbMode { udpGate.disable() } else { udpGate.configure(host: tcpHost) }
+      #else
+        udpGate.configure(host: tcpHost)
+      #endif
       lastPacketAt.set(now)
       lockedStats.reset()
       linkStats = LinkStats()
@@ -603,7 +695,7 @@ public final class PenLinkReceiver {
       sendControl(
         .helloAck(
           .init(
-            accepted: true, udpPort: port, displayWidth: displayWidth,
+            accepted: true, udpPort: udpPort, displayWidth: displayWidth,
             displayHeight: displayHeight)))
       onSession?(.connected(hello))
       startHeartbeat()
@@ -636,6 +728,13 @@ public final class PenLinkReceiver {
 
   private func sendControl(_ message: ControlMessage) {
     guard let connection else { return }
+    #if os(macOS)
+      if usbMode {
+        connection.send(
+          content: Data(StreamFramer.encode(.control(message))), completion: .contentProcessed { _ in })
+        return
+      }
+    #endif
     connection.send(content: Data(ControlFramer().encode(message)), completion: .contentProcessed { _ in })
   }
 
@@ -687,6 +786,13 @@ public final class PenLinkReceiver {
     heartbeatTask = nil
     connection?.cancel()
     connection = nil
+    #if os(macOS)
+      usbConnection?.cancel()
+      usbConnection = nil
+      usbMode = false
+      transportIsUSB = false
+      usbFramer = StreamFramer()
+    #endif
     session.disconnect()
     udpGate.disable()
     lastPacketAt.set(nil)

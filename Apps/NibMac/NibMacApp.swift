@@ -161,7 +161,10 @@ private final class NibMacModel: ObservableObject {
     case .connected(let hello):
       macLogger.info("session connected: \(hello.deviceName, privacy: .public)")
       injection.surfaceChanged(CGSize(width: hello.surfaceWidth, height: hello.surfaceHeight))
-      status = "connected to \(hello.deviceName)"
+      status =
+        receiver.transportIsUSB
+        ? "connected via USB to \(hello.deviceName)"
+        : "connected via Wi-Fi to \(hello.deviceName)"
     case .geometryChanged(let geometry):
       injection.surfaceChanged(CGSize(width: geometry.surfaceWidth, height: geometry.surfaceHeight))
     case .disconnected:
@@ -198,7 +201,8 @@ private final class NibMacModel: ObservableObject {
 
   private var receiverState: PenLinkState {
     // The receiver has no public state; a session is reflected by the menu status.
-    status.hasPrefix("connected to ") ? .connected(status) : .searching
+    (status.hasPrefix("connected via USB") || status.hasPrefix("connected via Wi-Fi"))
+      ? .connected(status) : .searching
   }
 }
 
