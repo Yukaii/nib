@@ -74,7 +74,7 @@ reason.
 ## Handoff
 
 ```
-Branch/commit: t3/handshake-v2-review-fixes @ c390fdc
+Branch/commit: t3/handshake-v2-review-fixes @ 0afadc7
 Verify: verify: ok (Test run with 115 tests; NibMac + NibPad built)
 Done:
 - Preserved saved zoom and rotate choices offline and applied host capability fallback only when sending gestures.
