@@ -112,3 +112,32 @@ struct TransportTests {
     }
   }
 }
+
+extension TransportTests {
+  @Test func gestureControlMessagesRoundTrip() throws {
+    let gestures: [Gesture] = [
+      .scroll(dx: 1.25, dy: -2.5, phase: .began),
+      .scroll(dx: -3, dy: 4, phase: .changed),
+      .scroll(dx: 0, dy: 0, phase: .ended),
+      .scroll(dx: 0, dy: 0, phase: .cancelled),
+      .zoom(scaleDelta: 1.2, phase: .changed, modifier: .command),
+      .zoom(scaleDelta: 0.8, phase: .ended, modifier: .option),
+      .zoom(scaleDelta: 1, phase: .cancelled, modifier: .control),
+      .undo, .redo,
+    ]
+    for gesture in gestures {
+      let message = ControlMessage.gesture(gesture)
+      var framer = ControlFramer()
+      #expect(try framer.append(framer.encode(message)) == [message])
+    }
+  }
+
+  @Test func palmRejectionCoversContactGracePeriod() {
+    var policy = GesturePalmRejection()
+    policy.pencilBegan()
+    #expect(policy.suppresses(at: 0))
+    policy.pencilEnded(at: 10)
+    #expect(policy.suppresses(at: 10.299))
+    #expect(!policy.suppresses(at: 10.3))
+  }
+}

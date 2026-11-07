@@ -8,6 +8,7 @@
     public private(set) var accessibilityTrusted = false
 
     private var builder = TabletEventBuilder()
+    private var gestureBuilder = GestureEventBuilder()
     private let post: ([CGEvent]) -> Void
     private let trust: () -> Bool
 
@@ -34,6 +35,15 @@
     public mutating func handle(_ sample: PenSample) -> Bool {
       guard accessibilityTrusted else { return false }
       let events = builder.events(for: sample, at: mapper.map(sample))
+      guard !events.isEmpty else { return true }
+      post(events)
+      return true
+    }
+
+    @discardableResult
+    public mutating func handle(_ gesture: Gesture) -> Bool {
+      guard accessibilityTrusted else { return false }
+      let events = gestureBuilder.events(for: gesture)
       guard !events.isEmpty else { return true }
       post(events)
       return true
@@ -93,6 +103,13 @@
       controller = PenInjectionController(
         surfaceSize: surfaceSize, displayRect: displayRect, post: post, isTrusted: isTrusted)
       scheduler = PlayoutScheduler(mode: smoothing ? .smoothing : .passthrough)
+    }
+
+    public func enqueue(_ gesture: Gesture) {
+      queue.async { [self] in
+        guard controller.accessibilityTrusted else { return }
+        _ = controller.handle(gesture)
+      }
     }
 
     public func enqueue(_ sample: PenSample, arrivalNs: UInt64) {

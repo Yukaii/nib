@@ -232,6 +232,8 @@ public final class PenLinkSender {
 
   public func ping() { sendControl(.ping) }
 
+  public func send(_ gesture: Gesture) { sendControl(.gesture(gesture)) }
+
   private func startBrowser() {
     browser?.cancel()
     let newBrowser = NWBrowser(for: .bonjour(type: "_nib._tcp", domain: nil), using: .tcp)
@@ -384,12 +386,14 @@ public final class PenLinkSender {
 public final class PenLinkReceiver {
   public typealias AcceptHandler = @MainActor (ControlMessage.Hello) async -> Bool
   public typealias SampleHandler = @Sendable (PenSample, UInt64) -> Void
+  public typealias GestureHandler = @Sendable (Gesture) -> Void
   public typealias SessionHandler = @MainActor (PenLinkSessionEvent) -> Void
   public var accept: AcceptHandler
   public var onSample: SampleHandler? {
     didSet { sampleSink.set(onSample) }
   }
   public var onSession: SessionHandler?
+  public var onGesture: GestureHandler?
   /// Display size sent in the hello acknowledgement, in points.
   public var displayWidth: Double = 0
   public var displayHeight: Double = 0
@@ -614,6 +618,10 @@ public final class PenLinkReceiver {
       guard sessionConnected else { return }
       session.received(at: now)
       sendControl(.probeReply(sentAtNs: sentAtNs))
+    case .gesture(let gesture):
+      guard sessionConnected else { return }
+      session.received(at: now)
+      onGesture?(gesture)
     case .probeReply(let sentAtNs):
       guard sessionConnected else { return }
       let nowNs = DispatchTime.now().uptimeNanoseconds

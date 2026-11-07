@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class NetworkSink: PenSampleSink {
+final class NetworkSink: PenSampleSink, GestureSink {
   private let sender = PenLinkSender()
   private let settings: PadSettingsStore
   private(set) var linkState = "searching"
@@ -32,6 +32,8 @@ final class NetworkSink: PenSampleSink {
     }
     sender.send(sample)
   }
+  func send(_ gesture: NibCore.Gesture) { sender.send(gesture) }
+  var padSettings: PadSettings { settings.settings }
   func updateGeometry(width: Double, height: Double) { sender.updateGeometry(width: width, height: height) }
 }
 
