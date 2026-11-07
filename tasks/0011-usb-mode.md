@@ -72,7 +72,7 @@ unplugged. The menu line shows which transport is active.
 ## Handoff
 
 ```
-Branch/commit: t3/add-usb-transport @ 46bc8f3291a61e2c73662108cab7b1f3fa27a52d
+Branch/commit: t3/add-usb-transport @ 2af8656844133ecdbe2f83a6b32c1ad9f158dfae
 Verify: verify: ok (Test run with 55 tests; NibMac + NibPad built)
 Done:
 - Added usbmuxd plist packet encoding/decoding, USB stream framing, and loopback policy tests.
