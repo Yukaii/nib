@@ -1,7 +1,7 @@
 ---
 id: "0017"
 title: Protocol v2 — handshake with host info, capabilities and device ID
-status: todo
+status: doing
 milestone: M3
 depends: ["0016"]
 ---
@@ -46,6 +46,9 @@ reason.
   editor hides the native zoom/rotate options when the host lacks
   `zoomNative` / `rotateNative`, and in that case gestures fall back to
   `modifierScroll`. Key names use the host's platform (0016).
+- From 0016 review: with a macOS host, the button editor shows one ⌘ toggle
+  (hide **Meta**, since it duplicates Primary there). On windows/linux,
+  `primary` + `control` must not display as "Ctrl+Ctrl".
 - `nib-receive` keeps compiling and prints the device ID.
 
 ## Acceptance

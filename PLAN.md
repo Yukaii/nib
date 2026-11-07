@@ -33,7 +33,7 @@ for the v2 handshake.
 
 ### M3 — Product foundations
 
-- [ ] 0016 Protocol v2: platform-neutral key chords + settings migration
+- [x] 0016 Protocol v2: platform-neutral key chords + settings migration
 - [ ] 0017 Protocol v2: handshake (host info, capabilities, device ID, versions)
 - [ ] 0018 Language-neutral protocol spec + golden test vectors
 - [x] 0019 CI: GitHub Actions runs verify; FUNDING.yml
