@@ -8,8 +8,9 @@ Product phase (decided 2026-11-07): Nib is a free, open-source product —
 notarized DMG for the Mac, App Store for the iPad, GitHub Sponsors. Rust
 hosts for Windows/Linux later (M5).
 
-M3 in progress: protocol v2 done (0016-0018), CI and Mac onboarding merged;
-iPad onboarding (0021) running. Next: pairing, then the iPad settings restructure.
+M3 in progress: protocol v2 (0016-0018), CI, Mac and iPad onboarding merged.
+Pairing (0022) running; encrypted sessions (0023) follow. Then the iPad
+settings restructure and the Mac settings window.
 
 ## Milestones
 
@@ -38,7 +39,7 @@ iPad onboarding (0021) running. Next: pairing, then the iPad settings restructur
 - [x] 0019 CI: GitHub Actions runs verify; FUNDING.yml
 - [x] 0020 Mac onboarding: setup window, Accessibility + auto-relaunch,
   pressure test canvas, launch at login
-- [ ] 0021 iPad onboarding: welcome, choose a Mac, pressure check, gesture guide
+- [x] 0021 iPad onboarding: welcome, choose a Mac, pressure check, gesture guide
 - [ ] 0022 Pairing: numeric-comparison code, stored keys, authenticated hello
 - [ ] 0023 Encrypted sessions: ChaCha20-Poly1305 control frames and samples
 - [ ] iPad settings restructure (Pen / Profiles / Gestures / Display / Advanced)

@@ -1,7 +1,7 @@
 ---
 id: "0022"
 title: Pairing by numeric comparison, stored keys, authenticated hello
-status: todo
+status: doing
 milestone: M3
 depends: ["0021"]
 ---
