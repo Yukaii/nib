@@ -30,6 +30,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   var onPanelToggle: (() -> Void)?
   private var originalBrightness: CGFloat?
   private var hudVisible = false
+  private var strokeStartedAt: TimeInterval?
+  private var strokeMoves = 0
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
   private var fingerGestures: FingerGestureController!
@@ -190,15 +192,24 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       switch kind {
       case .down:
         isTouching = true
+        strokeStartedAt = touch.timestamp
+        strokeMoves = 0
+        padLogger.info("pencil down force=\(touch.force, privacy: .public)")
         fingerGestures.pencilBegan()
         cancelProximityExit()
       case .up, .cancel:
+        // Stroke-level only: lines up with bluetoothd in the device log when
+        // diagnosing Pencil dropouts.
+        padLogger.info(
+          "pencil \(kind == .up ? "up" : "CANCEL", privacy: .public) after \(String(format: "%.2f", touch.timestamp - (self.strokeStartedAt ?? touch.timestamp)), privacy: .public)s moves=\(self.strokeMoves, privacy: .public) force=\(touch.force, privacy: .public)"
+        )
         isTouching = false
         fingerGestures.pencilEnded()
         scheduleProximityExit()
       default:
         break
       }
+      if kind == .move { strokeMoves += 1 }
       let coalesced = (kind == .move ? event?.coalescedTouches(for: touch) : nil) ?? [touch]
       for sampleTouch in coalesced {
         emit(sampleTouch, kind: kind, flags: coalesced.count > 1 ? .coalesced : [])
