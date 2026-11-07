@@ -31,7 +31,7 @@ visible thin-to-thick pressure stroke.
 ### M2 — Feels like a Wacom
 
 - [x] 0007 Link diagnostics: logging, stats (rate, loss, jitter, RTT), HUD brightness
-- [ ] 0008 Smooth delivery: off-main receive, adaptive jitter buffer, low-latency network params
+- [x] 0008 Smooth delivery: off-main receive, adaptive jitter buffer, low-latency network params
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
 - [ ] Wired USB-C path (usbmux) for lower jitter
 - [ ] Active-area mapping: aspect-locked letterbox, region selection, multi-display
