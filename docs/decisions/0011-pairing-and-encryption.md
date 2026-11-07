@@ -17,7 +17,9 @@ Network.framework TLS-PSK would force OpenSSL on Windows/Linux.
   iPad and host exchange X25519 public keys and 32-byte nonces over the
   control channel. Both derive the same 6-digit code from a hash of the full
   transcript and show it. **Commit first:** `pairRequest` carries the iPad's
-  key and `commitment = SHA256("nib-commit" ‖ pkD ‖ nD)`, not `nD` itself.
+  key and a commitment `SHA256("nib-commit" ‖ deviceID ‖ pkD ‖ nD)`, not `nD`
+  itself (exact length-prefixed encoding: `docs/protocol.md`, which is
+  normative over this record). Both IDs are also in the transcript.
   `pairResponse` carries the host's key and `nH`. Only then does `pairReveal`
   send `nD`, and the host checks it against the commitment. Without this, the
   side that sends its nonce last can try 10⁶ nonces offline until the codes
@@ -28,7 +30,7 @@ Network.framework TLS-PSK would force OpenSSL on Windows/Linux.
   the iPad). A MITM has a 1-in-10⁶ chance per attempt, and every attempt
   needs the user to confirm a code.
 - **Hello proofs** use distinct labels per direction. The host's proof binds
-  *both* nonces (`"nib-hello-ack" ‖ hostID ‖ nD ‖ nH`), so a recorded
+  *both* nonces (`"nib-ack" ‖ hostID ‖ nD ‖ nH`; labels are prefix-free), so a recorded
   helloAck can't be replayed to the iPad. A replayed iPad hello gets no usable
   session, because session keys need the fresh host nonce (below).
 - **Sessions.** `hello` and `helloAck` carry fresh 32-byte nonces. Session
