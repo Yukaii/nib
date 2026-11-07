@@ -58,7 +58,7 @@ whose pressure ramps 0→1→0, and Krita shows a thin-thick-thin line.
 ## Handoff
 
 ```
-Branch/commit: t3/fix-mac-tablet-injector-review @ f5b2316
+Branch/commit: t3/fix-mac-tablet-injector-review @ 56297d5
 Verify: verify: ok (Test run with 26 tests; NibMac + NibPad built)
 Done:
 - Corrected the IOKit tablet capability mask and added stable proximity pointer/vendor IDs.
