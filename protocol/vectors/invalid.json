@@ -1,0 +1,44 @@
+[
+  {
+    "name": "bad-magic",
+    "hex": "000001020100000001000000000000000000003f0000003f0000003f0000003f0000003f00000000",
+    "transport": "udp",
+    "error": "bad magic"
+  },
+  {
+    "name": "bad-version",
+    "hex": "424e09020100000001000000000000000000003f0000003f0000003f0000003f0000003f00000000",
+    "transport": "udp",
+    "error": "unsupported version"
+  },
+  {
+    "name": "wrong-length",
+    "hex": "424e01020100000001000000000000000000003f0000003f0000003f0000003f0000003f000000",
+    "transport": "udp",
+    "error": "wrong length"
+  },
+  {
+    "name": "nan-pressure",
+    "hex": "424e01020100000001000000000000000000003f0000003f0000c07f0000003f0000003f00000000",
+    "transport": "udp",
+    "error": "invalid pressure"
+  },
+  {
+    "name": "out-of-range-x",
+    "hex": "424e01020100000001000000000000000000c03f0000003f0000003f0000003f0000003f00000000",
+    "transport": "udp",
+    "error": "invalid x"
+  },
+  {
+    "name": "oversized-frame",
+    "hex": "01000100",
+    "transport": "tcp",
+    "error": "oversized frame"
+  },
+  {
+    "name": "unknown-control-type",
+    "hex": "1c0000007b2274797065223a226675747572655468696e67222c2278223a317d",
+    "transport": "tcp",
+    "error": "ignored"
+  }
+]
