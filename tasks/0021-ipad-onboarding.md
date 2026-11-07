@@ -1,7 +1,7 @@
 ---
 id: "0021"
 title: iPad onboarding — welcome, choose a Mac, pressure check, gesture guide
-status: doing
+status: review
 milestone: M3
 depends: ["0017"]
 ---
@@ -73,9 +73,13 @@ screen. When the link drops while drawing, a dim status tells them why.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/ipad-onboarding-flow @ aa0919a
+Verify: verify: ok (Test run with 129 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added deterministic Mac selection and Pencil pressure classifier policies with tests.
+- Bonjour browsing now exposes Mac names, remembers an explicit choice, auto-selects only one visible Mac, and waits when several are available.
+- Added the six-step iPad welcome, install, Mac selection, pressure check, gesture guide, and start-drawing flow, plus reconnect status and the cable state.
+- Replaced raw companion link text with plain status, a persistent pressure warning, Change Mac support through selection, and “Show introduction again”.
+Manual checks: Not run (requires deleting/reinstalling NibPad, a running NibMac, and an iPad Pencil).
+Not done / risks: Local Network permission guidance is timed after 10 seconds; device-specific Pencil behavior and USB precedence remain manual checks.
 ```
