@@ -10,6 +10,59 @@ import os
 
 private let macLogger = Logger(subsystem: "dev.yukai.nib", category: "mac")
 
+private struct MacPairingPanelView: View {
+  let peerName: String
+  let code: String
+  let pair: () -> Void
+  let cancel: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text("Pair with \(peerName)?").font(.title2.bold())
+      Text("Make sure your iPad shows \(code).")
+      HStack {
+        Button("Pair", action: pair).keyboardShortcut(.defaultAction)
+        Button("Cancel", action: cancel)
+      }
+    }
+    .padding(24)
+    .frame(width: 360)
+  }
+}
+
+@MainActor
+private final class PairingPanelController: NSWindowController {
+  private let pair: () -> Void
+  private let cancel: () -> Void
+
+  init(peerName: String, code: String, pair: @escaping () -> Void, cancel: @escaping () -> Void) {
+    self.pair = pair
+    self.cancel = cancel
+    let panel = NSPanel(
+      contentRect: NSRect(x: 0, y: 0, width: 360, height: 150),
+      styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
+    panel.isFloatingPanel = true
+    panel.level = .floating
+    panel.isReleasedWhenClosed = false
+    super.init(window: panel)
+    update(peerName: peerName, code: code)
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  func update(peerName: String, code: String) {
+    window?.contentView = NSHostingView(
+      rootView: MacPairingPanelView(peerName: peerName, code: code, pair: pair, cancel: cancel))
+  }
+
+  func present() {
+    window?.center()
+    window?.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+}
+
 @MainActor
 private final class NibMacModel: ObservableObject {
   struct Display: Identifiable, Equatable {
@@ -53,6 +106,8 @@ private final class NibMacModel: ObservableObject {
   private let hostID: String
   private let pairingStore: KeychainPairingKeyStore
   private let trustedAtLaunch: Bool
+  private var pairingPanel: PairingPanelController?
+  private var activePairingPeerName: String?
   @Published var smoothingEnabled = true
 
   var onboardingStep: MacOnboardingStep {
@@ -266,28 +321,41 @@ private final class NibMacModel: ObservableObject {
   private func pairing(_ event: PairingTransportEvent) {
     switch event {
     case .pairingRequired(let peerName):
-      pairingMessage = "Waiting for \(peerName) to start pairing."
+      pairingMessage = "Start pairing on your iPad."
     case .showCode(let code, let peerName):
-      NSApp.activate(ignoringOtherApps: true)
-      let alert = NSAlert()
-      alert.messageText = "Pair with \(peerName)?"
-      alert.informativeText = "Make sure the iPad shows \(code)."
-      alert.addButton(withTitle: "Pair")
-      alert.addButton(withTitle: "Cancel")
-      if alert.runModal() == .alertFirstButtonReturn {
-        receiver?.confirmPairing()
+      activePairingPeerName = peerName
+      if let pairingPanel {
+        pairingPanel.update(peerName: peerName, code: code)
+        pairingPanel.present()
       } else {
-        receiver?.cancelPairing()
+        let panel = PairingPanelController(
+          peerName: peerName, code: code,
+          pair: { [weak self] in self?.receiver?.confirmPairing() },
+          cancel: { [weak self] in self?.receiver?.cancelPairing() })
+        pairingPanel = panel
+        panel.present()
       }
     case .paired(let peerID):
-      pairedIPads[peerID] = pairedIPads[peerID] ?? "iPad"
+      pairingPanel?.close()
+      pairingPanel = nil
+      pairedIPads[peerID] = activePairingPeerName ?? pairedIPads[peerID] ?? "iPad"
+      activePairingPeerName = nil
       defaults.set(pairedIPads, forKey: "nib.pairedIPads")
       pairingMessage = nil
     case .cancelled:
-      pairingMessage = "Pairing was cancelled. Choose Pair to try again."
+      pairingPanel?.close()
+      pairingPanel = nil
+      activePairingPeerName = nil
+      pairingMessage = "Pairing was cancelled. Start pairing again on your iPad."
     case .timedOut:
-      pairingMessage = "Pairing took too long. Choose Pair to try again."
+      pairingPanel?.close()
+      pairingPanel = nil
+      activePairingPeerName = nil
+      pairingMessage = "Pairing took too long. Start pairing again on your iPad."
     case .failed(let reason):
+      pairingPanel?.close()
+      pairingPanel = nil
+      activePairingPeerName = nil
       pairingMessage = "Pairing could not finish: \(reason)"
     }
   }

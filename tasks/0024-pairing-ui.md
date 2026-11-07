@@ -58,18 +58,19 @@ devices reconnect silently, and either side can forget the other.
 ## Handoff
 
 ```
-Branch/commit: main @ 4d01cf6
-Verify: verify: ok (Test run with 158 tests; NibMac + NibPad built)
+Branch/commit: t3/pairing-flow-review-fixes @ 2ea8591
+Verify: verify: ok (Test run with 159 tests; NibMac + NibPad built)
 Done:
-- Added the shared KeychainPairingKeyStore with the required service, account, and accessibility policy.
-- Wired persistent pairing stores and stable IDs into the Mac receiver and iPad Wi-Fi/USB links.
-- Replaced the Mac allow/remember prompt with numeric pairing confirmation, paired iPad management, and Forget.
-- Added iPad pairing, cancel/timeout/failure messaging, Pair again, and Forget this Mac controls.
-Manual checks: not run (requires the user's iPad mini 7, Apple Pencil Pro, and Apple Silicon Mac).
+- Added the shared KeychainPairingKeyStore with the required service, account, accessibility policy, and logged OSStatus failures.
+- Made pairing key persistence report failure; failed writes now emit `.failed` and never mark either side paired. Added a failing-store regression test.
+- Replaced the Mac blocking alert with a model-owned, frontmost non-blocking pairing panel that closes on cancel, timeout, failure, and success, and records the real iPad name.
+- Added a reusable iPad pairing view for onboarding and a direct pairing sheet when an existing paired-by-Remember user needs to pair again.
+Manual checks: not run (requires an iPad mini 7 with Apple Pencil Pro and an Apple Silicon Mac).
   1. On a fresh install, launch Nib on both devices over Wi-Fi. On the iPad choose the Mac, tap Pair, and confirm the same six-digit code on both screens. Draw a pressure stroke in Krita.
   2. Quit and relaunch both apps. Confirm the iPad reconnects without a pairing prompt and pressure still reaches Krita.
   3. On the Mac menu open Paired iPads, choose Forget for the iPad, reconnect it, and confirm the iPad asks to pair again.
   4. On the iPad Companion panel choose Forget this Mac, reconnect, and confirm both screens ask to pair again.
-  5. Turn Wi-Fi off, connect the USB-C cable, and repeat pairing and a pressure stroke. Repeat cancellation on either side and confirm no key is stored; verify Keychain Access has no dev.yukai.nib.pairing item.
-Not done / risks: Keychain behavior and Wi-Fi/USB pairing need the manual hardware checks above. 
+  5. Turn Wi-Fi off, connect the USB-C cable, and repeat pairing and a pressure stroke. Cancel on either side and confirm no key is stored; verify Keychain Access has no `dev.yukai.nib.pairing` item.
+  6. With a user who previously paired by selecting Remember, update both apps, reconnect, and confirm the iPad shows a pairing sheet over the black screen with Pair and Not now, then guides the user through the code and confirmation.
+Not done / risks: Keychain behavior, stale-panel dismissal, and Wi-Fi/USB pairing need the manual hardware checks above.
 ```

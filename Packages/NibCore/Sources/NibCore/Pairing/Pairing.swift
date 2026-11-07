@@ -209,7 +209,8 @@ public enum PairingCrypto {
 
 public protocol PairingKeyStore: AnyObject, Sendable {
   func key(for peerID: String) -> Data?
-  func save(_ key: Data, for peerID: String)
+  @discardableResult
+  func save(_ key: Data, for peerID: String) -> Bool
   func removeKey(for peerID: String)
 }
 
@@ -227,10 +228,12 @@ public final class InMemoryPairingKeyStore: PairingKeyStore, @unchecked Sendable
     return values[peerID]
   }
 
-  public func save(_ key: Data, for peerID: String) {
+  @discardableResult
+  public func save(_ key: Data, for peerID: String) -> Bool {
     lock.lock()
     defer { lock.unlock() }
     values[peerID] = key
+    return true
   }
 
   public func removeKey(for peerID: String) {
@@ -515,7 +518,9 @@ public struct PairingStateMachine: Sendable {
 
   private mutating func completeIfReady() -> [PairingEvent] {
     guard localConfirmed, peerConfirmed, let key = pendingKey, let peerID else { return [] }
-    store.save(key, for: peerID)
+    guard store.save(key, for: peerID) else {
+      return fail("Couldn't save the pairing key. Try pairing again.")
+    }
     clearPending()
     phase = .paired
     return [.paired(peerID: peerID)]

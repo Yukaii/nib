@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 #if canImport(Security)
   import Security
@@ -9,6 +10,7 @@ import Foundation
     public static let service = "dev.yukai.nib.pairing"
 
     private let lock = NSLock()
+    private let logger = Logger(subsystem: "dev.yukai.nib", category: "keychain")
 
     public init() {}
 
@@ -23,7 +25,8 @@ import Foundation
       return result as? Data
     }
 
-    public func save(_ key: Data, for peerID: String) {
+    @discardableResult
+    public func save(_ key: Data, for peerID: String) -> Bool {
       lock.lock()
       defer { lock.unlock() }
       let query = baseQuery(peerID)
@@ -32,11 +35,21 @@ import Foundation
         kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
       ]
       let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+      if status == errSecSuccess { return true }
+      guard status == errSecItemNotFound else {
+        logger.error("Keychain update failed: \(status, privacy: .public)")
+        return false
+      }
       if status == errSecItemNotFound {
         var insert = query
         insert.merge(attributes) { _, new in new }
-        _ = SecItemAdd(insert as CFDictionary, nil)
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        if addStatus != errSecSuccess {
+          logger.error("Keychain add failed: \(addStatus, privacy: .public)")
+          return false
+        }
       }
+      return true
     }
 
     public func removeKey(for peerID: String) {

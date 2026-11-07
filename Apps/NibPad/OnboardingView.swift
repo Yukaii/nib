@@ -19,6 +19,41 @@ struct ConnectionStatusOverlay: View {
   }
 }
 
+struct PairingInstructionsView: View {
+  let pairingCode: String?
+  let pairingPeer: String?
+  let pair: () -> Void
+  let cancel: () -> Void
+  let pairAgain: () -> Void
+  let error: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Image(systemName: "lock.shield").font(.system(size: 42)).foregroundStyle(.cyan)
+      Text("Pair with \(pairingPeer ?? "your Mac")").font(.largeTitle.bold())
+      Text(
+        pairingCode.map { "Check that your Mac shows \($0)." }
+          ?? "Start pairing on your iPad, then check the same code on both screens.")
+      Text("Tap Pair on both devices when the six-digit codes match.")
+        .font(.callout).foregroundStyle(.secondary)
+      HStack {
+        Button("Pair", action: pair).buttonStyle(.borderedProminent).tint(.cyan)
+        Button("Not now", action: cancel).buttonStyle(.plain)
+      }
+      if pairingCode != nil {
+        Text("Waiting for your confirmation…").foregroundStyle(.secondary)
+      }
+      if let error {
+        Text(error).foregroundStyle(.orange)
+        Button("Pair again", action: pairAgain).buttonStyle(.bordered)
+      }
+    }
+    .padding(28)
+    .foregroundStyle(.white)
+    .frame(maxWidth: 520)
+  }
+}
+
 struct OnboardingView: View {
   @Binding var step: Int
   let hosts: [String]
@@ -29,6 +64,7 @@ struct OnboardingView: View {
   let pair: () -> Void
   let cancelPairing: () -> Void
   let pairAgain: () -> Void
+  let pairingError: String?
   let finish: (PressureCheckResult) -> Void
   @State private var localNetworkHint = false
   @State private var localPressureSamples: [Float] = []
@@ -124,30 +160,12 @@ struct OnboardingView: View {
   }
 
   private var pairing: some View {
-    page(title: "Pair with your Mac", symbol: "lock.shield") {
-      Text(
-        pairingCode.map { "Check that your Mac shows \($0)." }
-          ?? "Nib is ready to pair with \(pairingPeer ?? "your Mac").")
-      Text("Tap Pair on both devices when the six-digit codes match.")
-        .font(.callout).foregroundStyle(.secondary)
-      HStack {
-        button(pairingCode == nil ? "Pair" : "Pair") { pair() }
-        Button("Cancel") {
-          cancelPairing()
-          step = 2
-        }.buttonStyle(.plain)
-      }
-      if pairingCode != nil {
-        Text("Waiting for your confirmation…").foregroundStyle(.secondary)
-      }
-      if case .rejected(let reason) = linkState {
-        Text(reason).foregroundStyle(.orange)
-        Button("Pair again") {
-          pairAgain()
-          pair()
-        }.buttonStyle(.bordered)
-      }
-    }
+    PairingInstructionsView(
+      pairingCode: pairingCode, pairingPeer: pairingPeer, pair: pair,
+      cancel: {
+        cancelPairing()
+        step = 2
+      }, pairAgain: pairAgain, error: pairingError)
   }
 
   private var pressure: some View {

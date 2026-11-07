@@ -137,6 +137,8 @@ struct NibPadApp: App {
   @State private var linkState: PenLinkState = .searching
   @State private var pairingCode: String?
   @State private var pairingPeer: String?
+  @State private var pairingSheetPresented = false
+  @State private var pairingError: String?
   @State private var pressureResult: PressureCheckResult = Self.storedPressureResult
   private let sink: NetworkSink
 
@@ -170,6 +172,7 @@ struct NibPadApp: App {
             },
             cancelPairing: { sink.cancelPairing() },
             pairAgain: { sink.pairAgain() },
+            pairingError: pairingError,
             finish: { result in
               pressureResult = result
               Self.storePressureResult(result)
@@ -200,6 +203,25 @@ struct NibPadApp: App {
           }
         }
       }
+      .sheet(isPresented: $pairingSheetPresented) {
+        PairingInstructionsView(
+          pairingCode: pairingCode, pairingPeer: pairingPeer,
+          pair: {
+            if pairingCode == nil { sink.pairAgain() } else { sink.confirmPairing() }
+          },
+          cancel: {
+            sink.cancelPairing()
+            pairingSheetPresented = false
+          },
+          pairAgain: {
+            sink.pairAgain()
+            pairingCode = nil
+            pairingError = nil
+          },
+          error: pairingError
+        )
+        .presentationDetents([.medium])
+      }
       .onReceive(NotificationCenter.default.publisher(for: .nibHostsChanged)) { note in
         hosts = note.object as? [String] ?? []
       }
@@ -212,12 +234,29 @@ struct NibPadApp: App {
         case .showCode(let code, let peer):
           pairingCode = code
           pairingPeer = peer
+          pairingError = nil
         case .pairingRequired(let peer):
           pairingPeer = peer
           pairingCode = nil
+          pairingError = nil
+          if onboardingCompleted { pairingSheetPresented = true }
           linkState = .rejected("Pair with \(peer) to start.")
-        case .paired: pairingCode = nil
-        case .cancelled, .timedOut, .failed: pairingCode = nil
+        case .paired:
+          pairingCode = nil
+          pairingError = nil
+          pairingSheetPresented = false
+        case .cancelled:
+          pairingCode = nil
+          pairingError = "Pairing was cancelled. Try again when you’re ready."
+          if onboardingCompleted { pairingSheetPresented = true }
+        case .timedOut:
+          pairingCode = nil
+          pairingError = "Pairing took too long. Try again when both devices are ready."
+          if onboardingCompleted { pairingSheetPresented = true }
+        case .failed(let reason):
+          pairingCode = nil
+          pairingError = "Pairing could not finish: \(reason)"
+          if onboardingCompleted { pairingSheetPresented = true }
         }
       }
     }
