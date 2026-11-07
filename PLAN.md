@@ -4,9 +4,9 @@ Started 2026-11-07. Integration branch: `main`. Keep under 120 lines.
 
 ## Current focus
 
-M2 — feel like a Wacom. First: measure the link, then smooth it (cursor
-moves in bursts: 240 Hz samples arrive ~4 per 60 Hz iPad frame, plus Wi-Fi
-jitter, and the Mac receives on the main thread).
+M2 — drawing companion. User feedback after 0008: "feels pretty good".
+Now in parallel: iPad companion panel + pressure curve (0009), finger
+gestures (0010), USB-C mode (0011; Wi-Fi jitter p95 is still ~80 ms).
 
 ## Milestones
 
@@ -32,10 +32,12 @@ visible thin-to-thick pressure stroke.
 
 - [x] 0007 Link diagnostics: logging, stats (rate, loss, jitter, RTT), HUD brightness
 - [x] 0008 Smooth delivery: off-main receive, adaptive jitter buffer, low-latency network params
+- [ ] 0009 iPad companion panel (four-finger tap) + pressure curve applied on iPad
+- [ ] 0010 Finger gestures: two-finger scroll, pinch zoom, 2/3-finger tap undo/redo
+- [ ] 0011 USB-C mode via usbmuxd, preferred over Wi-Fi
 - [ ] Latency budget (target < 20 ms pen-to-event on Wi-Fi)
-- [ ] Wired USB-C path (usbmux) for lower jitter
 - [ ] Active-area mapping: aspect-locked letterbox, region selection, multi-display
-- [ ] Pressure curve settings; eraser via Pencil double-tap / squeeze
+- [ ] Eraser via Pencil double-tap / squeeze (toggle exists; verify in apps)
 - [ ] Hover → proximity + cursor move (Pencil Pro / iPad mini 7)
 
 ### M3 — Polish
@@ -50,3 +52,4 @@ visible thin-to-thick pressure stroke.
 - 0002 Wire protocol: fixed 40-byte little-endian `PenSample` packets
 - 0003 Injection via `CGEvent` tablet point + proximity events
 - 0004 Transport: Bonjour TCP control + UDP 40-byte samples
+- 0005 USB-C mode via usbmuxd, type-tagged stream, preferred over Wi-Fi

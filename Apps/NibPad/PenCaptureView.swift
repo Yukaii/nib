@@ -181,7 +181,9 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       altitude: Float(touch.altitudeAngle), azimuth: Float(touch.azimuthAngle(in: self))
     )
     let sample = PenSample(
-      kind: kind, sequence: nextSequence(), timestamp: timestamp(touch),
+      // Predicted samples are never sent; numbering them would read as loss on the Mac.
+      kind: kind, sequence: flags.contains(.predicted) ? sequence : nextSequence(),
+      timestamp: timestamp(touch),
       x: normalized.x, y: normalized.y, pressure: normalized.pressure,
       altitude: normalized.altitude, azimuth: normalized.azimuth,
       buttons: buttons, flags: flags
