@@ -9,11 +9,25 @@ public enum MacSelection: Equatable, Sendable {
 
 /// Chooses a Mac without silently picking the wrong one when several are visible.
 public enum MacSelectionPolicy {
+  /// Keeps the first Bonjour result for each service name. A service can be
+  /// reported once per network interface, so callers must not build a
+  /// unique-keys dictionary directly from browse results.
+  public static func deduplicatedNames(_ results: [String]) -> [String] {
+    var seen = Set<String>()
+    return results.filter { seen.insert($0).inserted }
+  }
+
   public static func choose(remembered: String?, results: [String]) -> MacSelection {
-    let unique = Array(Set(results)).sorted()
+    let unique = deduplicatedNames(results).sorted()
     if let remembered, unique.contains(remembered) { return .remembered(remembered) }
     if unique.count == 1, let only = unique.first { return .single(only) }
     return .ask
+  }
+
+  public static func shouldPreserveLiveConnection(
+    hasConnection: Bool, choice: MacSelection
+  ) -> Bool {
+    hasConnection && choice == .ask
   }
 }
 

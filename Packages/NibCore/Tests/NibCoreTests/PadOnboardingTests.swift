@@ -3,6 +3,11 @@ import Testing
 @testable import NibCore
 
 struct PadOnboardingTests {
+  @Test func duplicateBonjourNamesKeepFirstResult() {
+    #expect(
+      MacSelectionPolicy.deduplicatedNames(["Studio", "Studio", "Travel"])
+        == ["Studio", "Travel"])
+  }
   @Test func rememberedMacWinsWhenPresent() {
     #expect(
       MacSelectionPolicy.choose(remembered: "Studio", results: ["Living room", "Studio"])
@@ -15,6 +20,11 @@ struct PadOnboardingTests {
 
   @Test func severalMacsNeedAnExplicitChoice() {
     #expect(MacSelectionPolicy.choose(remembered: nil, results: ["Studio", "Living room"]) == .ask)
+  }
+
+  @Test func browseChangesDoNotReplaceLiveConnection() {
+    #expect(MacSelectionPolicy.shouldPreserveLiveConnection(hasConnection: true, choice: .ask))
+    #expect(!MacSelectionPolicy.shouldPreserveLiveConnection(hasConnection: false, choice: .ask))
   }
 
   @Test func missingRememberedMacNeedsAnExplicitChoice() {

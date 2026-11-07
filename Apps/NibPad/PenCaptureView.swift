@@ -7,7 +7,7 @@ private let padLogger = Logger(subsystem: "dev.yukai.nib", category: "pad")
 
 @MainActor
 protocol PenSampleSink: AnyObject {
-  var linkState: String { get }
+  var linkState: PenLinkState { get }
   func send(_ sample: PenSample)
   func updateGeometry(width: Double, height: Double)
 }
@@ -15,7 +15,7 @@ protocol PenSampleSink: AnyObject {
 @MainActor
 final class LoggingSink: PenSampleSink {
   private(set) var latestSample: PenSample?
-  var linkState: String { "preview" }
+  var linkState: PenLinkState { .searching }
   func send(_ sample: PenSample) { latestSample = sample }
   func updateGeometry(width: Double, height: Double) {}
 }
@@ -309,7 +309,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       sampleTimes.append(now)
       sampleTimes.removeAll { $0 < now - 1 }
     }
-    hud.update(sample, rate: sampleTimes.count, linkState: sink.linkState)
+    hud.update(sample, rate: sampleTimes.count, linkState: sink.linkState.userFacingText())
   }
 
   private func scheduleProximityExit() {

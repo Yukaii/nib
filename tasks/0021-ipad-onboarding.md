@@ -73,13 +73,12 @@ screen. When the link drops while drawing, a dim status tells them why.
 ## Handoff
 
 ```
-Branch/commit: t3/ipad-onboarding-flow @ aa0919a
-Verify: verify: ok (Test run with 129 tests; NibMac + NibPad built)
+Branch/commit: t3/ipad-onboarding-review-fixes @ 84d09a2
+Verify: verify: ok (Test run with 135 tests; NibMac + NibPad built)
 Done:
-- Added deterministic Mac selection and Pencil pressure classifier policies with tests.
-- Bonjour browsing now exposes Mac names, remembers an explicit choice, auto-selects only one visible Mac, and waits when several are available.
-- Added the six-step iPad welcome, install, Mac selection, pressure check, gesture guide, and start-drawing flow, plus reconnect status and the cable state.
-- Replaced raw companion link text with plain status, a persistent pressure warning, Change Mac support through selection, and “Show introduction again”.
-Manual checks: Not run (requires deleting/reinstalling NibPad, a running NibMac, and an iPad Pencil).
-Not done / risks: Local Network permission guidance is timed after 10 seconds; device-specific Pencil behavior and USB precedence remain manual checks.
+- Deduplicated Bonjour service names safely and preserved live sessions when browse results change; single-Mac auto-selection is persisted.
+- Moved pressure checking entirely into the onboarding pad, persisted the result, and handled Pencil touches whose maximum force is zero.
+- Replaced stringly link state with `PenLinkState` and one user-facing text function; added pure policy tests for duplicates and live-session preservation.
+Manual checks: Not run — requires deleting/reinstalling NibPad, a real iPad and Pencil, NibMac, Local Network permission, and a cable/Wi-Fi session. Steps: walk the full introduction, quit NibMac and verify the reconnecting line, then reopen “Show introduction again” from the panel.
+Not done / risks: USB and Pencil hardware paths were build-checked only; no physical-device validation was available.
 ```

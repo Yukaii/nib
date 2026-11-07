@@ -4,7 +4,7 @@ import UIKit
 
 struct CompanionPanel: View {
   @Bindable var store: PadSettingsStore
-  let linkState: String
+  let linkState: PenLinkState
   let profileName: String
   let frontApp: ControlMessage.FrontApp
   let hostInfo: ControlMessage.HostInfo?
@@ -61,11 +61,7 @@ struct CompanionPanel: View {
   }
 
   private var plainStatus: String {
-    if linkState == "connected via USB" { return "Connected by cable" }
-    if linkState.hasPrefix("connected ") { return "Connected to \(linkState.dropFirst("connected ".count))" }
-    if linkState.hasPrefix("rejected: ") { return String(linkState.dropFirst("rejected: ".count)) }
-    if linkState == "connecting" { return "Connecting to your Mac…" }
-    return "Looking for your Mac…"
+    linkState.userFacingText()
   }
 
   private var pressureSection: some View {

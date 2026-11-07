@@ -2,7 +2,7 @@ import NibCore
 import SwiftUI
 
 struct ConnectionStatusOverlay: View {
-  let linkState: String
+  let linkState: PenLinkState
   let selectedHost: String?
 
   var body: some View {
@@ -15,17 +15,14 @@ struct ConnectionStatusOverlay: View {
   }
 
   private var message: String {
-    if linkState.hasPrefix("rejected: ") { return String(linkState.dropFirst("rejected: ".count)) }
-    if let selectedHost { return "Looking for \(selectedHost)…" }
-    return "Looking for your Mac…"
+    linkState.userFacingText(selectedHost: selectedHost)
   }
 }
 
 struct OnboardingView: View {
   @Binding var step: Int
   let hosts: [String]
-  let linkState: String
-  let pressureSamples: [Float]
+  let linkState: PenLinkState
   let chooseMac: (String) -> Void
   let finish: (PressureCheckResult) -> Void
   @State private var localNetworkHint = false
@@ -113,15 +110,15 @@ struct OnboardingView: View {
           .buttonStyle(.borderedProminent)
         }
       }
-      if linkState.hasPrefix("rejected: ") {
-        Text(String(linkState.dropFirst("rejected: ".count))).foregroundStyle(.orange)
+      if case .rejected = linkState {
+        Text(linkState.userFacingText()).foregroundStyle(.orange)
       }
       Button("I’ll choose later") { step = 3 }.buttonStyle(.plain).foregroundStyle(.secondary)
     }
   }
 
   private var pressure: some View {
-    let result = PressureCheckClassifier.classify(pressureSamples + localPressureSamples)
+    let result = PressureCheckClassifier.classify(localPressureSamples)
     return page(title: "Check your Apple Pencil", symbol: "pencil.tip") {
       Text("Press lightly, then firmly, on the iPad a few times. Nib needs pressure to reach drawing apps.")
       PressurePad { value, force, maximum in
@@ -169,7 +166,7 @@ struct OnboardingView: View {
         "The screen will go black. Put the Pencil on the iPad to draw on your Mac. Four-finger tap opens settings anytime."
       )
       button("Start drawing") {
-        finish(PressureCheckClassifier.classify(pressureSamples + localPressureSamples))
+        finish(PressureCheckClassifier.classify(localPressureSamples))
       }
     }
   }
@@ -220,12 +217,10 @@ private struct PressurePad: UIViewRepresentable {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     private func report(_ touches: Set<UITouch>) {
-      guard let touch = touches.first(where: { $0.type == .pencil }), touch.maximumPossibleForce > 0 else {
-        return
-      }
-      onPressure?(
-        Float(min(max(touch.force / touch.maximumPossibleForce, 0), 1)), touch.force,
-        touch.maximumPossibleForce)
+      guard let touch = touches.first(where: { $0.type == .pencil }) else { return }
+      let maximum = touch.maximumPossibleForce
+      let normalized = maximum > 0 ? Float(min(max(touch.force / maximum, 0), 1)) : 0
+      onPressure?(normalized, touch.force, maximum)
     }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { report(touches) }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { report(touches) }

@@ -108,8 +108,19 @@ private final class SampleSink: @unchecked Sendable {
 
 public enum PenLinkState: Sendable, Equatable {
   case searching, connecting
-  case connected(String)
+  case connected(name: String, viaUSB: Bool)
   case rejected(String)
+
+  public func userFacingText(selectedHost: String? = nil) -> String {
+    switch self {
+    case .searching:
+      return selectedHost.map { "Looking for \($0)…" } ?? "Looking for your Mac…"
+    case .connecting: return "Connecting to your Mac…"
+    case .connected(_, true): return "Connected by cable"
+    case .connected(let name, false): return "Connected to \(name)"
+    case .rejected(let reason): return reason
+    }
+  }
 }
 
 public enum PenLinkSessionEvent: Sendable, Equatable {
@@ -307,10 +318,13 @@ public final class PenLinkSender {
           guard case .service(let name, _, _, _) = result.endpoint else { return nil }
           return (name, result)
         }
-        self.resultsByName = Dictionary(uniqueKeysWithValues: named)
-        self.discoveredHosts = named.map(\.0).sorted()
-        self.latestResult = named.first(where: { $0.0 == self.selectedHost })?.1
-        self.connectToBestResult(results: named)
+        var unique: [(String, NWBrowser.Result)] = []
+        var seen = Set<String>()
+        for item in named where seen.insert(item.0).inserted { unique.append(item) }
+        self.resultsByName = unique.reduce(into: [:]) { $0[$1.0] = $1.1 }
+        self.discoveredHosts = unique.map(\.0).sorted()
+        self.latestResult = unique.first(where: { $0.0 == self.selectedHost })?.1
+        self.connectToBestResult(results: unique)
       }
     }
     newBrowser.stateUpdateHandler = { [weak self] newState in
@@ -330,11 +344,21 @@ public final class PenLinkSender {
     case .remembered(let remembered): name = remembered
     case .single(let single): name = single
     case .ask:
+      // A browse update can temporarily contain several interfaces while a
+      // session is already working. Keep the live session and its status.
+      guard
+        !MacSelectionPolicy.shouldPreserveLiveConnection(
+          hasConnection: connection != nil, choice: choice)
+      else { return }
       state = .searching
       return
     }
     guard let result = named.first(where: { $0.0 == name })?.1 else { return }
     latestResult = result
+    if case .single(let single) = choice {
+      selectedHost = single
+      UserDefaults.standard.set(single, forKey: "nib.selectedMac")
+    }
     connect(to: result)
   }
 
@@ -414,7 +438,7 @@ public final class PenLinkSender {
       } else {
         name = "Mac"
       }
-      state = .connected(name)
+      state = .connected(name: name, viaUSB: false)
       startHeartbeat()
     case .probe(let sentAtNs):
       sendControl(.probeReply(sentAtNs: sentAtNs))
