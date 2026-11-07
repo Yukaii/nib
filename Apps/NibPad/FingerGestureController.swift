@@ -19,10 +19,11 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
   // A gesture that began must always end on the Mac, even if palm rejection
   // or a settings change would now suppress it; otherwise apps see a scroll
   // that never finishes.
-  private var panActive = false
-  private var pinchActive = false
-  private var rotationActive = false
-  private var rotationTotal: CGFloat = 0
+  private var scrollActive = false
+  private var zoomActive = false
+  private var rotateActive = false
+  private var arbiter = TwoFingerArbiter()
+  private var suppressed = false
   private let pan: UIPanGestureRecognizer
   private let pinch: UIPinchGestureRecognizer
   private let rotation: UIRotationGestureRecognizer
@@ -99,114 +100,111 @@ final class FingerGestureController: NSObject, UIGestureRecognizerDelegate {
         method: zoomMethod(profile.gestures.zoomMethod)))
   }
 
+  // The three recognizers only measure; `TwoFingerArbiter` decides what the
+  // gesture means, and only that is sent (see its doc comment).
+
   @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-    let finishing =
-      recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
-    if finishing && panActive {
-      panActive = false
-      send(.scroll(dx: 0, dy: 0, phase: recognizer.state == .ended ? .ended : .cancelled))
-      return
-    }
-    guard allowed(profile().gestures.twoFingerScroll) else {
-      if panActive {
-        panActive = false
-        send(.scroll(dx: 0, dy: 0, phase: .cancelled))
-      }
-      return
-    }
-    if recognizer.state == .began || (recognizer.state == .changed && !panActive) {
-      panActive = true
-      recognizer.setTranslation(.zero, in: view)
-      send(.scroll(dx: 0, dy: 0, phase: .began))
-      return
-    }
-    guard recognizer.state == .changed else { return }
-    let phase: Gesture.Phase
-    switch recognizer.state {
-    case .began: phase = .began
-    case .changed: phase = .changed
-    case .ended: phase = .ended
-    case .cancelled, .failed: phase = .cancelled
-    default: return
-    }
+    guard recognizer.state == .changed else { return finishIfIdle(recognizer) }
     let translation = recognizer.translation(in: view)
     recognizer.setTranslation(.zero, in: view)
-    send(.scroll(dx: translation.x, dy: translation.y, phase: phase))
+    update(dx: translation.x, dy: translation.y)
   }
 
   @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-    let finishing =
-      recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
-    if finishing && pinchActive {
-      pinchActive = false
-      sendZoom(1, phase: recognizer.state == .ended ? .ended : .cancelled, profile: profile())
-      return
-    }
-    guard allowed(profile().gestures.pinchZoom) else {
-      if pinchActive {
-        pinchActive = false
-        sendZoom(1, phase: .cancelled, profile: profile())
-      }
-      return
-    }
-    if recognizer.state == .began || (recognizer.state == .changed && !pinchActive) {
-      pinchActive = true
-      recognizer.scale = 1
-      sendZoom(1, phase: .began, profile: profile())
-      return
-    }
-    guard recognizer.state == .changed else { return }
-    let phase: Gesture.Phase
-    switch recognizer.state {
-    case .began: phase = .began
-    case .changed: phase = .changed
-    case .ended: phase = .ended
-    case .cancelled, .failed: phase = .cancelled
-    default: return
-    }
-    // UIKit's scale is cumulative since the pinch began; send per-event deltas.
-    let delta = recognizer.scale
+    guard recognizer.state == .changed else { return finishIfIdle(recognizer) }
+    // UIKit's scale is cumulative since the pinch began; use per-event factors.
+    let factor = recognizer.scale
     recognizer.scale = 1
-    sendZoom(delta, phase: phase, profile: profile())
+    update(scale: factor)
   }
 
   @objc private func handleRotation(_ recognizer: UIRotationGestureRecognizer) {
-    let finishing =
-      recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
-    if finishing && rotationActive {
-      rotationActive = false
-      rotationTotal = 0
-      send(.rotate(degreesDelta: 0, phase: recognizer.state == .ended ? .ended : .cancelled))
-      return
-    }
-    guard allowed(profile().gestures.rotate) else {
-      if rotationActive {
-        rotationActive = false
-        rotationTotal = 0
-        send(.rotate(degreesDelta: 0, phase: .cancelled))
-      }
-      return
-    }
-    if recognizer.state == .began {
-      rotationTotal = 0
-      recognizer.rotation = 0
-      return
-    }
-    guard recognizer.state == .changed else { return }
+    guard recognizer.state == .changed else { return finishIfIdle(recognizer) }
     let radians = recognizer.rotation
     recognizer.rotation = 0
-    rotationTotal += radians
-    guard abs(rotationTotal) > 8 * .pi / 180 else { return }
     // UIKit's rotation is clockwise-positive (y points down); AppKit's is
     // counter-clockwise-positive, so the sign flips on the way to the Mac.
-    var degrees = -Double(radians * 180 / .pi)
-    if !rotationActive {
-      rotationActive = true
-      send(.rotate(degreesDelta: 0, phase: .began))
-      // Catch up the dead zone so the canvas tracks the fingers, not 8° behind.
-      degrees = -Double(rotationTotal * 180 / .pi)
+    update(rotationDegrees: -Double(radians * 180 / .pi))
+  }
+
+  private func update(dx: Double = 0, dy: Double = 0, scale: Double = 1, rotationDegrees: Double = 0) {
+    let current = profile()
+    if arbiter.mode == .undecided && !scrollActive && !zoomActive && !rotateActive {
+      suppressed = palm.suppresses(at: CACurrentMediaTime())
+      arbiter.panEnabled = current.gestures.twoFingerScroll
+      arbiter.zoomEnabled = current.gestures.pinchZoom
+      arbiter.rotateEnabled = current.gestures.rotate
     }
-    send(.rotate(degreesDelta: degrees, phase: .changed))
+    if suppressed || palm.suppresses(at: CACurrentMediaTime()) {
+      suppressed = true
+      endAll(.cancelled)
+      return
+    }
+    arbiter.add(dx: dx, dy: dy, scale: scale, rotationDegrees: rotationDegrees)
+
+    switch arbiter.mode {
+    case .undecided:
+      return
+    case .pan:
+      if !scrollActive {
+        scrollActive = true
+        send(.scroll(dx: 0, dy: 0, phase: .began))
+        // Catch up the movement made while undecided.
+        send(.scroll(dx: arbiter.translationX, dy: arbiter.translationY, phase: .changed))
+      } else if dx != 0 || dy != 0 {
+        send(.scroll(dx: dx, dy: dy, phase: .changed))
+      }
+    case .transform:
+      if scrollActive {
+        scrollActive = false
+        send(.scroll(dx: 0, dy: 0, phase: .ended))
+      }
+      if arbiter.zoomEngaged {
+        if !zoomActive {
+          zoomActive = true
+          sendZoom(1, phase: .began, profile: current)
+          sendZoom(exp(arbiter.logScale), phase: .changed, profile: current)
+        } else if scale != 1 {
+          sendZoom(scale, phase: .changed, profile: current)
+        }
+      }
+      if arbiter.rotateEngaged {
+        if !rotateActive {
+          rotateActive = true
+          send(.rotate(degreesDelta: 0, phase: .began))
+          send(.rotate(degreesDelta: arbiter.rotationDegrees, phase: .changed))
+        } else if rotationDegrees != 0 {
+          send(.rotate(degreesDelta: rotationDegrees, phase: .changed))
+        }
+      }
+    }
+  }
+
+  /// Ends the gesture once none of the three recognizers is still tracking.
+  private func finishIfIdle(_ recognizer: UIGestureRecognizer) {
+    let tracking: (UIGestureRecognizer) -> Bool = { $0.state == .began || $0.state == .changed }
+    guard [pan, pinch, rotation].allSatisfy({ $0 === recognizer || !tracking($0) }),
+      recognizer.state != .began
+    else { return }
+    endAll(recognizer.state == .ended ? .ended : .cancelled)
+    arbiter.reset()
+    suppressed = false
+  }
+
+  private func endAll(_ phase: Gesture.Phase) {
+    let current = profile()
+    if scrollActive {
+      scrollActive = false
+      send(.scroll(dx: 0, dy: 0, phase: phase))
+    }
+    if zoomActive {
+      zoomActive = false
+      sendZoom(1, phase: phase, profile: current)
+    }
+    if rotateActive {
+      rotateActive = false
+      send(.rotate(degreesDelta: 0, phase: phase))
+    }
   }
 
   @objc private func handleUndo(_ recognizer: UITapGestureRecognizer) {
