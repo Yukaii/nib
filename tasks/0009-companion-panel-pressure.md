@@ -68,7 +68,7 @@ curve is applied on the iPad before samples are sent.
 ## Handoff
 
 ```
-Branch/commit: t3/companion-panel-pressure @ 5e5dd3e27af5065d0ad2a8d89a24fbd47db35601
+Branch/commit: t3/companion-panel-pressure @ dadce67ea933184de947a0824b47c33f49e034ed
 Verify: verify: ok (Test run with 53 tests; NibMac + NibPad built)
 Done:
 - Added monotonic pressure curve mapping with endpoint, threshold, range, and preset coverage.
