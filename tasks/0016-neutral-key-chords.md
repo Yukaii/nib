@@ -67,7 +67,7 @@ iPad profiles survive the upgrade.
 ## Handoff
 
 ```
-Branch/commit: t3/neutral-key-chords-migration @ 27c23ced4ad4aec5e80b28acc4cf8d35c4ca0e6a
+Branch/commit: t3/neutral-key-chords-migration @ 82ab04eda27f02397a70ddc837bc15742b5a5f64
 Verify: verify: ok (Test run with 109 tests; NibMac + NibPad built)
 Done:
 - Replaced keyCode and command/option wire/settings values with W3C codes and neutral modifiers.
