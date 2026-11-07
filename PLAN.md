@@ -17,7 +17,7 @@ arrives in Krita on the Mac with varying pressure.
 
 - [x] 0002 Wire protocol codec for `PenSample` (NibCore)
 - [ ] 0003 Mac tablet event injector + `nib-inject-demo` pressure-ramp CLI
-- [ ] 0004 iPad screen-off pen capture view (force, tilt, hover, coalesced)
+- [x] 0004 iPad screen-off pen capture view (force, tilt, hover, coalesced)
 - [ ] 0005 Transport: Bonjour/Network.framework sender (iPad) + receiver (Mac)
 - [ ] 0006 Mac host app wiring: receive → map → inject, display picker, Accessibility onboarding
 
