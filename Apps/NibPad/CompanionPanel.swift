@@ -30,7 +30,7 @@ struct CompanionPanel: View {
         Toggle("Debug HUD", isOn: $showsHUD)
         HStack {
           Text("Edge brightness")
-          Slider(value: edgeBrightness, in: 0...0.3)
+          Slider(value: edgeBrightness, in: 0...1)
           Text(store.settings.edgeBrightness, format: .percent.precision(.fractionLength(0)))
             .frame(width: 44, alignment: .trailing)
         }
@@ -154,7 +154,7 @@ struct CompanionPanel: View {
   private var edgeBrightness: Binding<Double> {
     Binding(
       get: { store.settings.edgeBrightness },
-      set: { store.settings.edgeBrightness = min(max($0, 0), 0.3) })
+      set: { store.settings.edgeBrightness = min(max($0, 0), 1) })
   }
 }
 

@@ -177,7 +177,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       UIScreen.main.brightness = max(originalBrightness ?? 0.5, 0.5)
     } else if edgeControls.hasVisibleControls {
       let brightness = (sink as? GestureSink)?.padSettings.edgeBrightness ?? 0.08
-      UIScreen.main.brightness = CGFloat(min(max(brightness, 0), 0.3))
+      UIScreen.main.brightness = CGFloat(min(max(brightness, 0), 1))
     } else {
       UIScreen.main.brightness = 0
     }

@@ -100,7 +100,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
     pressure: Pressure = .linear, gestures: Gestures = Gestures(), edgeBrightness: Double = 0.08
   ) {
     self.pressure = pressure
-    self.edgeBrightness = min(max(edgeBrightness, 0), 0.3)
+    self.edgeBrightness = min(max(edgeBrightness, 0), 1)
     self.profiles = Self.presets(defaultGestures: gestures)
   }
   public func profile(forBundleID bundleID: String) -> Profile {
@@ -135,7 +135,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     pressure = try values.decodeIfPresent(Pressure.self, forKey: .pressure) ?? .linear
     edgeBrightness = min(
-      max(try values.decodeIfPresent(Double.self, forKey: .edgeBrightness) ?? 0.08, 0), 0.3)
+      max(try values.decodeIfPresent(Double.self, forKey: .edgeBrightness) ?? 0.08, 0), 1)
     if let decoded = try values.decodeIfPresent([Profile].self, forKey: .profiles) {
       profiles = decoded.isEmpty ? Self.presets() : decoded
     } else {

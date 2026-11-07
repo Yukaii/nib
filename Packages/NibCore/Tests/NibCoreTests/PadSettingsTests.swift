@@ -91,3 +91,10 @@ import Testing
   #expect(settings.profile(forBundleID: "com.apple.finder").name == "Default")
   #expect(settings.profile(forBundleID: "org.kde.krita").name == "Default")
 }
+
+@Test func edgeBrightnessAllowsFullRangeAndClamps() throws {
+  #expect(PadSettings(edgeBrightness: 0.8).edgeBrightness == 0.8)
+  #expect(PadSettings(edgeBrightness: 1.5).edgeBrightness == 1)
+  let json = #"{"pressure":{"softness":0,"minimum":0,"maximum":1},"edgeBrightness":-2}"#
+  #expect(try JSONDecoder().decode(PadSettings.self, from: Data(json.utf8)).edgeBrightness == 0)
+}
