@@ -306,7 +306,7 @@ public final class UsbLinkListener {
           onHostInfo(info)
         }
         setConnected(false)
-        onPairingEvent?(.pairingRequired(peerName: info?.name ?? "Mac"))
+        onPairingEvent?(.pairingRequired(peerName: hostInfo?.name ?? info?.name ?? "Mac"))
         usbListenerLogger.info("pairing required: \(String(reason.prefix(200)), privacy: .private)")
       case .rejected(let reason, let info, _):
         if let info {

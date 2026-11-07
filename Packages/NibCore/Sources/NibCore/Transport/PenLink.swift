@@ -590,7 +590,7 @@ public final class PenLinkSender {
         }
         state = .searching
         transportLogger.info("pairing required: \(String(reason.prefix(200)), privacy: .private)")
-        onPairingEvent?(.pairingRequired(peerName: info?.name ?? "Mac"))
+        onPairingEvent?(.pairingRequired(peerName: self.hostInfo?.name ?? info?.name ?? "Mac"))
         // Keep the connection open in a pairing-only state; beginPairing
         // sends pairRequest on this same connection.
         return
