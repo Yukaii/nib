@@ -34,7 +34,7 @@
     @discardableResult
     public mutating func handle(_ sample: PenSample) -> Bool {
       guard accessibilityTrusted else { return false }
-      var events = sample.kind == .down ? gestureBuilder.releaseAll() : []
+      var events = sample.kind == .down ? gestureBuilder.releaseHeldModifier() : []
       events += builder.events(for: sample, at: mapper.map(sample))
       guard !events.isEmpty else { return true }
       post(events)

@@ -4,8 +4,11 @@ import Foundation
 /// shortcut layout for the Mac application currently in front.
 public struct PadSettings: Codable, Equatable, Sendable {
   public struct Pressure: Codable, Equatable, Sendable {
+    /// −1 soft … 0 linear … +1 firm.
     public var softness: Double
+    /// Raw pressure below this maps to 0 (light-touch threshold), 0…0.5.
     public var minimum: Double
+    /// Raw pressure at or above this maps to 1, 0.5…1.
     public var maximum: Double
     public init(softness: Double = 0, minimum: Double = 0, maximum: Double = 1) {
       self.softness = softness
@@ -23,6 +26,7 @@ public struct PadSettings: Codable, Equatable, Sendable {
     public var twoFingerScroll: Bool
     public var pinchZoom: Bool
     public var zoomModifier: ZoomModifier
+    /// Two-finger tap → undo, three-finger tap → redo (Procreate convention).
     public var tapUndoRedo: Bool
     public init(
       twoFingerScroll: Bool = true, pinchZoom: Bool = true, zoomModifier: ZoomModifier = .command,
@@ -134,11 +138,11 @@ public struct PadSettings: Codable, Equatable, Sendable {
       Profile(name: "Default", buttons: base + [pan], gestures: defaultGestures),
       Profile(
         name: "Krita", bundleIDPrefixes: ["org.kde.krita"],
-        buttons: base + [pan, .init(label: "Pick", chord: chord(0, [.control]), hold: true)],
+        buttons: base + [pan, .init(label: "Pick", chord: .init(modifiers: [.control]), hold: true)],
         gestures: .init(zoomModifier: .control)),
       Profile(
         name: "Photoshop", bundleIDPrefixes: ["com.adobe.Photoshop"],
-        buttons: base + [pan, .init(label: "Alt", chord: chord(0, [.option]), hold: true)],
+        buttons: base + [pan, .init(label: "Alt", chord: .init(modifiers: [.option]), hold: true)],
         gestures: .init(zoomModifier: .option)),
       Profile(
         name: "Affinity", bundleIDPrefixes: ["com.seriflabs."], buttons: base,

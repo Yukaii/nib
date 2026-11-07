@@ -1,10 +1,18 @@
 #if os(macOS)
   import CoreGraphics
 
-  /// Converts reliable gestures into ordered Quartz events, including real modifier transitions.
+  /// Converts the wire gesture model into ordered Quartz events.
+  ///
+  /// Apps such as Krita (Qt) track modifiers from `flagsChanged` key events,
+  /// not only from the flags on each event. A modifier that only appears as a
+  /// flag is never seen as released, so the app stays in its modifier mode
+  /// (Krita: ⌘ → color picker). Every modifier this builder uses is therefore
+  /// pressed and released with real `flagsChanged` events, and the builder
+  /// remembers modifiers and chords it is holding so it can always release them.
   public struct GestureEventBuilder: Sendable {
     public static let scrollGain: Double = 2
     public static let zoomGain: Double = 400
+    /// The modifier held down for an in-progress zoom, if any.
     public private(set) var heldModifier: Gesture.Modifier?
     private var heldChords: [Gesture.KeyChord] = []
     private var heldFlags: CGEventFlags = []
@@ -14,6 +22,7 @@
       switch gesture {
       case .scroll(let dx, let dy, let phase):
         let event = scroll(horizontal: dx * Self.scrollGain, vertical: dy * Self.scrollGain, phase: phase)
+        // Panning never carries a modifier, even while a pinch holds one.
         event.flags = []
         return [event]
       case .zoom(let delta, let phase, let modifier):
@@ -36,15 +45,19 @@
       }
     }
 
+    /// Releases the modifier held by an in-progress zoom.
     public mutating func releaseHeldModifier() -> [CGEvent] {
       guard let modifier = heldModifier else { return [] }
       heldModifier = nil
       return [Self.modifierEvent(modifier, flags: [])]
     }
+    /// Releases all held shortcut chords and zoom state; call at session end only.
     public mutating func releaseAll() -> [CGEvent] {
       var events: [CGEvent] = []
       for chord in heldChords.reversed() {
-        events.append(Self.keyEvent(CGKeyCode(chord.keyCode), type: .keyUp, flags: heldFlags))
+        if let keyCode = chord.keyCode {
+          events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyUp, flags: heldFlags))
+        }
       }
       heldChords.removeAll()
       for modifier in modifierOrder.reversed() where heldFlags.contains(Self.flags(for: modifier)) {
@@ -59,24 +72,35 @@
     private mutating func shortcut(_ chord: Gesture.KeyChord, action: Gesture.KeyAction) -> [CGEvent] {
       switch action {
       case .tap:
-        var events = pressModifiers(chord.modifiers)
-        events.append(Self.keyEvent(CGKeyCode(chord.keyCode), type: .keyDown, flags: heldFlags))
-        events.append(Self.keyEvent(CGKeyCode(chord.keyCode), type: .keyUp, flags: heldFlags))
-        events += releaseModifiers(chord.modifiers)
+        let pressedModifiers = chord.modifiers.subtracting(heldFlagsToModifiers)
+        var events = pressModifiers(pressedModifiers)
+        if let keyCode = chord.keyCode {
+          events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyDown, flags: heldFlags))
+          events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyUp, flags: heldFlags))
+        }
+        events += releaseModifiers(pressedModifiers)
         return events
       case .down:
         var events = pressModifiers(chord.modifiers)
-        events.append(Self.keyEvent(CGKeyCode(chord.keyCode), type: .keyDown, flags: heldFlags))
+        if let keyCode = chord.keyCode {
+          events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyDown, flags: heldFlags))
+        }
         heldChords.append(chord)
         return events
       case .up:
         guard let index = heldChords.lastIndex(of: chord) else { return [] }
         heldChords.remove(at: index)
-        var events = [Self.keyEvent(CGKeyCode(chord.keyCode), type: .keyUp, flags: heldFlags)]
+        var events: [CGEvent] = []
+        if let keyCode = chord.keyCode {
+          events.append(Self.keyEvent(CGKeyCode(keyCode), type: .keyUp, flags: heldFlags))
+        }
         let remaining = Set(heldChords.flatMap(\.modifiers))
         events += releaseModifiers(chord.modifiers.subtracting(remaining))
         return events
       }
+    }
+    private var heldFlagsToModifiers: Set<Gesture.Modifier> {
+      Set(modifierOrder.filter { heldFlags.contains(Self.flags(for: $0)) })
     }
     private mutating func pressModifiers(_ modifiers: Set<Gesture.Modifier>) -> [CGEvent] {
       var result: [CGEvent] = []

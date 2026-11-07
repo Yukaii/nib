@@ -12,11 +12,26 @@ public enum Gesture: Codable, Equatable, Sendable {
   }
 
   public struct KeyChord: Codable, Equatable, Sendable {
-    public var keyCode: UInt16
+    /// The virtual key to press, or nil for a modifier-only chord.
+    public var keyCode: UInt16?
     public var modifiers: Set<Modifier>
-    public init(keyCode: UInt16, modifiers: Set<Modifier> = []) {
+    public init(keyCode: UInt16? = nil, modifiers: Set<Modifier> = []) {
       self.keyCode = keyCode
       self.modifiers = modifiers
+    }
+
+    private enum CodingKeys: String, CodingKey { case keyCode, modifiers }
+
+    public init(from decoder: Decoder) throws {
+      let values = try decoder.container(keyedBy: CodingKeys.self)
+      keyCode = try values.decodeIfPresent(UInt16.self, forKey: .keyCode)
+      modifiers = try values.decode(Set<Modifier>.self, forKey: .modifiers)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+      var values = encoder.container(keyedBy: CodingKeys.self)
+      try values.encodeIfPresent(keyCode, forKey: .keyCode)
+      try values.encode(modifiers, forKey: .modifiers)
     }
   }
 
