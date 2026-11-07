@@ -35,6 +35,7 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   private let hud = PenHUDView()
   private var hoverRecognizer: UIHoverGestureRecognizer?
   private var fingerGestures: FingerGestureController!
+  private let edgeControls: EdgeControlsView
   private var lastSample: PenSample?
   private var isTouching = false
   private var pendingProximityExit: Task<Void, Never>?
@@ -47,11 +48,18 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
 
   init(sink: PenSampleSink = LoggingSink()) {
     self.sink = sink
+    let controls = EdgeControlsView(
+      profile: { [weak sink] in
+        (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
+      },
+      send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) })
+    self.edgeControls = controls
     super.init(frame: .zero)
     isMultipleTouchEnabled = true
     backgroundColor = .black
     addSubview(hud)
     hud.isHidden = true
+    addSubview(controls)
     let panelTap = UITapGestureRecognizer(target: self, action: #selector(togglePanel))
     panelTap.numberOfTouchesRequired = 4
     panelTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
@@ -62,7 +70,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
       send: { [weak sink] gesture in (sink as? GestureSink)?.send(gesture) },
       profile: { [weak sink] in
         (sink as? GestureSink)?.activeProfile ?? PadSettings().profile(forBundleID: "")
-      })
+      },
+      edgeControlContains: { [weak controls] point in controls?.containsControl(at: point) ?? false })
     if #available(iOS 16.0, *) {
       let hover = UIHoverGestureRecognizer(target: self, action: #selector(handleHover(_:)))
       hoverRecognizer = hover
@@ -86,6 +95,8 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   override func layoutSubviews() {
     super.layoutSubviews()
     hud.frame = bounds
+    edgeControls.frame = bounds
+    edgeControls.refresh()
     sink.updateGeometry(width: Double(bounds.width), height: Double(bounds.height))
   }
 
@@ -154,8 +165,12 @@ final class PenCaptureView: UIView, UIGestureRecognizerDelegate, UIPencilInterac
   /// the overlay is unreadable.
   private func applyBrightness() {
     guard wasActive else { return }
+    edgeControls.refresh()
     if panelOpen || hudVisible {
       UIScreen.main.brightness = max(originalBrightness ?? 0.5, 0.5)
+    } else if edgeControls.hasVisibleControls {
+      let brightness = (sink as? GestureSink)?.padSettings.edgeBrightness ?? 0.08
+      UIScreen.main.brightness = CGFloat(min(max(brightness, 0), 0.3))
     } else {
       UIScreen.main.brightness = 0
     }

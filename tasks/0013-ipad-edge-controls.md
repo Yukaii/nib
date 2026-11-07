@@ -64,11 +64,16 @@ active profile.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/ipad-edge-controls @ 9a1508650ec6576b6c9c0da217165c5bd6ab99b4
+Verify: verify: ok (Test run with 84 tests; NibMac + NibPad built)
 Done:
+- Added faint edge shortcut buttons with tap and hold/cancel key lifecycle mapping.
+- Added scroll, zoom, and brush-size vertical strip controls with pure StripStepper logic.
+- Edge controls reject Pencil hit testing, exclude edge touches from finger recognizers, and refresh from the active front-app profile.
+- Added configurable PadSettings.edgeBrightness (default 0.08, clamped to 0...0.3).
+- Added deterministic NibCore tests for strip stepping and button gesture mapping.
 Manual checks: in Krita, tap B/E buttons switch tools; hold Space + Pencil
   pans; strip in brushSize mode resizes the brush; two-finger scroll still
-  works away from the edges; Pencil draws over the controls. (needs iPad + Krita)
-Not done / risks:
+  works away from the edges; Pencil draws over the controls. (not run; needs iPad + Krita)
+Not done / risks: Hardware/Krita checks remain manual. Profile editor UI is task 0014.
 ```
