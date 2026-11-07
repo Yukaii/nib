@@ -63,7 +63,7 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit: t3-c2d4d5d4 @ <filled after commit>
+Branch/commit: t3/encrypted-session-sealing @ 919c6cf
 Verify: verify: ok (Test run with 165 tests; NibMac + NibPad built)
 Done:
 - Added CryptoKit HKDF session keys, directional ChaCha20-Poly1305 control sealing, and epoch-based sample sealing.
