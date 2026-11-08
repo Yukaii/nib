@@ -44,7 +44,7 @@ again; then iPad settings and the Mac settings window.
 - [x] 0022 Pairing core: commit-reveal numeric code, proofs, transport handling
 - [x] 0024 Pairing UI on Mac and iPad, Keychain keys, retire the allow list
 - [x] 0025 Re-pairing after Forget works from either side
-- [ ] 0026 Pairing over USB: USB wins over Wi-Fi before sign-in too
+- [x] 0026 Pairing over USB: USB wins over Wi-Fi before sign-in too
 - [ ] 0023 Encrypted sessions (reopened: drop loop on device): ChaCha20-Poly1305 control frames and samples
 - [ ] iPad settings restructure (Pen / Profiles / Gestures / Display / Advanced)
 - [ ] Mac settings window: display, active-area mapping, multi-display
