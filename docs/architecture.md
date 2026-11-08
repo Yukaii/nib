@@ -46,6 +46,7 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
   `PlayoutScheduler` (adaptive jitter buffer, p95 + 2 ms, 2…40 ms).
 - `DisplayMapper` — aspect-locked "force proportions" mapping: the whole
   display is reachable, the iPad's dead band clamps to the edge.
+  In gaps between displays with different heights, macOS pins the cursor to the nearest display.
 - `TabletMath` — altitude/azimuth → tilt x/y.
 - macOS: `TabletEventBuilder` (proximity + tablet-point mouse events,
   capability mask 0x05C7, repairs missing down/up, drops predicted

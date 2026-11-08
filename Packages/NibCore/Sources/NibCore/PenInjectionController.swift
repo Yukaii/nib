@@ -54,8 +54,10 @@
       mapper.surfaceChanged(size)
     }
 
-    public mutating func displayChanged(_ rect: CGRect) {
-      mapper.displayChanged(rect)
+    public mutating func mappingChanged(
+      _ rect: CGRect, proportions: MappingSettings.Proportions, edgeMargin: CGFloat = 0
+    ) {
+      mapper.mappingChanged(rect, proportions: proportions, edgeMargin: edgeMargin)
     }
 
     public mutating func sessionEnded() {
@@ -129,7 +131,13 @@
       }
     }
 
-    public func displayChanged(_ rect: CGRect) { queue.async { [self] in controller.displayChanged(rect) } }
+    public func mappingChanged(
+      _ rect: CGRect, proportions: MappingSettings.Proportions, edgeMargin: CGFloat = 0
+    ) {
+      queue.async {
+        [self] in controller.mappingChanged(rect, proportions: proportions, edgeMargin: edgeMargin)
+      }
+    }
     public func surfaceChanged(_ size: CGSize) { queue.async { [self] in controller.surfaceChanged(size) } }
     public func sessionEnded() { queue.async { [self] in controller.sessionEnded() } }
     public func refreshTrust() -> Bool {

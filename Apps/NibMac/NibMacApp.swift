@@ -10,6 +10,13 @@ import os
 
 private let macLogger = Logger(subsystem: "dev.yukai.nib", category: "mac")
 
+private func displayUUID(_ id: CGDirectDisplayID) -> String {
+  guard let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else {
+    return "follow-main"
+  }
+  return (CFUUIDCreateString(nil, uuid) as String?) ?? "follow-main"
+}
+
 private struct MacPairingPanelView: View {
   let peerName: String
   let code: String
@@ -69,6 +76,7 @@ private final class PairingPanelController: NSWindowController {
 private final class NibMacModel: ObservableObject {
   struct Display: Identifiable, Equatable {
     let id: CGDirectDisplayID
+    let uuid: String
     let name: String
     let bounds: CGRect
   }
@@ -88,7 +96,10 @@ private final class NibMacModel: ObservableObject {
     didSet { defaults.set(showsDiagnostics, forKey: diagnosticsKey) }
   }
   @Published var displays: [Display] = []
-  @Published var selectedDisplayID: CGDirectDisplayID = CGMainDisplayID()
+  @Published var mappingSettings = MappingSettings() {
+    didSet { saveMappingSettings() }
+  }
+  @Published private(set) var mappingFallback = false
   @Published var accessibilityTrusted = TabletInjector.isTrusted
   /// Two short lines so the menu stays narrow; empty while disconnected.
   @Published var linkDiagnostics: [String] = []
@@ -102,7 +113,7 @@ private final class NibMacModel: ObservableObject {
   private var diagnosticsLogCounter = 0
   private let defaults = UserDefaults.standard
   private let diagnosticsKey = "showsDiagnostics"
-  private let displayKey = "selectedDisplayID"
+  private let mappingKey = "mappingSettings"
   private let smoothingKey = "smoothingEnabled"
   private let setupCompletedKey = "setupCompleted"
   private let hostID: String
@@ -121,6 +132,12 @@ private final class NibMacModel: ObservableObject {
   }
 
   var launchAtLoginEnabled: Bool { SMAppService.mainApp.status == .enabled }
+
+  var mappingBaseRect: CGRect? {
+    let descriptors = displays.map { MappingSettings.Display(uuid: $0.uuid, bounds: $0.bounds) }
+    return mappingSettings.resolveBaseRect(
+      displays: descriptors, mainUUID: displayUUID(CGMainDisplayID()))?.rect
+  }
 
   init() {
     pairingStore = KeychainPairingKeyStore()
@@ -147,8 +164,17 @@ private final class NibMacModel: ObservableObject {
       receiver = nil
       receiverError = "Nib could not start its network listener. Try again."
     }
-    let saved = defaults.object(forKey: displayKey) as? NSNumber
-    selectedDisplayID = CGDirectDisplayID(saved?.uint32Value ?? CGMainDisplayID())
+    if let data = defaults.data(forKey: mappingKey),
+      let saved = try? JSONDecoder().decode(MappingSettings.self, from: data)
+    {
+      mappingSettings = saved
+    } else if let old = defaults.object(forKey: "selectedDisplayID") as? NSNumber {
+      mappingSettings = MappingSettings(
+        target: .display(uuid: displayUUID(CGDirectDisplayID(old.uint32Value))))
+    } else {
+      mappingSettings = MappingSettings(target: .followMain)
+    }
+    saveMappingSettings()
 
     if let receiver {
       configure(receiver)
@@ -261,10 +287,29 @@ private final class NibMacModel: ObservableObject {
     }
   }
 
-  func chooseDisplay(_ display: Display) {
-    selectedDisplayID = display.id
-    defaults.set(display.id, forKey: displayKey)
-    configureDisplay(display)
+  func chooseDisplay(_ display: Display?) {
+    mappingSettings.target = display.map { .display(uuid: $0.uuid) } ?? .allDisplays
+    applyMapping()
+  }
+
+  func setProportions(_ proportions: MappingSettings.Proportions) {
+    mappingSettings.proportions = proportions
+    applyMapping()
+  }
+
+  func setArea(_ area: MappingSettings.Area) {
+    mappingSettings.area = area
+    applyMapping()
+  }
+
+  func setEdgeMargin(_ margin: CGFloat) {
+    mappingSettings.edgeMargin = min(0.15, max(0, margin))
+    applyMapping()
+  }
+
+  private func saveMappingSettings() {
+    guard let data = try? JSONEncoder().encode(mappingSettings) else { return }
+    defaults.set(data, forKey: mappingKey)
   }
 
   func setSmoothing(_ enabled: Bool) {
@@ -299,23 +344,22 @@ private final class NibMacModel: ObservableObject {
         return nil
       }
       let id = CGDirectDisplayID(number.uint32Value)
-      return Display(id: id, name: screen.localizedName, bounds: CGDisplayBounds(id))
+      return Display(id: id, uuid: displayUUID(id), name: screen.localizedName, bounds: CGDisplayBounds(id))
     }
-    if !displays.contains(where: { $0.id == selectedDisplayID }) {
-      selectedDisplayID =
-        displays.first(where: { $0.id == CGMainDisplayID() })?.id ?? displays.first?.id
-        ?? CGMainDisplayID()
-    }
-    if let display = displays.first(where: { $0.id == selectedDisplayID }) {
-      configureDisplay(display)
-    }
+    applyMapping()
   }
 
-  private func configureDisplay(_ display: Display) {
-    macLogger.info("display changed: \(display.name, privacy: .public)")
-    injection.displayChanged(display.bounds)
-    receiver?.displayWidth = display.bounds.width
-    receiver?.displayHeight = display.bounds.height
+  private func applyMapping() {
+    let descriptors = displays.map { MappingSettings.Display(uuid: $0.uuid, bounds: $0.bounds) }
+    guard
+      let resolution = mappingSettings.resolve(
+        displays: descriptors, mainUUID: displayUUID(CGMainDisplayID()))
+    else { return }
+    mappingFallback = resolution.usedFallback
+    injection.mappingChanged(
+      resolution.rect, proportions: mappingSettings.proportions, edgeMargin: mappingSettings.edgeMargin)
+    receiver?.displayWidth = resolution.rect.width
+    receiver?.displayHeight = resolution.rect.height
   }
 
   private func accept(_ hello: ControlMessage.Hello) async -> Bool { true }
@@ -555,6 +599,198 @@ private struct SetupView: View {
   }
 }
 
+private struct MappingPreview: View {
+  let displays: [NibMacModel.Display]
+  let baseRect: CGRect?
+  let area: MappingSettings.Area
+  let showsActiveArea: Bool
+  let setArea: (MappingSettings.Area) -> Void
+
+  var body: some View {
+    GeometryReader { proxy in
+      let union = displays.dropFirst().reduce(displays.first?.bounds ?? .zero) {
+        $0.union($1.bounds)
+      }
+      let scale = min(proxy.size.width / max(union.width, 1), proxy.size.height / max(union.height, 1))
+      let previewBase =
+        baseRect.map {
+          CGRect(
+            x: ($0.minX - union.minX) * scale, y: ($0.minY - union.minY) * scale,
+            width: $0.width * scale, height: $0.height * scale)
+        } ?? .zero
+      let box = MappingSettings.previewRect(for: area, in: previewBase)
+      ZStack(alignment: .topLeading) {
+        ForEach(displays) { display in
+          Rectangle()
+            .fill(
+              display.bounds == baseRect ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.16)
+            )
+            .overlay(Text(display.name).font(.caption))
+            .frame(width: display.bounds.width * scale, height: display.bounds.height * scale)
+            .offset(
+              x: (display.bounds.minX - union.minX) * scale, y: (display.bounds.minY - union.minY) * scale)
+        }
+        if showsActiveArea {
+          Rectangle()
+            .fill(Color.accentColor.opacity(0.10))
+            .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 3))
+            .frame(width: box.width, height: box.height)
+            .offset(x: box.minX, y: box.minY)
+            .contentShape(Rectangle())
+            .gesture(
+              DragGesture().onChanged { value in
+                setArea(
+                  MappingSettings.area(
+                    from: box.offsetBy(dx: value.translation.width, dy: value.translation.height),
+                    in: previewBase))
+              })
+          Circle()
+            .fill(Color.accentColor)
+            .frame(width: 20, height: 20)
+            .offset(x: box.maxX - 10, y: box.maxY - 10)
+            .gesture(
+              DragGesture().onChanged { value in
+                setArea(
+                  MappingSettings.area(
+                    from: CGRect(
+                      x: box.minX, y: box.minY, width: box.width + value.translation.width,
+                      height: box.height + value.translation.height), in: previewBase))
+              })
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      .padding(8)
+    }
+    .frame(height: 170)
+    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+  }
+}
+
+private struct EdgeMarginPreview: View {
+  let margin: CGFloat
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "rectangle.portrait")
+        .font(.title2)
+        .overlay {
+          GeometryReader { proxy in
+            RoundedRectangle(cornerRadius: 2)
+              .stroke(Color.accentColor, lineWidth: 2)
+              .frame(
+                width: proxy.size.width * (1 - 2 * margin),
+                height: proxy.size.height * (1 - 2 * margin)
+              )
+              .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+          }
+        }
+      Text("The inner area maps to the whole target.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+  }
+}
+
+private struct SettingsView: View {
+  @ObservedObject var model: NibMacModel
+
+  private var selectedUUID: String {
+    if case .display(let uuid) = model.mappingSettings.target {
+      if model.displays.contains(where: { $0.uuid == uuid }) { return uuid }
+      return model.displays.first(where: { $0.id == CGMainDisplayID() })?.uuid ?? uuid
+    }
+    if case .followMain = model.mappingSettings.target {
+      return model.displays.first(where: { $0.id == CGMainDisplayID() })?.uuid ?? "all"
+    }
+    return "all"
+  }
+
+  var body: some View {
+    Form {
+      Section("Drawing area") {
+        Picker(
+          "Display",
+          selection: Binding(
+            get: { selectedUUID },
+            set: { value in
+              if value == "all" {
+                model.chooseDisplay(nil)
+              } else {
+                model.chooseDisplay(model.displays.first { $0.uuid == value })
+              }
+            })
+        ) {
+          Text("All displays").tag("all")
+          ForEach(model.displays) { display in Text(display.name).tag(display.uuid) }
+        }
+        if model.mappingFallback {
+          Text("The saved display is unavailable. Nib is using the main display until it returns.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        Toggle(
+          "Whole screen",
+          isOn: Binding(
+            get: { model.mappingSettings.area == .whole },
+            set: { model.setArea($0 ? .whole : .init(x: 0.1, y: 0.1, width: 0.8, height: 0.8)) }))
+        MappingPreview(
+          displays: model.displays,
+          baseRect: model.mappingBaseRect,
+          area: model.mappingSettings.area,
+          showsActiveArea: model.mappingSettings.area != .whole,
+          setArea: model.setArea)
+        Text("Drag the box to move it; drag the corner to resize.").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Text("Edge margin")
+            Spacer()
+            Text("\(Int((model.mappingSettings.edgeMargin * 100).rounded()))%")
+              .monospacedDigit()
+          }
+          Slider(
+            value: Binding(
+              get: { Double(model.mappingSettings.edgeMargin) },
+              set: { model.setEdgeMargin(CGFloat($0)) }), in: 0...0.15, step: 0.01)
+          EdgeMarginPreview(margin: model.mappingSettings.edgeMargin)
+          Text("Reach the screen's edges (and the Dock) without touching the iPad's edge.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Picker(
+          "Pencil proportions",
+          selection: Binding(
+            get: { model.mappingSettings.proportions },
+            set: { model.setProportions($0) })
+        ) {
+          Text("Keep proportions").tag(MappingSettings.Proportions.keep)
+          Text("Stretch to fill").tag(MappingSettings.Proportions.stretch)
+        }
+      }
+      Section("Nib") {
+        Toggle("Smoothing", isOn: Binding(get: { model.smoothingEnabled }, set: { model.setSmoothing($0) }))
+        Toggle(
+          "Launch Nib at login",
+          isOn: Binding(
+            get: { model.launchAtLoginEnabled }, set: { model.setLaunchAtLogin($0) }))
+        if let error = model.launchAtLoginError { Text(error).font(.caption).foregroundStyle(.secondary) }
+        Toggle("Show diagnostics", isOn: $model.showsDiagnostics)
+      }
+      Section("Paired iPads") {
+        if model.pairedIPads.isEmpty { Text("No iPads paired yet").foregroundStyle(.secondary) }
+        ForEach(model.pairedIPads.keys.sorted(), id: \.self) { peerID in
+          HStack {
+            Text(model.pairedIPads[peerID] ?? "iPad")
+            Spacer()
+            Button("Forget") { model.forget(peerID) }
+          }
+        }
+      }
+    }
+    .formStyle(.grouped)
+    .frame(width: 520, height: 560)
+    .onAppear { NSApp.activate(ignoringOtherApps: true) }
+  }
+}
+
 private final class NibMacAppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     // macOS 14 has no defaultLaunchBehavior API, so SwiftUI opens the setup
@@ -574,6 +810,7 @@ struct NibMacApp: App {
   @NSApplicationDelegateAdaptor private var appDelegate: NibMacAppDelegate
   @StateObject private var model = NibMacModel()
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.openSettings) private var openSettings
 
   var body: some Scene {
     MenuBarExtra("Nib", systemImage: "pencil.tip") {
@@ -593,22 +830,11 @@ struct NibMacApp: App {
         ForEach(model.linkDiagnostics, id: \.self) { Text($0).font(.caption) }
       }
       Divider()
+      Button("Settings…") {
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
+      }.keyboardShortcut(",", modifiers: .command)
       Button("Setup…") { openWindow(id: "setup") }
-      Toggle(
-        "Launch Nib at login",
-        isOn: Binding(get: { model.launchAtLoginEnabled }, set: { model.setLaunchAtLogin($0) }))
-      Menu("Display") {
-        ForEach(model.displays) { display in
-          Button {
-            model.chooseDisplay(display)
-          } label: {
-            HStack {
-              Text(display.name)
-              if display.id == model.selectedDisplayID { Image(systemName: "checkmark") }
-            }
-          }
-        }
-      }
       Menu("Paired iPads") {
         if model.pairedIPads.isEmpty {
           Text("No iPads paired yet")
@@ -620,8 +846,6 @@ struct NibMacApp: App {
           }
         }
       }
-      Toggle("Smoothing", isOn: Binding(get: { model.smoothingEnabled }, set: { model.setSmoothing($0) }))
-      Toggle("Show Diagnostics", isOn: $model.showsDiagnostics)
       Divider()
       Button("Quit Nib") {
         model.stop()
@@ -639,5 +863,8 @@ struct NibMacApp: App {
     Window("Set up Nib", id: "setup") { SetupView(model: model) }
       .defaultSize(width: 560, height: 470)
       .windowResizability(.contentSize)
+    Settings {
+      SettingsView(model: model)
+    }
   }
 }

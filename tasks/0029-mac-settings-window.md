@@ -1,7 +1,7 @@
 ---
 id: "0029"
 title: Mac settings window — display, active area, multi-display
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -89,9 +89,14 @@ persist.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/add-edge-margin-setting @ 16fe56429f32136bf13b7f9e776672684f9f5f6f
+Verify: verify: ok (Test run with 207 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added resilient `MappingSettings.edgeMargin` decoding and live worker-queue propagation through `DisplayMapper` and `PenInjectionWorker`.
+- Applied the margin before keep/stretch mapping, with coverage for edge pinning, keep/stretch, sub-rects, negative-origin multi-display unions, and older settings.
+- Added the Settings slider, percentage readout, iPad inner-area preview, and plain-language Dock explanation.
+- Whole screen now highlights the selected display(s) without an unnecessary active-area box; sub-areas retain drag and resize controls.
+- Preserved the round-1 `.notice` handling while merging round 2.
+Manual checks: Not run (requires a paired iPad, Accessibility permission, and a drawing app). Steps: (1) launch the Mac host with `scripts/install-devices.sh mac`; (2) open Settings… while Krita is frontmost and confirm it opens in front; (3) pick a region, drag the box and resize handle, and confirm the drag box follows the cursor and strokes stay inside the region; (4) toggle proportions mid-stroke without restarting; (5) set Edge margin to about 8% and move the Pencil toward the bottom until the auto-hidden Dock appears without touching the iPad's edge; (6) if available, select a second display and then All displays; (7) relaunch and confirm the display, area, proportions, and margin persist.
+Not done / risks: Device-only manual checks were not run in this environment. The edge-margin preview is illustrative and does not expose a draggable iPad outline.
 ```
