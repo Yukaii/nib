@@ -89,13 +89,14 @@ persist.
 ## Handoff
 
 ```
-Branch/commit: t3/fix-mac-settings-window @ 0daf0dddbc61cf1e01cfc394acfe1f0b1ae6b587
-Verify: verify: ok (Test run with 200 tests; NibMac + NibPad built)
+Branch/commit: t3/add-edge-margin-setting @ 16fe56429f32136bf13b7f9e776672684f9f5f6f
+Verify: verify: ok (Test run with 207 tests; NibMac + NibPad built)
 Done:
-- Added follow-main migration/defaults, resilient decoding and clamped active areas, plus pure preview↔normalized geometry shared with display resolution.
-- Fixed selected-display previews, live whole-box dragging, 20 pt resize handle, centered 80% default sub-area, missing-display picker fallback, and launch-at-login errors in Settings.
-- Removed the unused displayChanged path while keeping mapping updates on the injection worker queue and the allocation-free sample path intact.
-- Added mapper, preview geometry, migration compatibility, decode-clamp, negative-origin, edge, and stretch tests.
-Manual checks: Not run. Run `scripts/install-devices.sh mac`; verify **Settings… opens in front while another app (e.g. Krita) is frontmost**, select an active area and draw in Krita to confirm strokes stay inside it; toggle proportions during a stroke; with a second display select it and then All displays; relaunch Nib and confirm the selection persists. The second-display portion is optional when no second display is available.
-Not done / risks: Hardware Krita verification remains with the user.
+- Added resilient `MappingSettings.edgeMargin` decoding and live worker-queue propagation through `DisplayMapper` and `PenInjectionWorker`.
+- Applied the margin before keep/stretch mapping, with coverage for edge pinning, keep/stretch, sub-rects, negative-origin multi-display unions, and older settings.
+- Added the Settings slider, percentage readout, iPad inner-area preview, and plain-language Dock explanation.
+- Whole screen now highlights the selected display(s) without an unnecessary active-area box; sub-areas retain drag and resize controls.
+- Preserved the round-1 `.notice` handling while merging round 2.
+Manual checks: Not run (requires a paired iPad, Accessibility permission, and a drawing app). Steps: (1) launch the Mac host with `scripts/install-devices.sh mac`; (2) open Settings… while Krita is frontmost and confirm it opens in front; (3) pick a region, drag the box and resize handle, and confirm the drag box follows the cursor and strokes stay inside the region; (4) toggle proportions mid-stroke without restarting; (5) set Edge margin to about 8% and move the Pencil toward the bottom until the auto-hidden Dock appears without touching the iPad's edge; (6) if available, select a second display and then All displays; (7) relaunch and confirm the display, area, proportions, and margin persist.
+Not done / risks: Device-only manual checks were not run in this environment. The edge-margin preview is illustrative and does not expose a draggable iPad outline.
 ```
