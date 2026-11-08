@@ -18,9 +18,9 @@ public struct SessionParameters: Sendable, Equatable {
     guard pairKey.count == 32, ipadNonce.count == 32, hostNonce.count == 32 else {
       throw SessionCryptoError.invalidKeyMaterial
     }
-    self.pairKey = pairKey
-    self.ipadNonce = ipadNonce
-    self.hostNonce = hostNonce
+    self.pairKey = Data(pairKey)
+    self.ipadNonce = Data(ipadNonce)
+    self.hostNonce = Data(hostNonce)
   }
 }
 
@@ -30,9 +30,6 @@ public struct SessionKeyMaterial: Sendable, Equatable {
   public let ipadToHostSample: Data
   public let hostToIpadSample: Data
   public let epoch: Data
-  // Kept as source-compatible aliases for callers that only need one primitive.
-  public var ipadToHost: Data { ipadToHostControl }
-  public var hostToIpad: Data { hostToIpadControl }
 
   public init(pairKey: Data, ipadNonce: Data, hostNonce: Data) throws {
     guard pairKey.count == 32, ipadNonce.count == 32, hostNonce.count == 32 else {
@@ -60,18 +57,19 @@ public struct SessionKeyMaterial: Sendable, Equatable {
 /// sample replay state are protected independently so seal/open can run off-main.
 public final class SessionSealer: @unchecked Sendable {
   public let direction: SessionDirection
-  public let key: Data
-  public let epoch: Data
+  let key: Data
+  let epoch: Data
   private let counterLock = NSLock()
   private var nextSendCounter: UInt64 = 0
   private var nextReceiveCounter: UInt64 = 0
   private let sampleLock = NSLock()
   private var lastSample: (sequence: UInt32, digest: Data)?
+  private var sampleWrapped = false
 
   public init(key: Data, epoch: Data, direction: SessionDirection) throws {
     guard key.count == 32, epoch.count == 8 else { throw SessionCryptoError.invalidKeyMaterial }
-    self.key = key
-    self.epoch = epoch
+    self.key = Data(key)
+    self.epoch = Data(epoch)
     self.direction = direction
   }
 
@@ -82,7 +80,8 @@ public final class SessionSealer: @unchecked Sendable {
     counterLock.unlock()
     return try sealControl(plaintext, counter: counter)
   }
-  public func sealControl(_ plaintext: Data, counter: UInt64) throws -> Data {
+  func sealControl(_ plaintext: Data, counter: UInt64) throws -> Data {
+    let plaintext = Data(plaintext)
     let nonce = try controlNonce(counter)
     do {
       let box = try ChaChaPoly.seal(plaintext, using: SymmetricKey(data: key), nonce: nonce)
@@ -90,6 +89,7 @@ public final class SessionSealer: @unchecked Sendable {
     } catch { throw SessionCryptoError.authenticationFailed }
   }
   public func openControl(_ body: Data) throws -> Data {
+    let body = Data(body)
     guard body.count >= 24 else { throw SessionCryptoError.invalidControlFrame }
     let counter = readLE64(body, 0)
     counterLock.lock()
@@ -109,6 +109,7 @@ public final class SessionSealer: @unchecked Sendable {
     }
   }
   public func openControl(_ body: Data, counter: UInt64) throws -> Data {
+    let body = Data(body)
     guard body.count >= 24, readLE64(body, 0) == counter else { throw SessionCryptoError.invalidControlFrame }
     do {
       let box = try ChaChaPoly.SealedBox(
@@ -119,13 +120,22 @@ public final class SessionSealer: @unchecked Sendable {
   }
 
   public func sealSample(_ plaintext: Data, sequence: UInt32) throws -> Data {
+    let plaintext = Data(plaintext)
     guard plaintext.count == 40 else { throw SessionCryptoError.invalidSampleFrame }
-    guard sequence != .max else { throw SessionCryptoError.sequenceWrap }
     if let sample = try? PenSample(decoding: Array(plaintext)), sample.flags.contains(.predicted) {
       throw SessionCryptoError.invalidSampleFrame
     }
     let digest = SHA256.hash(data: plaintext).withUnsafeBytes { Data($0) }
     sampleLock.lock()
+    guard !sampleWrapped else {
+      sampleLock.unlock()
+      throw SessionCryptoError.sequenceWrap
+    }
+    guard sequence != .max else {
+      sampleWrapped = true
+      sampleLock.unlock()
+      throw SessionCryptoError.sequenceWrap
+    }
     if let last = lastSample {
       if sequence == last.sequence {
         guard digest == last.digest else {
@@ -133,8 +143,7 @@ public final class SessionSealer: @unchecked Sendable {
           throw SessionCryptoError.sequenceReplay
         }
       } else {
-        let delta = sequence &- last.sequence
-        guard delta < 0x8000_0000 else {
+        guard sequence > last.sequence else {
           sampleLock.unlock()
           throw SessionCryptoError.sequenceReplay
         }
@@ -152,6 +161,7 @@ public final class SessionSealer: @unchecked Sendable {
     return littleEndian(sequence) + box.ciphertext + box.tag
   }
   public func openSample(_ packet: Data) throws -> (sequence: UInt32, plaintext: Data) {
+    let packet = Data(packet)
     guard packet.count == 60 else { throw SessionCryptoError.invalidSampleFrame }
     let sequence = readLE32(packet, 0)
     guard sequence != .max else { throw SessionCryptoError.sequenceWrap }

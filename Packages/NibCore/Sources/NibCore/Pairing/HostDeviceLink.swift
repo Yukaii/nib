@@ -5,32 +5,38 @@ public final class DeviceSessionArm: @unchecked Sendable {
   private var pairKey: Data?
   private var deviceNonce: Data?
   private var hostID: String = ""
-  func prepare(pairKey: Data, deviceNonce: Data, hostID: String) {
+  private var consumed = false
+  public init() {}
+  public func prepare(pairKey: Data, deviceNonce: Data, hostID: String) {
     lock.lock()
     self.pairKey = pairKey
     self.deviceNonce = deviceNonce
     self.hostID = hostID
+    self.consumed = false
     lock.unlock()
   }
-  func clear() {
+  public func clear() {
     lock.lock()
     pairKey = nil
     deviceNonce = nil
+    consumed = false
     lock.unlock()
   }
-  func make(_ ack: ControlMessage.HelloAck) -> SessionCipher? {
+  public func make(_ ack: ControlMessage.HelloAck) -> SessionCipher? {
     lock.lock()
+    defer { lock.unlock() }
     let key = pairKey
     let nonce = deviceNonce
     let id = hostID
-    lock.unlock()
-    guard ack.accepted, let key, let nonce, let hostNonceString = ack.nonce,
+    guard !consumed, ack.accepted, let key, let nonce, let hostNonceString = ack.nonce,
       let hostNonce = Data(base64Encoded: hostNonceString), let proof = ack.proof,
       PairingCrypto.verifyHostProof(
         base64Proof: proof, pairKey: key, hostID: id, base64DeviceNonce: PairingCrypto.base64(nonce),
         base64HostNonce: hostNonceString)
     else { return nil }
-    return try? SessionCipher(pairKey: key, ipadNonce: nonce, hostNonce: hostNonce, role: .device)
+    let cipher = try? SessionCipher(pairKey: key, ipadNonce: nonce, hostNonce: hostNonce, role: .device)
+    if cipher != nil { consumed = true }
+    return cipher
   }
 }
 
@@ -162,6 +168,16 @@ public struct HostLink: Sendable {
         accepted: true, udpPort: udpPort, displayWidth: displayWidth, displayHeight: displayHeight,
         host: host)
     }
+  }
+
+  /// Creates the one host-role cipher for the accepted connection. Keeping
+  /// construction here lets the receiver arm its dispatcher and sample gate
+  /// from the same authenticated session parameters.
+  public func makeSessionCipher() throws -> SessionCipher? {
+    guard let parameters = sessionParameters else { return nil }
+    return try SessionCipher(
+      pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce,
+      hostNonce: parameters.hostNonce, role: .host)
   }
 
   /// Whether a non-hello control message may be processed. In pairing-only,
@@ -342,21 +358,6 @@ public struct DeviceLink: Sendable {
         return .rejected(reason: reason, hostInfo: ack.host, retryLater: retry)
       }
     }
-  }
-
-  /// Builds the authenticated session without changing pairing state. The
-  /// transport dispatcher calls this synchronously while it still owns the
-  /// plaintext receive buffer, before it examines bytes following helloAck.
-  public func sessionCipher(for ack: ControlMessage.HelloAck) -> SessionCipher? {
-    if let cipher = sessionArm.make(ack) { return cipher }
-    guard ack.accepted, let key = storedKey(), let deviceNonce = lastDeviceNonce,
-      let hostNonceString = ack.nonce, let hostNonce = Data(base64Encoded: hostNonceString),
-      let proof = ack.proof,
-      PairingCrypto.verifyHostProof(
-        base64Proof: proof, pairKey: key, hostID: hostID ?? "",
-        base64DeviceNonce: PairingCrypto.base64(deviceNonce), base64HostNonce: hostNonceString)
-    else { return nil }
-    return try? SessionCipher(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce, role: .device)
   }
 
   private func makeSession() -> SenderSession? {

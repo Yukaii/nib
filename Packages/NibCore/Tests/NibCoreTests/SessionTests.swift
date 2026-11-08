@@ -39,6 +39,30 @@ private func sessionData(_ hex: String) -> Data {
     })
 }
 
+/// Set NIB_GENERATE_SESSION_VECTOR=1 to print the reproducible session
+/// material and frames used by protocol/vectors/session.json.
+@Test func generateSessionVectorWhenRequested() throws {
+  guard ProcessInfo.processInfo.environment["NIB_GENERATE_SESSION_VECTOR"] == "1" else { return }
+  let pairKey = sessionData("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
+  let ipadNonce = sessionData("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f")
+  let hostNonce = sessionData("404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f")
+  let material = try SessionKeyMaterial(pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce)
+  let device = try SessionCipher(pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .device)
+  let host = try SessionCipher(pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .host)
+  let sample = sessionData("424e0102070000002c010000000000009a99993ecdcccc3e9a99193fcdcc4c3f0000004000000000")
+  func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
+  print("ipadToHostControlKey=\(hex(material.ipadToHostControl))")
+  print("hostToIpadControlKey=\(hex(material.hostToIpadControl))")
+  print("ipadToHostSampleKey=\(hex(material.ipadToHostSample))")
+  print("hostToIpadSampleKey=\(hex(material.hostToIpadSample))")
+  print("epoch=\(hex(material.epoch))")
+  print("controlBody=\(hex(try device.sealControl(Data(#"{"type":"ping"}"#.utf8))))")
+  print("sampleDatagram=\(hex(try device.sealSample(sample, sequence: 7)))")
+  let hostControl = Data(#"{"frontApp":{"appID":"com.test","name":"Test"},"type":"frontApp"}"#.utf8)
+  print("hostControlBody=\(hex(try host.sealControl(hostControl)))")
+  print("hostSampleDatagram=\(hex(try host.sealSample(sample, sequence: 9)))")
+}
+
 @Test func authenticatedControlAndSampleRoundTrip() throws {
   let pairKey = sessionData("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
   let ipadNonce = sessionData("101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f")
@@ -79,15 +103,16 @@ private func sessionData(_ hex: String) -> Data {
     try receiver.openControl(tampered)
   }
   let gapSender = try SessionSealer(
-    key: try SessionKeyMaterial(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce).ipadToHost,
+    key: try SessionKeyMaterial(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce).ipadToHostControl,
     epoch: try SessionKeyMaterial(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce).epoch,
     direction: .ipadToHost)
-  let gap = try gapSender.sealControl(Data("gap".utf8), counter: 2)
+  _ = try gapSender.sealControl(Data("skip".utf8))
+  let gap = try gapSender.sealControl(Data("gap".utf8))
   var gapReceiver = try SessionSealer(
-    key: try SessionKeyMaterial(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce).ipadToHost,
+    key: try SessionKeyMaterial(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce).ipadToHostControl,
     epoch: try SessionKeyMaterial(pairKey: key, ipadNonce: deviceNonce, hostNonce: hostNonce).epoch,
     direction: .ipadToHost)
-  #expect(throws: SessionCryptoError.counterMismatch(expected: 0, actual: 2)) {
+  #expect(throws: SessionCryptoError.counterMismatch(expected: 0, actual: 1)) {
     try gapReceiver.openControl(gap)
   }
 }
@@ -100,10 +125,31 @@ private func sessionData(_ hex: String) -> Data {
   let first = try SessionKeyMaterial(pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: hostNonce)
   let second = try SessionKeyMaterial(pairKey: pairKey, ipadNonce: ipadNonce, hostNonce: nextHostNonce)
   #expect(first.epoch != second.epoch)
-  let sealer = try SessionSealer(key: first.ipadToHost, epoch: first.epoch, direction: .ipadToHost)
+  let sealer = try SessionSealer(key: first.ipadToHostControl, epoch: first.epoch, direction: .ipadToHost)
   #expect(throws: SessionCryptoError.sequenceWrap) {
     try sealer.sealSample(Data(repeating: 0, count: 40), sequence: .max)
   }
+  #expect(throws: SessionCryptoError.sequenceWrap) {
+    try sealer.sealSample(Data(repeating: 1, count: 40), sequence: 0)
+  }
+}
+
+@Test func deviceSessionArmRejectsBadAndReplayedAcks() throws {
+  let key = Data(repeating: 0x42, count: 32)
+  let deviceNonce = Data(repeating: 0x10, count: 32)
+  let hostNonce = Data(repeating: 0x20, count: 32)
+  let arm = DeviceSessionArm()
+  arm.prepare(pairKey: key, deviceNonce: deviceNonce, hostID: "host")
+  let nonce = PairingCrypto.base64(hostNonce)
+  let proof = PairingCrypto.base64(
+    PairingCrypto.hostProof(
+      pairKey: key, hostID: "host", deviceNonce: deviceNonce, hostNonce: hostNonce))
+  let valid = ControlMessage.HelloAck(accepted: true, nonce: nonce, proof: proof)
+  #expect(arm.make(valid) != nil)
+  #expect(arm.make(valid) == nil)
+  arm.prepare(pairKey: key, deviceNonce: deviceNonce, hostID: "host")
+  let bad = ControlMessage.HelloAck(accepted: true, nonce: nonce, proof: String(repeating: "A", count: 44))
+  #expect(arm.make(bad) == nil)
 }
 
 @Test func sampleSealOpenBenchmarkStaysUnderBudget() throws {
@@ -111,8 +157,10 @@ private func sessionData(_ hex: String) -> Data {
   let nonce = Data(repeating: 0x10, count: 32)
   let hostNonce = Data(repeating: 0x20, count: 32)
   let material = try SessionKeyMaterial(pairKey: key, ipadNonce: nonce, hostNonce: hostNonce)
-  let sender = try SessionSealer(key: material.ipadToHost, epoch: material.epoch, direction: .ipadToHost)
-  let receiver = try SessionSealer(key: material.ipadToHost, epoch: material.epoch, direction: .ipadToHost)
+  let sender = try SessionSealer(
+    key: material.ipadToHostControl, epoch: material.epoch, direction: .ipadToHost)
+  let receiver = try SessionSealer(
+    key: material.ipadToHostControl, epoch: material.epoch, direction: .ipadToHost)
   let sample = Data(repeating: 0x5a, count: 40)
   let sealStart = DispatchTime.now().uptimeNanoseconds
   var packets: [Data] = []
@@ -181,6 +229,8 @@ private func sessionData(_ hex: String) -> Data {
   let ack = Data(ControlFramer().encode(.helloAck(.init(accepted: true))))
   let sealed = try host.sealControl(
     Data(ControlFramer().encode(.frontApp(.init(appID: "com.test", name: "Test"))).dropFirst(4)))
+  let sealedSecond = try host.sealControl(
+    Data(ControlFramer().encode(.frontApp(.init(appID: "com.test.second", name: "Second"))).dropFirst(4)))
   var length = UInt32(sealed.count).littleEndian
   let framed = Data(withUnsafeBytes(of: &length) { Data($0) }) + sealed
   for split in [ack.count, ack.count / 2] {
@@ -196,20 +246,30 @@ private func sessionData(_ hex: String) -> Data {
     try dispatcher.receive(all.dropFirst(split))
     #expect(received.values.contains(.helloAck(.init(accepted: true))))
     #expect(received.values.contains(.frontApp(.init(appID: "com.test", name: "Test"))))
+    var secondLength = UInt32(sealedSecond.count).littleEndian
+    let secondFrame = Data(withUnsafeBytes(of: &secondLength) { Data($0) }) + sealedSecond
+    try dispatcher.receive(secondFrame.prefix(3))
+    try dispatcher.receive(secondFrame.dropFirst(3))
+    #expect(received.values.contains(.frontApp(.init(appID: "com.test.second", name: "Second"))))
   }
   let streamAck = Data(StreamFramer.encode(.control(.helloAck(.init(accepted: true)))))
   var streamLength = UInt32(sealed.count).littleEndian
   let streamSealed =
     Data([StreamFramer.controlType]) + Data(withUnsafeBytes(of: &streamLength) { Data($0) }) + sealed
+  var streamSecondLength = UInt32(sealedSecond.count).littleEndian
+  let streamSecondSealed =
+    Data([StreamFramer.controlType])
+    + Data(withUnsafeBytes(of: &streamSecondLength) { Data($0) }) + sealedSecond
   let streamTransport = MemoryTransport()
   let streamReceived = MessageCapture()
   let stream = StreamLinkDispatcher(
     transport: streamTransport,
     armSession: { _ in try? SessionCipher(pairKey: key, ipadNonce: nonce, hostNonce: hostNonce, role: .device)
     }, onControl: { streamReceived.append($0) }, onSample: { _ in })
-  try stream.receive(streamAck + streamSealed)
+  try stream.receive(streamAck + streamSealed + streamSecondSealed)
   #expect(streamReceived.values.contains(.helloAck(.init(accepted: true))))
   #expect(streamReceived.values.contains(.frontApp(.init(appID: "com.test", name: "Test"))))
+  #expect(streamReceived.values.contains(.frontApp(.init(appID: "com.test.second", name: "Second"))))
 }
 
 @Test func replayedHelloGetsFreshHostNonceAndIsolatedCipher() throws {
@@ -237,6 +297,17 @@ private func sessionData(_ hex: String) -> Data {
     Issue.record("first session missing")
     return
   }
+  let firstHost: SessionCipher
+  do {
+    guard let made = try host.makeSessionCipher() else {
+      Issue.record("first host cipher missing")
+      return
+    }
+    firstHost = made
+  } catch {
+    Issue.record("first host cipher failed")
+    return
+  }
   host.connectionLost(1)
   host.sessionConnected = false
   host.session.disconnect()
@@ -253,6 +324,17 @@ private func sessionData(_ hex: String) -> Data {
     Issue.record("second session missing")
     return
   }
+  let secondHost: SessionCipher
+  do {
+    guard let made = try host.makeSessionCipher() else {
+      Issue.record("second host cipher missing")
+      return
+    }
+    secondHost = made
+  } catch {
+    Issue.record("second host cipher failed")
+    return
+  }
   #expect(firstAck.nonce != secondAck.nonce)
   let firstDevice = try SessionCipher(
     pairKey: key, ipadNonce: deviceNonce, hostNonce: firstParameters.hostNonce, role: .device)
@@ -261,13 +343,10 @@ private func sessionData(_ hex: String) -> Data {
   let firstFrame = try firstDevice.sealControl(Data("first".utf8))
   let secondFrame = try secondDevice.sealControl(Data("second".utf8))
   #expect(throws: SessionCryptoError.authenticationFailed) {
-    try SessionCipher(
-      pairKey: key, ipadNonce: deviceNonce, hostNonce: secondParameters.hostNonce, role: .host
-    ).openControl(firstFrame)
+    try secondHost.openControl(firstFrame)
   }
   #expect(throws: SessionCryptoError.authenticationFailed) {
-    try SessionCipher(pairKey: key, ipadNonce: deviceNonce, hostNonce: firstParameters.hostNonce, role: .host)
-      .openControl(secondFrame)
+    try firstHost.openControl(secondFrame)
   }
 }
 

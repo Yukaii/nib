@@ -83,9 +83,10 @@ The output length is 32 bytes. A third derivation,
 changes with a fresh authenticated hello; a sender MUST rekey before its
 32-bit sample sequence wraps.
 
-`helloAck` is the last plaintext frame in each direction. The sender arms its
-session cipher immediately after writing that frame; every remaining byte in
-the same read is sealed. After `helloAck`, the body of every TCP control frame (and every USB `0x01`
+The host treats every byte after the `helloAck` it sends as sealed. The iPad
+arms its session cipher only after reading and verifying the `helloAck`; every
+remaining byte in that read is sealed. The iPad MUST NOT send anything between
+its `hello` and a verified `helloAck`. After `helloAck`, the body of every TCP control frame (and every USB `0x01`
 frame) is, byte by byte:
 
 ```

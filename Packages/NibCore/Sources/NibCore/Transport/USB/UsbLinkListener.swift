@@ -26,8 +26,10 @@ public final class UsbLinkListener {
   private var connection: NWConnection?
   private var connectionGeneration: UInt64 = 0
   private var streamDispatcher: StreamLinkDispatcher?
+  private let sessionCipher = LockedSessionCipher()
   private var hello: ControlMessage.Hello?
   private var lastTrafficAt: TimeInterval?
+  private var awaitingAuthenticatedAck = false
   private var heartbeatTask: Task<Void, Never>?
   private var retryTask: Task<Void, Never>?
   private var listenerReady = false
@@ -104,6 +106,8 @@ public final class UsbLinkListener {
     retryTask = nil
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
+    sessionCipher.set(nil)
+    awaitingAuthenticatedAck = false
     pairingDriver = nil
     listener?.cancel()
     listener = nil
@@ -111,6 +115,7 @@ public final class UsbLinkListener {
     connection?.cancel()
     connection = nil
     lastTrafficAt = nil
+    awaitingAuthenticatedAck = false
     setConnected(false)
   }
 
@@ -224,6 +229,9 @@ public final class UsbLinkListener {
   }
 
   public func send(_ message: ControlMessage) {
+    if awaitingAuthenticatedAck {
+      guard case .hello = message else { return }
+    }
     streamDispatcher?.send(message)
   }
 
@@ -244,11 +252,14 @@ public final class UsbLinkListener {
     connection = newConnection
     let generation = connectionGeneration
     let arm = deviceLink.sessionArm
+    let sharedCipher = sessionCipher
     streamDispatcher = StreamLinkDispatcher(
       transport: NWLinkByteTransport(newConnection),
       armSession: { message in
         guard case .helloAck(let ack) = message else { return nil }
-        return arm.make(ack)
+        let cipher = arm.make(ack)
+        sharedCipher.set(cipher)
+        return cipher
       },
       onControl: { [weak self] message in
         Task { @MainActor [weak self] in
@@ -269,7 +280,9 @@ public final class UsbLinkListener {
           newConnection.cancel()
           return
         }
-        self.send(.hello(self.authenticatedHello()))
+        let hello = self.authenticatedHello()
+        self.awaitingAuthenticatedAck = self.deviceLink.requiresAuthentication
+        self.send(.hello(hello))
       }
     }
     newConnection.start(queue: queue)
@@ -299,6 +312,7 @@ public final class UsbLinkListener {
     guard deviceLink.allows(message) else { return }
     switch message {
     case .helloAck(let ack):
+      awaitingAuthenticatedAck = false
       let outcome = deviceLink.receiveHelloAck(ack)
       switch outcome {
       case .invalidProof:
@@ -322,30 +336,23 @@ public final class UsbLinkListener {
         hostInfo = info
         onHostInfo(info)
         if deviceLink.requiresAuthentication {
-          guard let parameters = deviceLink.sessionParameters,
-            let connection
-          else {
+          guard sessionCipher.get() != nil else {
             if let connection { drop(connection) }
             return
           }
-          let cipher: SessionCipher
-          do {
-            cipher = try SessionCipher(
-              pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce, hostNonce: parameters.hostNonce,
-              role: .device)
-          } catch {
-            drop(connection)
-            return
-          }
-          streamDispatcher?.configureSession(cipher)
         } else {
+          sessionCipher.set(nil)
           streamDispatcher?.clearSession()
         }
         setConnected(true)
         if isConnected { startHeartbeat() }
       }
-    case .probe(let sentAtNs): send(.probeReply(sentAtNs: sentAtNs))
-    case .frontApp(let app): onFrontApp(app)
+    case .probe(let sentAtNs):
+      guard isConnected else { return }
+      send(.probeReply(sentAtNs: sentAtNs))
+    case .frontApp(let app):
+      guard isConnected else { return }
+      onFrontApp(app)
     case .pairResponse, .pairResult: handlePairingMessage(message)
     case .pairRequest, .pairReveal, .hello, .geometry, .ping, .probeReply, .gesture: break
     }
@@ -355,12 +362,14 @@ public final class UsbLinkListener {
     guard connection === expected else { return }
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
+    sessionCipher.set(nil)
     expected.cancel()
     connection = nil
     streamDispatcher = nil
     heartbeatTask?.cancel()
     heartbeatTask = nil
     lastTrafficAt = nil
+    awaitingAuthenticatedAck = false
     setConnected(false)
   }
 

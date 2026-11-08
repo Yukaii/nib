@@ -63,14 +63,14 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit: t3/encrypted-session-integration-fixes @ 385debf3c19a778c22baba8945b384ae4fa151db
-Verify: verify: ok (Test run with 169 tests; NibMac + NibPad built)
+Branch/commit: t3/encrypted-session-fixes @ 3addacd0a416650858a2ac2ff10aaf6de46328af
+Verify: verify: ok (Test run with 171 tests; NibMac + NibPad built)
 Done:
-- Switched the TCP and USB dispatchers atomically from plaintext helloAck to sealed frames, including bytes buffered in the same read; covered split and combined Wi-Fi/USB dispatcher tests.
-- Replaced mutable SessionCipher value state with lock-protected directional counters and separate control/sample HKDF subkeys; added concurrent counter, replay, tamper, and nonce uniqueness coverage.
-- Enforced sample sealing rules (no predicted samples, identical triple-send re-seal only, strictly newer sequence, clean sequence-wrap failure) and made paired-session setup fail closed.
-- Added production HostLink replay coverage with fresh host nonces and isolated ciphers; updated protocol documentation and session vector for the new UTF-8 HKDF info strings and plaintext helloAck boundary.
-- Release benchmark: `session sample seal benchmark: 2.21 µs per seal (10k)`; `session sample open benchmark: 1.66 µs per open (10k)`.
+- Switched encrypted TCP and USB dispatchers to offset-based buffers, covering split, combined, and repeated sealed control reads without `Data` index traps.
+- Kept one armed `SessionCipher` per iPad session for control and samples, extracted the host construction point, and rejected replayed or invalid arm acknowledgements.
+- Added terminal sequence-wrap latching, non-modular sample ordering, connected-state gates, and tri-state unknown-control skipping for TCP and USB.
+- Added host-to-iPad control/sample vectors, four-subkey assertions, a reproducible Swift vector generator, and precise post-helloAck protocol/architecture documentation.
+- Release benchmark: `session sample seal benchmark: 3.64 µs per seal (10k)`; `session sample open benchmark: 2.85 µs per open (10k)`.
 Manual checks: Not run. On an iPad mini 7 and Apple Silicon Mac, pair from a clean install, draw a pressure stroke in Krita over Wi-Fi, confirm pressure and front-app updates, disconnect/reconnect, then repeat over USB. During both sessions verify the iPad screen stays black and pressure varies in Krita. Launch an unkeyed `nib-receive` and confirm it cannot decode the sealed samples.
 Not done / risks: Physical iPad/Mac/Krita checks require hardware and were not run. Existing Swift concurrency warnings in Network callback code remain; no new main-actor hop was added to the Pencil sample path.
 ```

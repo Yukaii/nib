@@ -87,7 +87,7 @@ private final class LockedFlag: @unchecked Sendable {
   }
 }
 
-private final class LockedSessionCipher: @unchecked Sendable {
+final class LockedSessionCipher: @unchecked Sendable {
   private let lock = NSLock()
   private var value: SessionCipher?
   func set(_ value: SessionCipher?) {
@@ -324,6 +324,7 @@ public final class PenLinkSender {
   private var hello: ControlMessage.Hello?
   private var lastReceivedAt: TimeInterval?
   private var lastGeometry: (Double, Double)?
+  private var awaitingAuthenticatedAck = false
   private var reconnectTask: Task<Void, Never>?
   private var pingTask: Task<Void, Never>?
   private let queue = DispatchQueue(label: "dev.yukai.nib.sender")
@@ -361,6 +362,7 @@ public final class PenLinkSender {
     connection = nil
     controlDispatcher = nil
     sessionCipher.set(nil)
+    awaitingAuthenticatedAck = false
     udpConnection = nil
     latestResult = nil
     resultsByName = [:]
@@ -465,6 +467,7 @@ public final class PenLinkSender {
         do { payload = try sessionCipher.sealSample(Data(sample.encode()), sequence: sample.sequence) } catch
         {
           if case SessionCryptoError.sequenceWrap = error {
+            self.sessionCipher.set(nil)
             Task { @MainActor [weak self] in self?.connectionLost() }
           }
           return
@@ -561,11 +564,14 @@ public final class PenLinkSender {
     framer = ControlFramer()
     let generation = connectionGeneration
     let arm = deviceLink.sessionArm
+    let sharedCipher = sessionCipher
     controlDispatcher = ControlLinkDispatcher(
       transport: NWLinkByteTransport(newConnection),
       armSession: { message in
         guard case .helloAck(let ack) = message else { return nil }
-        return arm.make(ack)
+        let cipher = arm.make(ack)
+        sharedCipher.set(cipher)
+        return cipher
       },
       onMessage: { [weak self] message in
         Task { @MainActor [weak self] in self?.handle(message, connectionGeneration: generation) }
@@ -577,7 +583,9 @@ public final class PenLinkSender {
     }
     newConnection.start(queue: queue)
     receiveControl(from: newConnection)
-    sendControl(.hello(authenticatedHello()))
+    let hello = authenticatedHello()
+    awaitingAuthenticatedAck = deviceLink.requiresAuthentication
+    sendControl(.hello(hello))
   }
 
   private func authenticatedHello() -> ControlMessage.Hello {
@@ -612,6 +620,7 @@ public final class PenLinkSender {
     if !deviceLink.allows(message) { return }
     switch message {
     case .helloAck(let ack):
+      awaitingAuthenticatedAck = false
       // Verify before trusting hostInfo or the reason when a key is held.
       // An unauthenticated rejection is shown but never deletes a stored key.
       let outcome = deviceLink.receiveHelloAck(ack)
@@ -648,21 +657,10 @@ public final class PenLinkSender {
         hostInfo = info
         onHostInfo(info)
         if deviceLink.requiresAuthentication {
-          guard let parameters = deviceLink.sessionParameters else {
+          guard sessionCipher.get() != nil else {
             connectionLost()
             return
           }
-          let cipher: SessionCipher
-          do {
-            cipher = try SessionCipher(
-              pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce, hostNonce: parameters.hostNonce,
-              role: .device)
-          } catch {
-            connectionLost()
-            return
-          }
-          sessionCipher.set(cipher)
-          controlDispatcher?.configureSession(cipher)
         } else {
           sessionCipher.set(nil)
         }
@@ -694,9 +692,12 @@ public final class PenLinkSender {
       state = .connected(name: name, viaUSB: false)
       startHeartbeat()
     case .probe(let sentAtNs):
+      guard case .connected = state else { return }
       sendControl(.probeReply(sentAtNs: sentAtNs))
     case .probeReply: break
-    case .frontApp(let frontApp): onFrontApp(frontApp)
+    case .frontApp(let frontApp):
+      guard case .connected = state else { return }
+      onFrontApp(frontApp)
     case .pairResponse, .pairResult:
       handlePairingMessage(message)
     case .pairRequest, .pairReveal, .hello, .geometry, .ping, .gesture:
@@ -706,7 +707,12 @@ public final class PenLinkSender {
     }
   }
 
+  /// Control sends are main-actor ordered: sealing and enqueueing happen in
+  /// wire order so the per-session counter remains contiguous.
   public func sendControl(_ message: ControlMessage) {
+    if awaitingAuthenticatedAck {
+      guard case .hello = message else { return }
+    }
     controlDispatcher?.send(message)
   }
 
@@ -735,6 +741,7 @@ public final class PenLinkSender {
     connection = nil
     udpConnection = nil
     lastReceivedAt = nil
+    awaitingAuthenticatedAck = false
     pingTask?.cancel()
     pingTask = nil
     guard reconnect else { return }
@@ -1209,17 +1216,15 @@ public final class PenLinkReceiver {
       // A .send never goes to a different connection: verify the asker is
       // still current before sending the ack.
       guard connection === asking else { return }
+      let made: SessionCipher?
+      do {
+        made = try hostLink.makeSessionCipher()
+      } catch {
+        disconnectSession(notify: false)
+        return
+      }
       sendControl(.helloAck(ack))
-      if let parameters = hostLink.sessionParameters {
-        let made: SessionCipher
-        do {
-          made = try SessionCipher(
-            pairKey: parameters.pairKey, ipadNonce: parameters.ipadNonce, hostNonce: parameters.hostNonce,
-            role: .host)
-        } catch {
-          disconnectSession(notify: false)
-          return
-        }
+      if let made {
         sessionCipher.set(made)
         sealedMode.set(true)
         #if os(macOS)
