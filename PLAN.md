@@ -4,14 +4,16 @@ Started 2026-11-07. Integration branch: `main`. Keep under 120 lines.
 
 ## Current focus
 
-Product phase (decided 2026-11-07): Nib is a free, open-source product —
-notarized DMG for the Mac, App Store for the iPad, GitHub Sponsors. Rust
-hosts for Windows/Linux later (M5).
+Product phase (decided 2026-11-07): free, open-source; notarized DMG for the
+Mac, App Store for the iPad, GitHub Sponsors. Rust hosts later (M5).
 
-M3 in progress: protocol v2 (0016-0018), CI, Mac and iPad onboarding merged.
-Pairing confirmed on device over Wi-Fi and USB (0022, 0024-0026,
-2026-11-08). Encrypted sessions (0023) confirmed on device too. Transport tidy-up
-(0027) merged. iPad settings (0028) and Mac settings window with edge margin (0029) merged.
+**Paused 2026-11-08 for about two weeks of daily use** by the user; the repo
+went public as a developer preview the same day. Reprioritize the remaining M3
+items and M4 from that experience before starting new tasks.
+
+Done in M3: protocol v2, CI, onboarding, pairing and encrypted sessions
+(confirmed on device over Wi-Fi and USB), transport tidy-up, iPad settings,
+Mac settings window with edge margin.
 
 ## Milestones
 

@@ -11,8 +11,10 @@ absolutely onto a Mac display, and Mac drawing apps — Krita, Photoshop,
 Affinity — receive real tablet events with **pressure and tilt**. Fingers
 handle the canvas: scroll, pinch to zoom, twist to rotate, tap to undo.
 
-> Status: early but usable daily. Built and tested on an iPad mini (A17 Pro)
-> with Apple Pencil Pro and an Apple Silicon Mac. See [`PLAN.md`](PLAN.md).
+> **Developer preview.** Usable daily, but there are no downloadable builds
+> yet: you build both apps from source with Xcode (below). Built and tested on
+> an iPad mini (A17 Pro) with Apple Pencil Pro and an Apple Silicon Mac.
+> Roadmap: [`PLAN.md`](PLAN.md).
 
 ## Features
 
