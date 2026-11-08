@@ -52,6 +52,20 @@ persist.
 - Respect `PenInjectionWorker` threading: mapping changes are applied on its
   queue (as `displayChanged` is today), never per sample from main.
 
+- **iPad edge margin (user request, 2026-11-08).** The iPad's edges are
+  hard to reach with the Pencil, so the user can't trigger screen-edge things
+  such as the auto-hidden Dock. Add **Edge margin** (0–15% of the iPad, default
+  0): the inner area of the iPad maps onto the whole target area, and touches
+  in the margin pin to the target's edge, so the target's last pixel is
+  reachable with the Pencil comfortably inside the iPad edge. Apply it to the
+  normalized iPad position *before* the existing keep/stretch mapping:
+  `x' = clamp((x - m) / (1 - 2m))`, same for y. It lives in
+  `MappingSettings` (host-only, no protocol change), applies live, and the
+  preview shows it (e.g. a caption plus a small iPad outline with the inner
+  area marked). Tests: with m = 0.1, iPad x = 0.1 → left edge, 0.9 → right
+  edge, 0.05 → still left edge, 0.5 → centre; works with keep and stretch,
+  with a sub-rect, and with a multi-display union.
+
 ## Acceptance
 
 - [ ] Tests for `MappingSettings` round-trip and for the mapper cases above,
@@ -59,16 +73,18 @@ persist.
   display and a multi-display union with a display at negative x.
 - [ ] Test: a stored display UUID that is absent resolves to main; present
   again resolves back.
+- [ ] Edge-margin tests above pass.
 - [ ] `scripts/verify.sh` passes.
 - [ ] Manual (user, `scripts/install-devices.sh mac`): Settings… opens in
   front; pick a region and see strokes in Krita stay inside it; toggle
-  proportions mid-stroke without restarting; if a second display is
+  proportions mid-stroke without restarting; set Edge margin to ~8% and reveal
+  the auto-hidden Dock by moving the Pencil to the bottom without reaching the
+  iPad's edge; if a second display is
   available, choose it and then All displays; relaunch keeps the choice.
 
 ## Out of scope
 
-- iPad-side settings (0028). Mapping a sub-region of the **iPad** surface.
-  Protocol changes.
+- iPad-side settings (0028). Protocol changes.
 
 ## Handoff
 
