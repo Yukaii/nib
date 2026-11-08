@@ -41,12 +41,21 @@ downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
    `disconnectSession`, leaving gates up until the heartbeat times out. Only a
    key-holding peer can reach it, but tear down properly.
 
+5. **First session after a NibMac relaunch dies once** with
+   `session close … reason=heartbeat-timeout` 3 s after `session accepted`,
+   then the next session holds (seen twice on device, 10:06 and 10:17 on
+   2026-11-08, Wi-Fi and USB). Likely the iPad keeps heartbeating its old,
+   dead connection or races two connects. Find out from the code and the
+   iPad log (the user can collect one), and fix it so a relaunch reconnects
+   once.
+
 ## Acceptance
 
 - [ ] Test: on the Mac USB path, sealed bytes delivered immediately after the
   ack (before main runs) open correctly (drive the dispatcher directly).
 - [ ] Test: the Wi-Fi sender pause/resume decision (pure helper) for cable
   in / cable out / cable out → in.
+- [ ] Test or log evidence that a host restart yields exactly one reconnect.
 - [ ] `scripts/verify.sh` passes.
 - [ ] Manual (user, `scripts/install-devices.sh both`): Mac log quiet with the
   cable in; unplug → Wi-Fi within ~2 s; replug → USB; pressure in Krita.
