@@ -67,7 +67,7 @@ downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
 ## Handoff
 
 ```
-Branch/commit: t3/transport-tidy-fixes @ 3d19c87e522e05ff1c56caa4fe3143636c29d1cb
+Branch/commit: t3/transport-tidy-fixes @ b37da425941ee8041bf307ca5f967956b69d1e2c
 Verify: verify: ok (Test run with 189 tests; NibMac + NibPad built)
 Done:
 - USB pause is emitted only after an accepted `.pairingRequired` or `.connected` hello acknowledgement; rejected or busy USB attempts leave active Wi-Fi pairing untouched.
