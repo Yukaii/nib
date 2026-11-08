@@ -1,6 +1,9 @@
 import NibCore
 import SwiftUI
 import UIKit
+import os
+
+private let padLogger = Logger(subsystem: "dev.yukai.nib", category: "pad")
 
 @MainActor
 final class NetworkSink: PenSampleSink, GestureSink {
@@ -122,6 +125,8 @@ final class NetworkSink: PenSampleSink, GestureSink {
 
   func pairAgain() {
     pairingTransport = USBPairingTransport.choose(usbHasLiveConnection: usb.hasLiveConnection)
+    padLogger.info(
+      "pair tapped transport=\(self.pairingTransport == .usb ? "usb" : "wifi", privacy: .public)")
     switch pairingTransport {
     case .usb: usb.pairAgain()
     case .wifi: sender.pairAgain()

@@ -160,7 +160,11 @@ public final class UsbLinkListener {
         driver.onSend = { [weak self] message in
           guard let self, self.connection != nil,
             self.pairingDriver?.boundGeneration == self.connectionGeneration
-          else { return }
+          else {
+            usbListenerLogger.info("pairing send dropped=unbound")
+            return
+          }
+          if case .pairRequest = message { usbListenerLogger.info("pairing send message=pairRequest") }
           self.send(message)
         }
         driver.onSendUnbound = { [weak self] message, generation in
@@ -184,21 +188,32 @@ public final class UsbLinkListener {
 
   public func beginPairing(deviceID: String, deviceName: String) {
     if deviceLink.pairingRequired && deviceLink.requiresAuthentication {
+      usbListenerLogger.info("pairing begin branch=stale-key-pair-again")
       pairAgain()
       return
     }
     guard connection != nil else {
+      usbListenerLogger.info("pairing begin branch=deferred-no-connection")
       pairingRequested = true
       return
     }
     pairingRequested = false
+    let hasDriver = pairingDriver != nil
+    let phase = pairingDriver?.phase.map { "\($0)".prefix(while: { $0 != "(" }) } ?? "none"
+    usbListenerLogger.info(
+      "pairing begin branch=start driver=\(hasDriver, privacy: .public) machine=\(String(phase), privacy: .public) gen=\(self.connectionGeneration, privacy: .public)"
+    )
     pairingDriver?.beginPairing(
       deviceID: deviceID, deviceName: deviceName, connectionGeneration: connectionGeneration)
   }
 
   /// Explicitly forgets the held key after the user chooses to pair again.
   public func pairAgain() {
-    guard let store = pairingStoreRef, let hostID = deviceLink.knownHostID else { return }
+    guard let store = pairingStoreRef, let hostID = deviceLink.knownHostID else {
+      usbListenerLogger.info("pairing again skipped=no-store-or-host")
+      return
+    }
+    usbListenerLogger.info("pairing again drop=\(self.connection != nil, privacy: .public)")
     store.removeKey(for: hostID)
     deviceLink.updateStore(store: store, hostID: hostID)
     pairingRequested = true
