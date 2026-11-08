@@ -123,6 +123,17 @@ public final class ControlLinkDispatcher: @unchecked Sendable {
     }
     lock.unlock()
   }
+  /// Sends the plaintext acknowledgement and arms encryption as one ordered
+  /// operation. A peer may put the first sealed frame on the wire as soon as
+  /// the acknowledgement is processed.
+  public func sendAndConfigureSession(_ message: ControlMessage, session: SessionCipher) {
+    let plaintext = Data(ControlFramer().encode(message))
+    lock.lock()
+    transport.send(bytes: plaintext)
+    self.session = session
+    encryptedBytes.append(framer.takeBufferedBytes())
+    lock.unlock()
+  }
   public func close() { transport.close() }
   private func receiveEncryptedLocked(into messages: inout [ControlMessage]) throws {
     while true {
@@ -246,6 +257,17 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
     } else {
       transport.send(bytes: Data(StreamFramer.encode(.control(message))))
     }
+    lock.unlock()
+  }
+  /// Sends the plaintext acknowledgement and arms encryption as one ordered
+  /// operation. A peer may put the first sealed frame on the wire as soon as
+  /// the acknowledgement is processed.
+  public func sendAndConfigureSession(_ message: ControlMessage, session: SessionCipher) {
+    let bytes = Data(StreamFramer.encode(.control(message)))
+    lock.lock()
+    transport.send(bytes: bytes)
+    self.session = session
+    encryptedBytes.append(framer.takeBufferedBytes())
     lock.unlock()
   }
   public func send(_ sample: PenSample) {
