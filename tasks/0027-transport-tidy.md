@@ -1,7 +1,7 @@
 ---
 id: "0027"
 title: Transport tidy-up — USB arming race, Wi-Fi backoff on cable, log nits
-status: doing
+status: review
 milestone: M3
 depends: ["0023"]
 ---
@@ -51,12 +51,12 @@ downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
 
 ## Acceptance
 
-- [ ] Test: on the Mac USB path, sealed bytes delivered immediately after the
+- [x] Test: on the Mac USB path, sealed bytes delivered immediately after the
   ack (before main runs) open correctly (drive the dispatcher directly).
-- [ ] Test: the Wi-Fi sender pause/resume decision (pure helper) for cable
+- [x] Test: the Wi-Fi sender pause/resume decision (pure helper) for cable
   in / cable out / cable out → in.
-- [ ] Test or log evidence that a host restart yields exactly one reconnect.
-- [ ] `scripts/verify.sh` passes.
+- [x] Test or log evidence that a host restart yields exactly one reconnect.
+- [x] `scripts/verify.sh` passes.
 - [ ] Manual (user, `scripts/install-devices.sh both`): Mac log quiet with the
   cable in; unplug → Wi-Fi within ~2 s; replug → USB; pressure in Krita.
 
@@ -67,9 +67,14 @@ downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/transport-tidy @ b91c6d663e66afe9578b6022db666323f46a9963
+Verify: verify: ok (Test run with 187 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Mac USB sends the plaintext hello acknowledgement and arms the stream cipher under one dispatcher lock; receiveUSB retains the per-connection dispatcher so immediate sealed bytes are decoded safely.
+- iPad pauses Wi-Fi browsing, reconnects, and retry timers for any live USB stream, including pairing-only; unplug resumes Bonjour discovery immediately.
+- Host restart reconnect scheduling is single-flight, and branch logs identify USB preference, paused/reconnect decisions, busy teardown, and sequence-wrap teardown without secrets.
+- Session peer names are private and capped at 64 characters; empty disconnects and duplicate dispatcher close notifications no longer create session-close log noise.
+- Added deterministic dispatcher, cable transition, and single-reconnect policy tests.
+Manual checks: Not run. User should run `scripts/install-devices.sh both`, confirm no Wi-Fi busy spam while cabled, unplug and verify Wi-Fi within ~2 seconds, replug and verify USB, then draw pressure strokes in Krita.
+Not done / risks: Physical iPad/Mac cable switching and relaunch behavior still require the user's device check; no protocol files changed.
 ```

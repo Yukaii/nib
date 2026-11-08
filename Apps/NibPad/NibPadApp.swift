@@ -56,6 +56,9 @@ final class NetworkSink: PenSampleSink, GestureSink {
       self?.linkState = state
       self?.onLinkStateChanged?(state)
     }
+    usb.onLiveConnectionChanged = { [weak self] live in
+      self?.sender.setWiFiPausedForUSB(live)
+    }
     usb.onFrontApp = { [weak self] app in self?.frontApp = app }
     usb.onHostInfo = { [weak self] info in self?.hostInfo = info }
     usb.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event, transport: .usb) }

@@ -294,6 +294,29 @@ private func sessionData(_ hex: String) -> Data {
   #expect(streamReceived.values.contains(.frontApp(.init(appID: "com.test.second", name: "Second"))))
 }
 
+@Test func streamDispatcherArmsWithAckBeforeImmediateSealedBytes() throws {
+  let key = Data(repeating: 0x42, count: 32)
+  let ipadNonce = Data(repeating: 0x10, count: 32)
+  let hostNonce = Data(repeating: 0x20, count: 32)
+  let wire = RecordingTransport()
+  let host = StreamLinkDispatcher(transport: wire, onControl: { _ in }, onSample: { _ in })
+  host.sendAndConfigureSession(
+    .helloAck(.init(accepted: true)),
+    session: try SessionCipher(
+      pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .host))
+  host.send(.ping)
+  let received = MessageCapture()
+  let device = StreamLinkDispatcher(
+    transport: MemoryTransport(),
+    armSession: { _ in
+      try? SessionCipher(pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .device)
+    },
+    onControl: { received.append($0) }, onSample: { _ in })
+  try device.receive(wire.capture.values.reduce(into: Data(), { $0.append($1) }))
+  #expect(received.values.contains(.helloAck(.init(accepted: true))))
+  #expect(received.values.contains(.ping))
+}
+
 @Test func replayedHelloGetsFreshHostNonceAndIsolatedCipher() throws {
   let key = Data(repeating: 0x42, count: 32)
   let deviceNonce = Data(repeating: 0x10, count: 32)
