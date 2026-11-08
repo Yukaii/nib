@@ -59,13 +59,14 @@ showed no code on either screen. Code reading (`Packages/NibCore/Sources/NibCore
 ## Handoff
 
 ```
-Branch/commit: t3/repair-pairing-recovery @ 027742a378065006eea9755634c3415e8df8c4b5
-Verify: verify: ok (Test run with 159 tests; NibMac + NibPad built)
+Branch/commit: t3/repair-recovery-tests @ 8f10ee6fcaf3303491fea525693d31a9f08d67e4
+Verify: verify: ok (Test run with 165 tests; NibMac + NibPad built)
 Done:
 - Known-device proofless hellos enter pairing-only mode without authenticating or replacing the stored host key.
 - Pair-again ends the old Wi-Fi or USB session and carries the pairing request to the next connection.
 - Pair buttons in onboarding and the pairing sheet work from disconnected or rejected states.
 - Protocol documentation and HostLink regression coverage updated.
+- Added six framed end-to-end recovery tests through HostLink, DeviceLink and PairingDriver for iPad forget, Mac forget, both forget, stale-key hint preservation, wrong-proof disconnect, and cancelled re-pair recovery.
 Manual checks: Not run. User should run `scripts/install-devices.sh both`, then verify (a) iPad Forget → Pair over Wi-Fi, (b) Mac Forget → Pair over Wi-Fi, (c) both Forget → Pair over Wi-Fi, (d) iPad stale key after Mac Forget shows the pairing prompt and completes, and (a) again over USB. On each run, confirm both screens show the same six-digit code before tapping Pair on both.
-Not done / risks: Real-device reconnect behavior, especially usbmuxd reconnect after the iPad closes the old USB stream, still needs the manual checks above.
+Not done / risks: Real-device reconnect behavior, especially usbmuxd reconnect after the iPad closes the old USB stream, still needs the manual checks above. The automated cancellation case covers the host-key preservation path; timeout behavior remains covered by the existing state-machine timeout test.
 ```
