@@ -43,7 +43,7 @@ Pairing (0022, 0024) confirmed on device 2026-11-08. Encrypted sessions
 - [x] 0021 iPad onboarding: welcome, choose a Mac, pressure check, gesture guide
 - [x] 0022 Pairing core: commit-reveal numeric code, proofs, transport handling
 - [x] 0024 Pairing UI on Mac and iPad, Keychain keys, retire the allow list
-- [ ] 0025 Re-pairing after Forget works from either side
+- [x] 0025 Re-pairing after Forget works from either side
 - [ ] 0023 Encrypted sessions (reopened: drop loop on device): ChaCha20-Poly1305 control frames and samples
 - [ ] iPad settings restructure (Pen / Profiles / Gestures / Display / Advanced)
 - [ ] Mac settings window: display, active-area mapping, multi-display
