@@ -1,9 +1,9 @@
 ---
 id: "0023"
 title: Encrypted sessions — seal control frames and samples
-status: doing
+status: todo
 milestone: M3
-depends: ["0022", "0024"]
+depends: ["0022", "0024", "0025"]
 ---
 
 ## Goal
@@ -59,6 +59,28 @@ latency change.
 ## Out of scope
 
 - Changing pairing UX (0022). Several simultaneous iPads.
+
+## Reopened 2026-11-08 (device failure)
+
+Merged after three review rounds (branch history up to `4894925`, merge
+`70385d4`), then reverted (`c00253e`). On iPad mini 7 + Mac over Wi-Fi,
+authenticated sessions connected and dropped every 1-4 s in a loop. Mac log:
+`session accepted` → `session connected` → `session disconnected`, with no
+reason logged. Unit and dispatcher tests all passed. Next round:
+
+- Start from `4894925` (cherry-pick or `git merge --no-ff 4894925` onto a
+  branch from main after 0025), so reviewed work is kept.
+- First add **close-reason logging** on both sides (which check failed:
+  open/auth failure, counter mismatch, malformed, heartbeat timeout, peer
+  EOF), with no keys, nonces or plaintext. The Mac's unified log is readable
+  with `/usr/bin/log show` (zsh's builtin `log` shadows it). iPad logs need
+  root (`sudo log collect --device-udid …`), so have the iPad send nothing
+  extra; host-side reasons plus local reasoning must find it.
+- Reproduce on device with `scripts/install-devices.sh both` (the user is
+  available to tap Pair). Prime suspects: the heartbeat ping/probe path after
+  arming, a `probe`/`probeReply` or `frontApp` sent around the arm point,
+  and the iPad's `awaitingAuthenticatedAck` gate dropping a needed reply.
+  Write a test that reproduces the loop **before** fixing it.
 
 ## Handoff
 
