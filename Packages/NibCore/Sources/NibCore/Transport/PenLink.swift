@@ -504,7 +504,7 @@ public final class PenLinkSender {
           // so keep the cipher (never fall back to plaintext) and reconnect
           // for fresh keys.
           if case SessionCryptoError.sequenceWrap = error {
-            Task { @MainActor [weak self] in self?.connectionLost() }
+            Task { @MainActor [weak self] in self?.connectionLost(reason: "sequence-wrap") }
           }
           return
         }
@@ -614,10 +614,13 @@ public final class PenLinkSender {
       },
       onMessage: { [weak self] message in
         Task { @MainActor [weak self] in self?.handle(message, connectionGeneration: generation) }
+      },
+      onCloseReason: { reason in
+        transportLogger.info("session close transport=wifi reason=\(reason, privacy: .public)")
       })
     newConnection.stateUpdateHandler = { [weak self] newState in
       if case .failed = newState {
-        Task { @MainActor [weak self] in self?.connectionLost() }
+        Task { @MainActor [weak self] in self?.connectionLost(reason: "peer-error") }
       }
     }
     newConnection.start(queue: queue)
@@ -644,11 +647,17 @@ public final class PenLinkSender {
           do {
             try self.controlDispatcher?.receive(data)
           } catch {
-            self.connectionLost()
+            self.connectionLost(reason: SessionCloseReason.name(error))
             return
           }
         }
-        if isComplete || error != nil { self.connectionLost() } else { self.receiveControl(from: expected) }
+        if isComplete {
+          self.connectionLost(reason: "peer-eof")
+        } else if error != nil {
+          self.connectionLost(reason: "peer-error")
+        } else {
+          self.receiveControl(from: expected)
+        }
       }
     }
   }
@@ -700,14 +709,14 @@ public final class PenLinkSender {
         onHostInfo(info)
         if deviceLink.requiresAuthentication {
           guard sessionCipher.get() != nil else {
-            connectionLost()
+            connectionLost(reason: "auth-failure")
             return
           }
         } else {
           sessionCipher.set(nil)
         }
         guard connection != nil else {
-          connectionLost()
+          connectionLost(reason: "auth-failure")
           return
         }
       }
@@ -767,7 +776,7 @@ public final class PenLinkSender {
         guard let self, !Task.isCancelled else { return }
         let now = Date.timeIntervalSinceReferenceDate
         if let last = self.lastReceivedAt, now - last >= 3 {
-          self.connectionLost()
+          self.connectionLost(reason: "heartbeat-timeout")
           return
         }
         self.ping()
@@ -775,14 +784,19 @@ public final class PenLinkSender {
     }
   }
 
-  private func connectionLost(reconnect: Bool = true, reconnectDelay: Duration? = nil) {
-    if connection != nil { transportLogger.info("connection close transport=wifi reason=ended") }
+  private func connectionLost(
+    reconnect: Bool = true, reconnectDelay: Duration? = nil, reason: String = "peer-eof"
+  ) {
+    if connection != nil {
+      transportLogger.info("connection close transport=wifi reason=\(reason, privacy: .public)")
+    }
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
     connection?.cancel()
     udpConnection?.cancel()
     connection = nil
     udpConnection = nil
+    sessionCipher.set(nil)
     lastReceivedAt = nil
     awaitingAuthenticatedAck = false
     pingTask?.cancel()
@@ -1082,7 +1096,7 @@ public final class PenLinkReceiver {
         return
       case .replace:
         transportLogger.info("connection replace transport=usb reason=prefer-usb")
-        disconnectSession(notify: true)
+        disconnectSession(notify: true, reason: "arbitration-replace")
       case .accept: break
       }
       pairingDriver?.connectionLost(connectionGeneration)
@@ -1116,6 +1130,9 @@ public final class PenLinkReceiver {
           self.lastPacketAt.set(Date.timeIntervalSinceReferenceDate)
           self.lockedStats.record(sequence: sample.sequence, sender: sample.timestamp, arrival: arrival)
           self.sampleSink.send(sample, arrivalNs: arrival)
+        },
+        onCloseReason: { reason in
+          transportLogger.info("session close transport=usb reason=\(reason, privacy: .public)")
         })
       newConnection.stateUpdateHandler = nil
       newConnection.start(queue: queue)
@@ -1145,7 +1162,8 @@ public final class PenLinkReceiver {
             try self.usbDispatcher?.receive(data)
           } catch {
             Task { @MainActor [weak self] in
-              self?.disconnectSession(notify: self?.hostLink.sessionConnected ?? false)
+              self?.disconnectSession(
+                notify: self?.hostLink.sessionConnected ?? false, reason: SessionCloseReason.name(error))
             }
             return
           }
@@ -1153,7 +1171,8 @@ public final class PenLinkReceiver {
         if complete || error != nil {
           Task { @MainActor [weak self] in
             guard let self, self.usbConnection === expected else { return }
-            self.disconnectSession(notify: self.hostLink.sessionConnected)
+            self.disconnectSession(
+              notify: self.hostLink.sessionConnected, reason: complete ? "peer-eof" : "peer-error")
           }
         } else {
           self.receiveUSB(from: expected)
@@ -1180,12 +1199,12 @@ public final class PenLinkReceiver {
         rejectConnection(newConnection)
         return
       }
-      if connection != nil { disconnectSession(notify: true) }
+      if connection != nil { disconnectSession(notify: true, reason: "arbitration-replace") }
     #endif
     if connection != nil {
       // Non-macOS builds have no transport arbitration helper, but still
       // fully clear the previous link before accepting an idle invitation.
-      disconnectSession(notify: true)
+      disconnectSession(notify: true, reason: "arbitration-replace")
     }
     connectionGeneration &+= 1
     pairingDriver?.newConnection(connectionGeneration)
@@ -1195,10 +1214,14 @@ public final class PenLinkReceiver {
     transportLogger.info("connection accept transport=wifi reason=arbitration")
     framer = ControlFramer()
     let generation = connectionGeneration
-    controlDispatcher = ControlLinkDispatcher(transport: NWLinkByteTransport(newConnection)) {
-      [weak self] message in
-      Task { @MainActor [weak self] in await self?.handle(message, connectionGeneration: generation) }
-    }
+    controlDispatcher = ControlLinkDispatcher(
+      transport: NWLinkByteTransport(newConnection),
+      onMessage: { [weak self] message in
+        Task { @MainActor [weak self] in await self?.handle(message, connectionGeneration: generation) }
+      },
+      onCloseReason: { reason in
+        transportLogger.info("session close transport=wifi reason=\(reason, privacy: .public)")
+      })
     newConnection.stateUpdateHandler = { [weak self] state in
       guard case .ready = state else { return }
       Task { @MainActor [weak self] in
@@ -1230,12 +1253,15 @@ public final class PenLinkReceiver {
           do {
             try self.controlDispatcher?.receive(data)
           } catch {
-            self.disconnectSession(notify: self.hostLink.sessionConnected)
+            self.disconnectSession(
+              notify: self.hostLink.sessionConnected, reason: SessionCloseReason.name(error))
             return
           }
         }
-        if complete || error != nil {
-          self.disconnectSession(notify: self.hostLink.sessionConnected)
+        if complete {
+          self.disconnectSession(notify: self.hostLink.sessionConnected, reason: "peer-eof")
+        } else if error != nil {
+          self.disconnectSession(notify: self.hostLink.sessionConnected, reason: "peer-error")
         } else {
           self.receiveControl(from: expected)
         }
@@ -1425,7 +1451,7 @@ public final class PenLinkReceiver {
         guard let self, !Task.isCancelled else { return }
         if let packetAt = self.lastPacketAt.get() { self.hostLink.session.received(at: packetAt) }
         if self.hostLink.session.timeoutIfNeeded(at: Date.timeIntervalSinceReferenceDate) {
-          self.disconnectSession(notify: true)
+          self.disconnectSession(notify: true, reason: "heartbeat-timeout")
           return
         }
         self.sendControl(.ping)
@@ -1473,7 +1499,8 @@ public final class PenLinkReceiver {
     }
   }
 
-  private func disconnectSession(notify: Bool) {
+  private func disconnectSession(notify: Bool, reason: String = "ended") {
+    let endedTransport = transportIsUSB ? "usb" : "wifi"
     heartbeatTask?.cancel()
     heartbeatTask = nil
     pairingDriver?.connectionLost(connectionGeneration)
@@ -1508,6 +1535,7 @@ public final class PenLinkReceiver {
     hostLink.sessionConnected = false
     framer = ControlFramer()
     if notify { onSession?(.disconnected) }
-    if notify { transportLogger.info("session disconnected") }
+    transportLogger.info(
+      "session close transport=\(endedTransport, privacy: .public) reason=\(reason, privacy: .public)")
   }
 }

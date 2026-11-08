@@ -85,14 +85,14 @@ reason logged. Unit and dispatcher tests all passed. Next round:
 ## Handoff
 
 ```
-Branch/commit: t3/encrypted-session-fixes @ e0f5664f68015c2d6179b8a98676bb86b9dee912
-Verify: verify: ok (Test run with 171 tests; NibMac + NibPad built)
+Branch/commit: t3/fix-encrypted-session-drops @ 132ff4622a0daa95afdafa3afc4cb604d04cc507
+Verify: verify: ok (Test run with 184 tests; NibMac + NibPad built)
 Done:
-- Switched encrypted TCP and USB dispatchers to offset-based buffers, covering split, combined, and repeated sealed control reads without `Data` index traps.
-- Kept one armed `SessionCipher` per iPad session for control and samples, extracted the host construction point, and rejected replayed or invalid arm acknowledgements.
-- Added terminal sequence-wrap latching, non-modular sample ordering, connected-state gates, and tri-state unknown-control skipping for TCP and USB.
-- Added host-to-iPad control/sample vectors, four-subkey assertions, a reproducible Swift vector generator, and precise post-helloAck protocol/architecture documentation.
-- Release benchmark: `session sample seal benchmark: 3.64 µs per seal (10k)`; `session sample open benchmark: 2.85 µs per open (10k)`.
-Manual checks: Not run. On an iPad mini 7 and Apple Silicon Mac, pair from a clean install, draw a pressure stroke in Krita over Wi-Fi, confirm pressure and front-app updates, disconnect/reconnect, then repeat over USB. During both sessions verify the iPad screen stays black and pressure varies in Krita. Launch an unkeyed `nib-receive` and confirm it cannot decode the sealed samples.
-Not done / risks: Physical iPad/Mac/Krita checks require hardware and were not run. Existing Swift concurrency warnings in Network callback code remain; no new main-actor hop was added to the Pencil sample path.
+- Re-applied the reviewed ChaCha20-Poly1305 session implementation on top of 0025/0026 and kept pairing-only, re-pair, USB arbitration, detached handling, and pairing-driver persistence behavior.
+- Serialized sealed control and USB stream sends through each dispatcher lock. Before this, concurrent heartbeat, probe, front-app, pairing, and sample sends could allocate counters in one order and enqueue bytes in another, producing a receiver counter mismatch and the observed reconnect loop.
+- Added close-reason logging for auth/open failure, malformed frame, counter mismatch, authentication failure, sequence replay/wrap, heartbeat timeout, peer EOF/error, arbitration replacement, busy rejection, USB detach, and pairing-only outcomes. Logs contain transport and reason/message type only.
+- Added a 10-simulated-second sealed heartbeat + sample dispatcher test and a concurrent sealed-control ordering test.
+- Benchmark: `session sample seal benchmark: 3.61 µs per seal (10k)`; `session sample open benchmark: 3.19 µs per open (10k)`.
+Manual checks: Not run. On the iPad + Mac, collect both logs while reproducing: `/usr/bin/log show --last 5m --predicate 'subsystem == "dev.yukai.nib"'` on Mac and `sudo log collect --device-udid <UDID>` for iPad. Look for `session close ... reason=counter-mismatch` or `authentication-failed` to confirm the old sealing race; `malformed-control`/`malformed-sample` indicates framing or sample bytes; `heartbeat-timeout` indicates probe/ping replies are not arriving; `peer-eof`/`peer-error` indicates the peer or transport ended first; no close reason with a disconnect points to an external transport/OS drop. `pairing message=...`, `hello outcome=...`, and `connection ... reason=...` distinguish pairing, frontApp/probe timing, and USB/Wi-Fi arbitration.
+Not done / risks: Real device pressure stroke over Wi-Fi and USB was not run in this worktree. The simulated test exercises sealed framer bytes, heartbeat ping/probe traffic, and samples but cannot prove Network.framework behavior or iPad log output. Existing Swift concurrency warnings in Network callback code remain; no new main-actor hop was added to the Pencil sample path.
 ```

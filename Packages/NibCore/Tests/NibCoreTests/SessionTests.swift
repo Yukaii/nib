@@ -22,6 +22,28 @@ private final class DataCapture: @unchecked Sendable {
     lock.unlock()
   }
 }
+
+private final class RecordingTransport: LinkByteTransport, @unchecked Sendable {
+  let capture = DataCapture()
+  var closed = false
+  func send(bytes: Data) { capture.append(bytes) }
+  func close() { closed = true }
+}
+
+private final class AtomicCount: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+  func increment() {
+    lock.lock()
+    value += 1
+    lock.unlock()
+  }
+  func get() -> Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+}
 private final class MessageCapture: @unchecked Sendable {
   let lock = NSLock()
   var values: [ControlMessage] = []
@@ -388,4 +410,80 @@ private func sessionData(_ hex: String) -> Data {
   sampleDevice.send(sample)
   try sampleHost.receive(sampleDeviceTransport.bytes!)
   #expect(receivedSample.value == sample)
+}
+
+@Test func sealedHeartbeatAndSamplesRemainLiveForTenSimulatedSeconds() throws {
+  let key = Data(repeating: 0x42, count: 32)
+  let ipadNonce = Data(repeating: 0x10, count: 32)
+  let hostNonce = Data(repeating: 0x20, count: 32)
+  let deviceToHost = RecordingTransport()
+  let hostToDevice = RecordingTransport()
+  let receivedDeviceControls = MessageCapture()
+  let receivedHostControls = MessageCapture()
+  let receivedSamples = AtomicCount()
+  let device = ControlLinkDispatcher(
+    transport: deviceToHost,
+    onMessage: { receivedDeviceControls.values.append($0) })
+  let host = ControlLinkDispatcher(
+    transport: hostToDevice,
+    onMessage: { receivedHostControls.values.append($0) })
+  device.configureSession(
+    try SessionCipher(
+      pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .device))
+  host.configureSession(
+    try SessionCipher(
+      pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .host))
+
+  let sampleDeviceToHost = RecordingTransport()
+  let sampleDevice = StreamLinkDispatcher(
+    transport: sampleDeviceToHost, onControl: { _ in }, onSample: { _ in })
+  let sampleHost = StreamLinkDispatcher(
+    transport: RecordingTransport(), onControl: { _ in }, onSample: { _ in receivedSamples.increment() })
+  sampleDevice.configureSession(
+    try SessionCipher(
+      pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .device))
+  sampleHost.configureSession(
+    try SessionCipher(
+      pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .host))
+
+  for second in 0..<10 {
+    device.send(.ping)
+    host.send(.probe(sentAtNs: UInt64(second) * 1_000_000_000))
+    let ping = deviceToHost.capture.values.removeFirst()
+    let probe = hostToDevice.capture.values.removeFirst()
+    try host.receive(ping)
+    try device.receive(probe)
+    let sample = PenSample(
+      kind: .move, sequence: UInt32(second), timestamp: UInt64(second), x: 0.2, y: 0.3,
+      pressure: 0.7, altitude: 1, azimuth: 2)
+    sampleDevice.send(sample)
+    try sampleHost.receive(sampleDeviceToHost.capture.values.removeFirst())
+  }
+  #expect(receivedHostControls.values.filter { $0 == .ping }.count == 10)
+  #expect(
+    receivedDeviceControls.values.filter {
+      if case .probe = $0 { return true }
+      return false
+    }.count == 10)
+  #expect(receivedSamples.get() == 10)
+  #expect(!deviceToHost.closed)
+  #expect(!hostToDevice.closed)
+}
+
+@Test func concurrentSealedControlSendsStayInWireCounterOrder() throws {
+  let key = Data(repeating: 0x42, count: 32)
+  let nonce = Data(repeating: 0x10, count: 32)
+  let hostNonce = Data(repeating: 0x20, count: 32)
+  let transport = RecordingTransport()
+  let sender = ControlLinkDispatcher(transport: transport, onMessage: { _ in })
+  let receiver = ControlLinkDispatcher(transport: RecordingTransport(), onMessage: { _ in })
+  sender.configureSession(
+    try SessionCipher(
+      pairKey: key, ipadNonce: nonce, hostNonce: hostNonce, role: .device))
+  receiver.configureSession(
+    try SessionCipher(
+      pairKey: key, ipadNonce: nonce, hostNonce: hostNonce, role: .host))
+  DispatchQueue.concurrentPerform(iterations: 2_000) { _ in sender.send(.ping) }
+  for frame in transport.capture.values { try receiver.receive(frame) }
+  #expect(!transport.closed)
 }

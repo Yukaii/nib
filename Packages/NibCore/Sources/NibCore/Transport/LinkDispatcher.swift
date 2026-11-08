@@ -1,6 +1,20 @@
 import Foundation
 import Network
 
+public enum SessionCloseReason {
+  public static func name(_ error: Error) -> String {
+    switch error {
+    case SessionCryptoError.counterMismatch: return "counter-mismatch"
+    case SessionCryptoError.invalidControlFrame: return "malformed-control"
+    case SessionCryptoError.invalidSampleFrame: return "malformed-sample"
+    case SessionCryptoError.authenticationFailed: return "authentication-failed"
+    case SessionCryptoError.sequenceReplay: return "sequence-replay"
+    case SessionCryptoError.sequenceWrap: return "sequence-wrap"
+    default: return "malformed-frame"
+    }
+  }
+}
+
 public protocol LinkByteTransport: AnyObject, Sendable {
   func send(bytes: Data)
   func close()
@@ -27,15 +41,18 @@ public final class ControlLinkDispatcher: @unchecked Sendable {
   private var session: SessionCipher?
   private let transport: LinkByteTransport
   private let onMessage: @Sendable (ControlMessage) -> Void
+  private let onCloseReason: @Sendable (String) -> Void
   private let armSession: (@Sendable (ControlMessage) -> SessionCipher?)?
 
   public init(
     transport: LinkByteTransport, armSession: (@Sendable (ControlMessage) -> SessionCipher?)? = nil,
-    onMessage: @escaping @Sendable (ControlMessage) -> Void
+    onMessage: @escaping @Sendable (ControlMessage) -> Void,
+    onCloseReason: @escaping @Sendable (String) -> Void = { _ in }
   ) {
     self.transport = transport
     self.armSession = armSession
     self.onMessage = onMessage
+    self.onCloseReason = onCloseReason
   }
   public func receive(_ bytes: Data) throws {
     lock.lock()
@@ -91,14 +108,20 @@ public final class ControlLinkDispatcher: @unchecked Sendable {
     let plaintext = Data(ControlFramer().encode(message))
     lock.lock()
     let current = session
-    lock.unlock()
     if let current {
-      do { transport.send(bytes: frame(try current.sealControl(Data(plaintext.dropFirst(4))))) } catch {
+      do {
+        // Keep sealing and enqueueing under the dispatcher lock. Network
+        // callbacks and the main actor can call send concurrently; releasing
+        // here lets counter N overtake counter N-1 on the wire.
+        transport.send(bytes: frame(try current.sealControl(Data(plaintext.dropFirst(4)))))
+      } catch {
+        onCloseReason(SessionCloseReason.name(error))
         transport.close()
       }
     } else {
       transport.send(bytes: plaintext)
     }
+    lock.unlock()
   }
   public func close() { transport.close() }
   private func receiveEncryptedLocked(into messages: inout [ControlMessage]) throws {
@@ -108,7 +131,9 @@ public final class ControlLinkDispatcher: @unchecked Sendable {
       guard available >= 4 else { return }
       let length = readLE32(encryptedBytes, encryptedOffset)
       guard length >= 24, length <= ControlFramer.maximumMessageSize + 24 else {
-        throw SessionCryptoError.invalidControlFrame
+        let error = SessionCryptoError.invalidControlFrame
+        onCloseReason(SessionCloseReason.name(error))
+        throw error
       }
       let total = 4 + Int(length)
       guard available >= total else { return }
@@ -116,7 +141,11 @@ public final class ControlLinkDispatcher: @unchecked Sendable {
       let body = Data(encryptedBytes[(start + 4)..<(start + total)])
       encryptedOffset += total
       compactEncryptedBufferIfNeeded()
-      guard let current = session else { throw SessionCryptoError.invalidControlFrame }
+      guard let current = session else {
+        let error = SessionCryptoError.invalidControlFrame
+        onCloseReason(SessionCloseReason.name(error))
+        throw error
+      }
       let plaintext = try current.openControl(body)
       var plainFramer = ControlFramer()
       if case .message(let message) = try plainFramer.appendOne(Array(frame(plaintext))) {
@@ -146,15 +175,19 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
   private let transport: LinkByteTransport
   private let onControl: @Sendable (ControlMessage) -> Void
   private let onSample: @Sendable (PenSample) -> Void
+  private let onCloseReason: @Sendable (String) -> Void
   private let armSession: (@Sendable (ControlMessage) -> SessionCipher?)?
   public init(
     transport: LinkByteTransport, armSession: (@Sendable (ControlMessage) -> SessionCipher?)? = nil,
-    onControl: @escaping @Sendable (ControlMessage) -> Void, onSample: @escaping @Sendable (PenSample) -> Void
+    onControl: @escaping @Sendable (ControlMessage) -> Void,
+    onSample: @escaping @Sendable (PenSample) -> Void,
+    onCloseReason: @escaping @Sendable (String) -> Void = { _ in }
   ) {
     self.transport = transport
     self.armSession = armSession
     self.onControl = onControl
     self.onSample = onSample
+    self.onCloseReason = onCloseReason
   }
   public func receive(_ bytes: Data) throws {
     lock.lock()
@@ -203,28 +236,34 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
     let body = Data(ControlFramer().encode(message)).dropFirst(4)
     lock.lock()
     let current = session
-    lock.unlock()
     if let current {
       do {
         transport.send(bytes: Data([StreamFramer.controlType]) + frame(try current.sealControl(Data(body))))
-      } catch { transport.close() }
+      } catch {
+        onCloseReason(SessionCloseReason.name(error))
+        transport.close()
+      }
     } else {
       transport.send(bytes: Data(StreamFramer.encode(.control(message))))
     }
+    lock.unlock()
   }
   public func send(_ sample: PenSample) {
     lock.lock()
     let current = session
-    lock.unlock()
     if let current {
       do {
         transport.send(
           bytes: Data([StreamFramer.sampleType])
             + (try current.sealSample(Data(sample.encode()), sequence: sample.sequence)))
-      } catch { transport.close() }
+      } catch {
+        onCloseReason(SessionCloseReason.name(error))
+        transport.close()
+      }
     } else {
       transport.send(bytes: Data(StreamFramer.encode(.sample(sample))))
     }
+    lock.unlock()
   }
   public func close() { transport.close() }
   public func configureSession(_ session: SessionCipher) {
@@ -251,7 +290,11 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
         let packet = Data(encryptedBytes[(start + 1)..<(start + total)])
         encryptedOffset += total
         compactEncryptedBufferIfNeeded()
-        guard let current = session else { throw SessionCryptoError.invalidSampleFrame }
+        guard let current = session else {
+          let error = SessionCryptoError.invalidSampleFrame
+          onCloseReason(SessionCloseReason.name(error))
+          throw error
+        }
         let opened = try current.openSample(packet)
         let sample = try PenSample(decoding: Array(opened.plaintext))
         guard sample.sequence == opened.sequence else { throw SessionCryptoError.invalidSampleFrame }
@@ -261,20 +304,27 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
         let start = encryptedOffset
         let length = readLE32(encryptedBytes, start + 1)
         guard length >= 24, length <= ControlFramer.maximumMessageSize + 24 else {
-          throw SessionCryptoError.invalidControlFrame
+          let error = SessionCryptoError.invalidControlFrame
+          onCloseReason(SessionCloseReason.name(error))
+          throw error
         }
         let total = 1 + 4 + Int(length)
         guard encryptedBytes.count - encryptedOffset >= total else { return }
         let body = Data(encryptedBytes[(start + 5)..<(start + total)])
         encryptedOffset += total
         compactEncryptedBufferIfNeeded()
-        guard let current = session else { throw SessionCryptoError.invalidControlFrame }
+        guard let current = session else {
+          let error = SessionCryptoError.invalidControlFrame
+          onCloseReason(SessionCloseReason.name(error))
+          throw error
+        }
         let plain = try current.openControl(body)
         var cf = ControlFramer()
         if case .message(let message) = try cf.appendOne(Array(frame(plain))) {
           controls.append(message)
         }
       } else {
+        onCloseReason("malformed-frame")
         throw StreamFramer.Error.unknownType(type)
       }
     }
