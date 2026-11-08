@@ -93,6 +93,14 @@ private final class LockedFlag: @unchecked Sendable {
     defer { lock.unlock() }
     return value
   }
+
+  func compareAndSet(expected: Bool, _ replacement: Bool) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard value == expected else { return false }
+    value = replacement
+    return true
+  }
 }
 
 final class LockedSessionCipher: @unchecked Sendable {
@@ -350,7 +358,9 @@ public final class PenLinkSender {
   public init() {}
 
   public func setWiFiPausedForUSB(_ paused: Bool) {
-    guard wifiPausedForUSB != paused else {
+    let decision = WiFiTransportDecision.transition(
+      wifiPaused: wifiPausedForUSB, usbConnected: paused)
+    guard decision != .unchanged else {
       transportLogger.info("wifi pause branch=unchanged usb=\(paused, privacy: .public)")
       return
     }
@@ -915,6 +925,7 @@ public final class PenLinkReceiver {
     private var usbDevice: UsbmuxClient.Device?
     private var usbConnection: NWConnection?
     private let usbConnectionIdentity = USBConnectionIdentity()
+    private let usbCloseStarted = LockedFlag()
     private var usbDispatcher: StreamLinkDispatcher?
     private var usbMode = false
   #endif
@@ -1179,6 +1190,7 @@ public final class PenLinkReceiver {
       usbDevice = device
       usbConnection = newConnection
       usbConnectionIdentity.set(newConnection)
+      usbCloseStarted.set(false)
       usbMode = true
       transportIsUSB = true
       transportLogger.info("connection accept transport=usb reason=arbitration")
@@ -1204,7 +1216,7 @@ public final class PenLinkReceiver {
         onCloseReason: { [weak self] reason in
           Task { @MainActor [weak self] in
             guard let self, self.usbConnection === newConnection else { return }
-            self.disconnectSession(notify: self.hostLink.sessionConnected, reason: reason)
+            self.disconnectUSB(newConnection, reason: reason)
           }
         })
       usbDispatcher = dispatcher
@@ -1235,19 +1247,31 @@ public final class PenLinkReceiver {
           do {
             try dispatcher.receive(data)
           } catch {
+            expected.cancel()
+            Task { @MainActor [weak self] in
+              guard let self else { return }
+              self.disconnectUSB(expected, reason: SessionCloseReason.name(error))
+            }
             return
           }
         }
         if complete || error != nil {
           Task { @MainActor [weak self] in
             guard let self, self.usbConnection === expected else { return }
-            self.disconnectSession(
-              notify: self.hostLink.sessionConnected, reason: complete ? "peer-eof" : "peer-error")
+            self.disconnectUSB(
+              expected, reason: complete ? "peer-eof" : "peer-error")
           }
         } else {
           self.receiveUSB(from: expected, dispatcher: dispatcher)
         }
       }
+    }
+
+    private func disconnectUSB(_ expected: NWConnection, reason: String) {
+      guard usbConnectionIdentity.matches(expected),
+        usbCloseStarted.compareAndSet(expected: false, true)
+      else { return }
+      disconnectSession(notify: hostLink.sessionConnected, reason: reason)
     }
   #endif
 
@@ -1591,6 +1615,7 @@ public final class PenLinkReceiver {
       usbConnection?.cancel()
       usbConnection = nil
       usbDevice = nil
+      usbCloseStarted.set(true)
       usbConnectionIdentity.set(nil)
       usbMode = false
       transportIsUSB = false

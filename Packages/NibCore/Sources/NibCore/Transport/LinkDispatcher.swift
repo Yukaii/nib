@@ -187,6 +187,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
   private let onControl: @Sendable (ControlMessage) -> Void
   private let onSample: @Sendable (PenSample) -> Void
   private let onCloseReason: @Sendable (String) -> Void
+  private var closeNotified = false
   private let armSession: (@Sendable (ControlMessage) -> SessionCipher?)?
   public init(
     transport: LinkByteTransport, armSession: (@Sendable (ControlMessage) -> SessionCipher?)? = nil,
@@ -207,9 +208,21 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
     var samples: [PenSample] = []
     if session != nil {
       encryptedBytes.append(bytes)
-      try receiveEncryptedLocked(controls: &controls, samples: &samples)
+      do {
+        try receiveEncryptedLocked(controls: &controls, samples: &samples)
+      } catch {
+        notifyCloseLocked(SessionCloseReason.name(error))
+        throw error
+      }
     } else {
-      var first = try framer.appendOne(Array(bytes))
+      let initial: StreamFramer.AppendOneResult
+      do {
+        initial = try framer.appendOne(Array(bytes))
+      } catch {
+        notifyCloseLocked(SessionCloseReason.name(error))
+        throw error
+      }
+      var first = initial
       var armed = false
       while true {
         let result: StreamFramer.AppendOneResult
@@ -230,7 +243,12 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
             if case .helloAck(let ack) = message, ack.accepted, let cipher = armSession?(message) {
               session = cipher
               encryptedBytes.append(framer.takeBufferedBytes())
-              try receiveEncryptedLocked(controls: &controls, samples: &samples)
+              do {
+                try receiveEncryptedLocked(controls: &controls, samples: &samples)
+              } catch {
+                notifyCloseLocked(SessionCloseReason.name(error))
+                throw error
+              }
               armed = true
             }
           }
@@ -243,6 +261,12 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
     samples.forEach(onSample)
     lock.lock()
   }
+
+  private func notifyCloseLocked(_ reason: String) {
+    guard !closeNotified else { return }
+    closeNotified = true
+    onCloseReason(reason)
+  }
   public func send(_ message: ControlMessage) {
     let body = Data(ControlFramer().encode(message)).dropFirst(4)
     lock.lock()
@@ -251,7 +275,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
       do {
         transport.send(bytes: Data([StreamFramer.controlType]) + frame(try current.sealControl(Data(body))))
       } catch {
-        onCloseReason(SessionCloseReason.name(error))
+        notifyCloseLocked(SessionCloseReason.name(error))
         transport.close()
       }
     } else {
@@ -279,7 +303,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
           bytes: Data([StreamFramer.sampleType])
             + (try current.sealSample(Data(sample.encode()), sequence: sample.sequence)))
       } catch {
-        onCloseReason(SessionCloseReason.name(error))
+        notifyCloseLocked(SessionCloseReason.name(error))
         transport.close()
       }
     } else {
@@ -314,7 +338,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
         compactEncryptedBufferIfNeeded()
         guard let current = session else {
           let error = SessionCryptoError.invalidSampleFrame
-          onCloseReason(SessionCloseReason.name(error))
+          notifyCloseLocked(SessionCloseReason.name(error))
           throw error
         }
         let opened = try current.openSample(packet)
@@ -327,7 +351,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
         let length = readLE32(encryptedBytes, start + 1)
         guard length >= 24, length <= ControlFramer.maximumMessageSize + 24 else {
           let error = SessionCryptoError.invalidControlFrame
-          onCloseReason(SessionCloseReason.name(error))
+          notifyCloseLocked(SessionCloseReason.name(error))
           throw error
         }
         let total = 1 + 4 + Int(length)
@@ -337,7 +361,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
         compactEncryptedBufferIfNeeded()
         guard let current = session else {
           let error = SessionCryptoError.invalidControlFrame
-          onCloseReason(SessionCloseReason.name(error))
+          notifyCloseLocked(SessionCloseReason.name(error))
           throw error
         }
         let plain = try current.openControl(body)
@@ -346,7 +370,7 @@ public final class StreamLinkDispatcher: @unchecked Sendable {
           controls.append(message)
         }
       } else {
-        onCloseReason("malformed-frame")
+        notifyCloseLocked("malformed-frame")
         throw StreamFramer.Error.unknownType(type)
       }
     }

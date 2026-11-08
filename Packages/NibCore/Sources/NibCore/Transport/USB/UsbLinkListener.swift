@@ -21,6 +21,31 @@ public enum WiFiTransportDecision: Sendable, Equatable {
   }
 }
 
+/// Pure UI routing for the iPad's pairing flow when USB and Wi-Fi change
+/// ownership. The selected transport follows the live cable state; a switch
+/// away from an active Wi-Fi machine gets one plain-language recovery step.
+public struct PairingTransportRoutingDecision: Sendable, Equatable {
+  public let transport: USBPairingTransport
+  public let switchEvent: PairingTransportEvent?
+
+  public static func transition(
+    current: USBPairingTransport?, usbLive: Bool, wifiPairingActive: Bool
+  ) -> Self {
+    let transport: USBPairingTransport = usbLive ? .usb : .wifi
+    let switchedFromActiveWiFi = usbLive && current == .wifi && wifiPairingActive
+    return Self(
+      transport: transport,
+      switchEvent: switchedFromActiveWiFi
+        ? .failed("Switched to the cable. Tap Pair to continue.") : nil)
+  }
+
+  public static func accepts(
+    eventTransport: USBPairingTransport, selectedTransport: USBPairingTransport?
+  ) -> Bool {
+    selectedTransport == eventTransport
+  }
+}
+
 /// iPad-side TCP listener used by usbmuxd. The listener is intentionally
 /// loopback-only: usbmuxd forwards a cable connection through localhost.
 @MainActor

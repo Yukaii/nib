@@ -67,10 +67,12 @@ downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
 ## Handoff
 
 ```
-Branch/commit: t3/transport-tidy-fixes @ b37da425941ee8041bf307ca5f967956b69d1e2c
-Verify: verify: ok (Test run with 189 tests; NibMac + NibPad built)
+Branch/commit: t3/transport-pairing-handoff @ 0be8df5e4ce967dc4f71f028b73970169b6f9ad6
+Verify: verify: ok (Test run with 192 tests; NibMac + NibPad built)
 Done:
 - USB pause is emitted only after an accepted `.pairingRequired` or `.connected` hello acknowledgement; rejected or busy USB attempts leave active Wi-Fi pairing untouched.
+- Pairing UI routing now follows the live transport; an accepted cable during Wi-Fi pairing shows one "Switched to the cable. Tap Pair to continue." step and routes subsequent events to USB.
+- Malformed USB receive data closes the current session immediately, with one guarded close reason even when dispatcher and receive callbacks both report it.
 - Pairing connection loss emits a user-visible failure, and every live USB link has a 10-second pending/pairing watchdog that resumes Wi-Fi after a silent cable pull.
 - The host USB dispatcher is tested decoding sealed bytes immediately after arming; stale sender callbacks and duplicate USB close handling are guarded.
 - Peer names in Mac logs are private and capped at 64 characters; sequence-wrap cleanup remains off the per-sample path.
@@ -78,9 +80,10 @@ Done:
 Manual checks (not run):
 1. Run `scripts/install-devices.sh both` with an iPad mini 7 and Mac, unlock both devices, and start NibPad and NibMac from the on-screen instructions.
 2. Pair over Wi-Fi, start an active pairing flow, then plug in the USB-C cable. Confirm the Wi-Fi pairing UI remains active while USB retries report busy; confirm Wi-Fi does not pause until USB is accepted.
-3. Complete USB pairing/session setup and draw pressure strokes in Krita. Leave the cable connected and idle for one minute; confirm the session remains connected and the Mac log has no Wi-Fi busy spam.
-4. Pull the cable during USB pairing before authentication completes. Confirm Wi-Fi resumes within about 10 seconds and the pairing UI shows a next step after the lost connection.
-5. With a connected USB session, unplug and confirm Wi-Fi reconnects within about 2 seconds; replug and confirm USB becomes active again without stopping the pressure stroke path.
-6. Relaunch NibMac while the iPad is paired, wait for the first reconnect, and draw immediately. Confirm there is no one-time heartbeat timeout; repeat once after leaving the cable connected for an idle minute.
+3. Start Wi-Fi pairing, plug the cable in before tapping Pair on the Mac → one switch message, then pairing completes over USB.
+4. Complete USB pairing/session setup and draw pressure strokes in Krita. Leave the cable connected and idle for one minute; confirm the session remains connected and the Mac log has no Wi-Fi busy spam.
+5. Pull the cable during USB pairing before authentication completes. Confirm Wi-Fi resumes within about 10 seconds and the pairing UI shows a next step after the lost connection.
+6. With a connected USB session, unplug and confirm Wi-Fi reconnects within about 2 seconds; replug and confirm USB becomes active again without stopping the pressure stroke path.
+7. Relaunch NibMac while the iPad is paired, wait for the first reconnect, and draw immediately. Confirm there is no one-time heartbeat timeout; repeat once after leaving the cable connected for an idle minute.
 Not done / risks: Physical iPad/Mac cable switching, watchdog timing, and relaunch behavior still require the device check.
 ```
