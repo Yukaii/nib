@@ -10,8 +10,8 @@ hosts for Windows/Linux later (M5).
 
 M3 in progress: protocol v2 (0016-0018), CI, Mac and iPad onboarding merged.
 Pairing confirmed on device over Wi-Fi and USB (0022, 0024-0026,
-2026-11-08). Encrypted sessions (0023) reverted after a device drop loop;
-running again now; then iPad settings and the Mac settings window.
+2026-11-08). Encrypted sessions (0023) confirmed on device too. Next: 0027
+transport tidy-up, then iPad settings and the Mac settings window.
 
 ## Milestones
 
@@ -45,7 +45,8 @@ running again now; then iPad settings and the Mac settings window.
 - [x] 0024 Pairing UI on Mac and iPad, Keychain keys, retire the allow list
 - [x] 0025 Re-pairing after Forget works from either side
 - [x] 0026 Pairing over USB: USB wins over Wi-Fi before sign-in too
-- [ ] 0023 Encrypted sessions (reopened: drop loop on device): ChaCha20-Poly1305 control frames and samples
+- [x] 0023 Encrypted sessions: ChaCha20-Poly1305 (confirmed on device 2026-11-08)
+- [ ] 0027 Transport tidy-up: USB arming race, Wi-Fi backoff on cable, log nits
 - [ ] iPad settings restructure (Pen / Profiles / Gestures / Display / Advanced)
 - [ ] Mac settings window: display, active-area mapping, multi-display
 - [ ] Keep-awake, minimal brightness, palm rejection review

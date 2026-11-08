@@ -1,0 +1,66 @@
+---
+id: "0027"
+title: Transport tidy-up — USB arming race, Wi-Fi backoff on cable, log nits
+status: todo
+milestone: M3
+depends: ["0023"]
+---
+
+## Goal
+
+USB sessions never drop because sealed bytes beat the Mac's arm step. The
+iPad stops knocking on Wi-Fi while the cable is connected. Logs say exactly
+what happened, once.
+
+## Context
+
+Follow-ups from the 0023 round-4 review (all fail-closed today, none a
+downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
+
+1. **Mac USB arming race** (`PenLink.swift`, `handle(.hello)` →
+   `sendControl(helloAck)` then `configureSession`; `receiveUSB` on the NW
+   queue). Sealed bytes from the iPad can arrive before `configureSession`
+   runs on main. They are then parsed as plaintext and the session closes
+   (a rare drop under main-thread load). Send the plaintext ack and install
+   the cipher in one dispatcher critical section. Capture the dispatcher per
+   connection in `receiveUSB` instead of reading `usbDispatcher` off the main
+   actor.
+2. **Wi-Fi backoff while USB is up** (iPad, `Apps/NibPad/NibPadApp.swift` +
+   `PenLinkSender`). With the cable in, the Wi-Fi sender retries every 1-2 s
+   and gets `busy`, which floods the Mac log. Pause Wi-Fi connects while the
+   USB listener has a live connection, and resume within ~2 s of unplugging.
+   The plug/unplug switch the user confirmed must stay seamless.
+3. **Logs**:
+   - `session accepted from <deviceName>` logs a peer string as public and
+     unbounded; make it private and truncate it to 64 chars.
+   - `disconnectSession` logs `reason=ended` even with nothing open.
+   - Dispatcher failures are logged twice (dispatcher `onCloseReason` and the
+     owner); log once.
+   - After a sequence wrap, USB logs/closes once per sample.
+4. `.busy` in host `handle(.hello)` sets `connection = nil` without
+   `disconnectSession`, leaving gates up until the heartbeat times out. Only a
+   key-holding peer can reach it, but tear down properly.
+
+## Acceptance
+
+- [ ] Test: on the Mac USB path, sealed bytes delivered immediately after the
+  ack (before main runs) open correctly (drive the dispatcher directly).
+- [ ] Test: the Wi-Fi sender pause/resume decision (pure helper) for cable
+  in / cable out / cable out → in.
+- [ ] `scripts/verify.sh` passes.
+- [ ] Manual (user, `scripts/install-devices.sh both`): Mac log quiet with the
+  cable in; unplug → Wi-Fi within ~2 s; replug → USB; pressure in Krita.
+
+## Out of scope
+
+- Protocol changes; spec and vectors stay as they are.
+
+## Handoff
+
+```
+Branch/commit:
+Verify:
+Done:
+Manual checks:
+Not done / risks:
+```
