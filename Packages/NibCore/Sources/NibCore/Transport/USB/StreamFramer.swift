@@ -86,13 +86,34 @@ public enum USBTransportDecision: Sendable, Equatable {
   case accept, replace, busy
 }
 
-/// USB is preferred when it appears, but an existing USB session is exclusive.
+public enum USBTransportState: Sendable, Equatable {
+  case none
+  case wifiPending
+  case wifiPairingOnlyIdle
+  case wifiPairingActive
+  case wifiSession
+  case usbPending
+  case usbPairingOnly
+  case usbSession
+}
+
+/// USB is preferred in every state, but an active pairing machine owns its
+/// connection until it finishes or times out.
 public enum USBTransportArbitration {
-  public static func decide(current: USBTransport, newcomer: USBTransport) -> USBTransportDecision {
+  public static func decide(
+    current: USBTransportState, newcomer: USBTransport
+  ) -> USBTransportDecision {
     switch (current, newcomer) {
-    case (.usb, _): return .busy
-    case (.wifi, .usb): return .replace
-    default: return .accept
+    case (.usbPending, _), (.usbPairingOnly, _), (.usbSession, _):
+      return .busy
+    case (.wifiPairingActive, _):
+      return .busy
+    case (.wifiPending, .usb), (.wifiPairingOnlyIdle, .usb), (.wifiSession, .usb):
+      return .replace
+    case (.wifiPending, .wifi), (.wifiPairingOnlyIdle, .wifi), (.wifiSession, .wifi):
+      return .replace
+    default:
+      return .accept
     }
   }
 }

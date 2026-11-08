@@ -1,7 +1,7 @@
 ---
 id: "0026"
 title: Pairing over USB — USB wins over Wi-Fi before sign-in too
-status: doing
+status: review
 milestone: M3
 depends: ["0025"]
 ---
@@ -73,9 +73,13 @@ Changes:
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/usb-pairing-arbitration @ 59724df895db4ed090232884b2f77b9367fb5f43
+Verify: verify: ok (Test run with 168 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added a pure eight-state USB/Wi-Fi arbitration table and routed both Mac accept paths through it.
+- USB pairing-only links now reject Wi-Fi newcomers; replacements clear all link state before installing the live transport.
+- iPad pairing chooses one transport, preferring any live USB stream, and ignores events from the other transport.
+- Added transport and pairing-phase diagnostics without secrets, plus framer-backed policy tests.
+Manual checks: not run. User steps: run `scripts/install-devices.sh both`; with Wi-Fi on, connect the cable and tap Pair on the iPad, confirm the same code on both screens; repeat with Wi-Fi off; during a session unplug the cable and verify Wi-Fi resumes, then reconnect the cable and verify USB resumes without pairing again.
+Not done / risks: On-device checks require the user's paired iPad, Mac Accessibility permission, and taps; pressure sample handling was left unchanged.
 ```

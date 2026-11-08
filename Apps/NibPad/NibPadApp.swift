@@ -11,6 +11,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
   private let pairingStore = KeychainPairingKeyStore()
   private let initialHostID: String
   private let defaults = UserDefaults.standard
+  private var pairingTransport: USBPairingTransport?
   private(set) var linkState: PenLinkState = .searching
   private(set) var frontApp = ControlMessage.FrontApp(appID: "", name: "Default")
   private(set) var hostInfo: ControlMessage.HostInfo?
@@ -39,7 +40,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     sender.hostsHandler = { [weak self] hosts in self?.onHostsChanged?(hosts) }
     sender.onFrontApp = { [weak self] app in self?.frontApp = app }
     sender.onHostInfo = { [weak self] info in self?.hostInfo = info }
-    sender.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event) }
+    sender.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event, transport: .wifi) }
     sender.start(
       hello: .init(
         appVersion: appVersion, deviceID: deviceID, deviceName: UIDevice.current.name, surfaceWidth: 0,
@@ -54,7 +55,7 @@ final class NetworkSink: PenSampleSink, GestureSink {
     }
     usb.onFrontApp = { [weak self] app in self?.frontApp = app }
     usb.onHostInfo = { [weak self] info in self?.hostInfo = info }
-    usb.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event) }
+    usb.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event, transport: .usb) }
     sender.configurePairing(store: pairingStore, hostID: initialHostID)
     usb.configurePairing(store: pairingStore, hostID: initialHostID)
     usb.start(hello: hello)
@@ -93,34 +94,51 @@ final class NetworkSink: PenSampleSink, GestureSink {
   }
 
   func beginPairing() {
-    sender.beginPairing(deviceID: deviceID, deviceName: UIDevice.current.name)
-    usb.beginPairing(deviceID: deviceID, deviceName: UIDevice.current.name)
+    let transport = USBPairingTransport.choose(usbHasLiveConnection: usb.hasLiveConnection)
+    pairingTransport = transport
+    switch transport {
+    case .usb:
+      usb.beginPairing(deviceID: deviceID, deviceName: UIDevice.current.name)
+    case .wifi:
+      sender.beginPairing(deviceID: deviceID, deviceName: UIDevice.current.name)
+    }
   }
 
   func confirmPairing() {
-    sender.confirmPairing()
-    usb.confirmPairing()
+    switch pairingTransport {
+    case .usb: usb.confirmPairing()
+    case .wifi: sender.confirmPairing()
+    case nil: break
+    }
   }
 
   func cancelPairing() {
-    sender.cancelPairing()
-    usb.cancelPairing()
+    switch pairingTransport {
+    case .usb: usb.cancelPairing()
+    case .wifi: sender.cancelPairing()
+    case nil: break
+    }
   }
 
   func pairAgain() {
-    sender.pairAgain()
-    usb.pairAgain()
+    pairingTransport = USBPairingTransport.choose(usbHasLiveConnection: usb.hasLiveConnection)
+    switch pairingTransport {
+    case .usb: usb.pairAgain()
+    case .wifi: sender.pairAgain()
+    case nil: beginPairing()
+    }
   }
 
   func forgetMac() {
     guard let hostID = defaults.string(forKey: "nib.hostPeerID") else { return }
     pairingStore.removeKey(for: hostID)
     defaults.removeObject(forKey: "nib.hostPeerID")
-    sender.pairAgain()
-    usb.pairAgain()
+    pairingTransport = USBPairingTransport.choose(usbHasLiveConnection: usb.hasLiveConnection)
+    pairAgain()
   }
 
-  private func handlePairingEvent(_ event: PairingTransportEvent) {
+  private func handlePairingEvent(_ event: PairingTransportEvent, transport: USBPairingTransport) {
+    guard pairingTransport == transport else { return }
     if case .paired(let peerID) = event { defaults.set(peerID, forKey: "nib.hostPeerID") }
     onPairingEvent?(event)
   }
