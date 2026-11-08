@@ -1,7 +1,7 @@
 ---
 id: "0023"
 title: Encrypted sessions — seal control frames and samples
-status: review
+status: doing
 milestone: M3
 depends: ["0022", "0024"]
 ---
@@ -63,14 +63,9 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit: t3/encrypted-session-fixes @ e0f5664f68015c2d6179b8a98676bb86b9dee912
-Verify: verify: ok (Test run with 171 tests; NibMac + NibPad built)
+Branch/commit:
+Verify:
 Done:
-- Switched encrypted TCP and USB dispatchers to offset-based buffers, covering split, combined, and repeated sealed control reads without `Data` index traps.
-- Kept one armed `SessionCipher` per iPad session for control and samples, extracted the host construction point, and rejected replayed or invalid arm acknowledgements.
-- Added terminal sequence-wrap latching, non-modular sample ordering, connected-state gates, and tri-state unknown-control skipping for TCP and USB.
-- Added host-to-iPad control/sample vectors, four-subkey assertions, a reproducible Swift vector generator, and precise post-helloAck protocol/architecture documentation.
-- Release benchmark: `session sample seal benchmark: 3.64 µs per seal (10k)`; `session sample open benchmark: 2.85 µs per open (10k)`.
-Manual checks: Not run. On an iPad mini 7 and Apple Silicon Mac, pair from a clean install, draw a pressure stroke in Krita over Wi-Fi, confirm pressure and front-app updates, disconnect/reconnect, then repeat over USB. During both sessions verify the iPad screen stays black and pressure varies in Krita. Launch an unkeyed `nib-receive` and confirm it cannot decode the sealed samples.
-Not done / risks: Physical iPad/Mac/Krita checks require hardware and were not run. Existing Swift concurrency warnings in Network callback code remain; no new main-actor hop was added to the Pencil sample path.
+Manual checks:
+Not done / risks:
 ```

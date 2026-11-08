@@ -20,8 +20,6 @@ Platform-agnostic unless noted; macOS-only files sit behind `#if os(macOS)`.
 - `Transport/` (decision 0004)
   - `ControlMessage` + `ControlFramer` — length-prefixed JSON over TCP:
     hello / helloAck / geometry / ping / probe / gesture / frontApp.
-  - `SessionCipher` — authenticated post-hello control and sample frames with
-    per-direction keys, counters, and a per-session sample epoch.
   - `SampleSequencer` — drops not-newer UDP samples.
   - `PenLink` — `PenLinkSender` (iPad: Bonjour browse, hello, UDP send,
     triple-send of state transitions, 1 s ping, 3 s timeout, reconnect) and

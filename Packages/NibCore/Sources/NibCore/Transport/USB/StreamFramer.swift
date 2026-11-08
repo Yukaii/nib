@@ -9,11 +9,6 @@ public enum StreamFrame: Sendable, Equatable {
 /// Incremental decoder for the one-byte type tagged USB stream.
 public struct StreamFramer: Sendable {
   public typealias Frame = StreamFrame
-  public enum AppendOneResult: Sendable, Equatable {
-    case frame(StreamFrame)
-    case skipped
-    case needMore
-  }
   public enum Error: Swift.Error, Equatable {
     case unknownType(UInt8)
     case invalidControl
@@ -61,42 +56,6 @@ public struct StreamFramer: Sendable {
       }
     }
     return frames
-  }
-
-  public mutating func appendOne(_ chunk: [UInt8]) throws -> AppendOneResult {
-    bytes.append(contentsOf: chunk)
-    guard let type = bytes.first else { return .needMore }
-    switch type {
-    case Self.sampleType:
-      guard bytes.count >= 1 + PenSample.byteCount else { return .needMore }
-      let payload = bytes[1..<(1 + PenSample.byteCount)]
-      guard let sample = try? PenSample(decoding: payload) else { throw Error.invalidSample }
-      bytes.removeFirst(1 + PenSample.byteCount)
-      return .frame(.sample(sample))
-    case Self.controlType:
-      guard bytes.count >= 5 else { return .needMore }
-      let length = UInt32(bytes[1]) | UInt32(bytes[2]) << 8 | UInt32(bytes[3]) << 16 | UInt32(bytes[4]) << 24
-      guard length <= ControlFramer.maximumMessageSize, length >= 2 else { throw Error.invalidControl }
-      let total = 1 + 4 + Int(length)
-      guard bytes.count >= total else { return .needMore }
-      var control = ControlFramer()
-      do {
-        let result = try control.appendOne(Array(bytes[1..<total]))
-        bytes.removeFirst(total)
-        switch result {
-        case .message(let message): return .frame(.control(message))
-        case .skipped: return .skipped
-        case .needMore: throw Error.invalidControl
-        }
-      } catch { throw Error.invalidControl }
-    default: throw Error.unknownType(type)
-    }
-  }
-
-  public mutating func takeBufferedBytes() -> Data {
-    let result = Data(bytes)
-    bytes.removeAll(keepingCapacity: true)
-    return result
   }
 
   public mutating func feed(_ chunk: [UInt8]) throws -> [StreamFrame] { try append(chunk) }

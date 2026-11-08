@@ -297,12 +297,6 @@ public struct ControlFramer: Sendable {
   private let encoder: JSONEncoder
   private let decoder: JSONDecoder
 
-  public enum AppendOneResult: Sendable, Equatable {
-    case message(ControlMessage)
-    case skipped
-    case needMore
-  }
-
   public init() {
     encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
@@ -347,39 +341,6 @@ public struct ControlFramer: Sendable {
       }
     }
     return messages
-  }
-
-  /// Decodes at most one frame. This is used by the session boundary so a
-  /// plaintext helloAck cannot make the framer inspect the sealed bytes that
-  /// follow it in the same socket read.
-  public mutating func appendOne(_ chunk: [UInt8]) throws -> AppendOneResult {
-    bytes.append(contentsOf: chunk)
-    guard bytes.count >= 4 else { return .needMore }
-    let length = UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24
-    guard length <= Self.maximumMessageSize else { throw Error.oversized(Int(length)) }
-    guard length >= 2 else { throw Error.invalidLength(length) }
-    let total = 4 + Int(length)
-    guard bytes.count >= total else { return .needMore }
-    let body = Data(bytes[4..<total])
-    bytes.removeFirst(total)
-    guard let object = try? JSONSerialization.jsonObject(with: body),
-      let dictionary = object as? [String: Any], let type = dictionary["type"] as? String
-    else { throw Error.malformed }
-    guard ControlMessage.isKnownType(type) else { return .skipped }
-    do { return .message(try decoder.decode(ControlMessage.self, from: body)) } catch {
-      if type == "gesture", let gesture = dictionary["gesture"] as? [String: Any],
-        let gestureType = gesture["type"] as? String, !Gesture.isKnownType(gestureType)
-      {
-        return .skipped
-      }
-      throw Error.malformed
-    }
-  }
-
-  public mutating func takeBufferedBytes() -> Data {
-    let result = Data(bytes)
-    bytes.removeAll(keepingCapacity: true)
-    return result
   }
 
   public static func encode(_ message: ControlMessage) -> [UInt8] { ControlFramer().encode(message) }
