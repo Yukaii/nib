@@ -224,3 +224,14 @@ extension TransportTests {
   let encoded = String(decoding: try JSONEncoder().encode(chord), as: UTF8.self)
   #expect(encoded.contains("KeyZ") && !encoded.contains("keyCode") && !encoded.contains("command"))
 }
+
+// Found on device: an idle USB session expired every ~3 s because the
+// heartbeat loop reported the last sample's older time after a fresh ping.
+@Test func receiverSessionActivityNeverMovesBackwards() {
+  var session = ReceiverSession()
+  _ = session.hello(protocolVersion: ProtocolVersion.control, busy: false, acceptResult: true, now: 0)
+  session.received(at: 10)
+  session.received(at: 1)
+  let expired = session.timeoutIfNeeded(at: 12)
+  #expect(!expired)
+}

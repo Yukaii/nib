@@ -256,7 +256,10 @@ public struct ReceiverSession: Sendable, Equatable {
 
   public mutating func received(at now: TimeInterval) {
     guard accepted else { return }
-    lastReceived = now
+    // Never move backwards: the heartbeat loop also reports the last sample's
+    // (older) time, which used to overwrite a fresh ping and expire an idle
+    // session every 3 s.
+    lastReceived = max(lastReceived ?? now, now)
   }
 
   public mutating func acceptsUDP(from host: String, sequence: UInt32) -> Bool {
