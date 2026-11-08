@@ -1,7 +1,7 @@
 ---
 id: "0027"
 title: Transport tidy-up — USB arming race, Wi-Fi backoff on cable, log nits
-status: todo
+status: doing
 milestone: M3
 depends: ["0023"]
 ---
