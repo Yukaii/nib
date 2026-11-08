@@ -1,7 +1,7 @@
 ---
 id: "0029"
 title: Mac settings window — display, active area, multi-display
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -73,9 +73,13 @@ persist.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/mac-settings-window @ c9782d32bafeb2de6c4c10853cb165c8f03210e2
+Verify: verify: ok (Test run with 196 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Added Codable host mapping settings with stable display UUID targets, all-display unions, normalized active areas, and live proportion modes.
+- Extended the pure mapper and injection worker so mapping changes are applied on the worker queue without per-sample allocations or main-thread hops.
+- Added a macOS Settings scene with display selection, active-area preview, proportions, smoothing, launch-at-login, diagnostics, and paired iPad controls; the menu now stays concise and activates Settings in front.
+- Added mapper and settings tests for round-trips, fallback/reappearance, corners, clamp behavior, sub-rectangles, negative display origins, and stretch versus keep-proportions.
+Manual checks: Not run. User: run `scripts/install-devices.sh mac`, open Settings… (⌘,), select an active area and draw in Krita to confirm strokes stay inside it; toggle proportions during a stroke; with a second display select it and then All displays; relaunch Nib and confirm the selection persists. The second-display portion is optional when no second display is available.
+Not done / risks: Hardware Krita verification remains with the user; preview coordinates are a scaled overview of global display bounds.
 ```

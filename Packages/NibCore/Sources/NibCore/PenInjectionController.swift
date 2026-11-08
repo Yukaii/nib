@@ -58,6 +58,12 @@
       mapper.displayChanged(rect)
     }
 
+    public mutating func mappingChanged(
+      _ rect: CGRect, proportions: MappingSettings.Proportions
+    ) {
+      mapper.mappingChanged(rect, proportions: proportions)
+    }
+
     public mutating func sessionEnded() {
       guard accessibilityTrusted else { return }
       let sample = PenSample(
@@ -130,6 +136,9 @@
     }
 
     public func displayChanged(_ rect: CGRect) { queue.async { [self] in controller.displayChanged(rect) } }
+    public func mappingChanged(_ rect: CGRect, proportions: MappingSettings.Proportions) {
+      queue.async { [self] in controller.mappingChanged(rect, proportions: proportions) }
+    }
     public func surfaceChanged(_ size: CGSize) { queue.async { [self] in controller.surfaceChanged(size) } }
     public func sessionEnded() { queue.async { [self] in controller.sessionEnded() } }
     public func refreshTrust() -> Bool {
