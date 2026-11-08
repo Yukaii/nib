@@ -75,7 +75,7 @@ Apps/NibMac/         macOS menu-bar host app (receiver + event injection)
 Apps/NibPad/         iPadOS app (screen-off pen capture + sender)
 Hosts/               (M5) Rust workspace: nib-core + Windows/Linux hosts
 project.yml          XcodeGen spec for both apps
-scripts/             verify.sh, check-workflow.sh
+scripts/             verify.sh, check-workflow.sh, install-devices.sh
 ```
 
 ## Protocol rules
@@ -99,7 +99,11 @@ os(iOS)` so `swift test` on the Mac covers everything testable.
 scripts/verify.sh            # the only gate: workflow, format, build, tests, app builds
 swift test --package-path Packages/NibCore   # focused tests
 xcodegen generate            # regenerate Nib.xcodeproj
+scripts/install-devices.sh [pad|mac|both]   # sign, install, launch on real devices
 ```
+
+Device installs need a local team (`git config --local nib.teamId <ID>`, never
+committed) and a paired, unlocked iPad; agents may use it for manual checks.
 
 Never pipe verify into `tail` without `set -o pipefail`.
 
