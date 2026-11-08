@@ -380,14 +380,16 @@ struct PairingTests {
         appVersion: "0.3.0", deviceID: "device-001", deviceName: "iPad", surfaceWidth: 1,
         surfaceHeight: 1, nonce: nonce, proof: proof)
     }
-    // Missing proof → reject, disconnect.
-    if case .reject(let ack, let disconnect) = link.receiveHello(
+    // A proofless hello from a known device starts pairing, but does not
+    // authenticate or replace the stored key.
+    if case .pairingRequired(let ack) = link.receiveHello(
       hello(nonce: nil, proof: nil), connectionGeneration: 1, busy: false, now: 0)
     {
       #expect(ack.accepted == false)
-      #expect(disconnect)
+      #expect(ack.pairingRequired == true)
+      #expect(link.pairingKey(for: "device-001") == pairKey)
     } else {
-      Issue.record("missing proof must reject")
+      Issue.record("proofless known hello must invite pairing")
     }
     // Bad proof → reject.
     if case .reject = link.receiveHello(

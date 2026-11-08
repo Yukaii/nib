@@ -150,11 +150,23 @@ wait as long as the user needs before tapping Pair. After the user confirms on
 both sides, the iPad sends a fresh authenticated `hello` on the same
 connection. USB uses the same flow over the USB stream.
 
+If a host still has a key but receives a `hello` with neither `nonce` nor
+`proof`, it sends the same `pairingRequired` invitation and enters the same
+pairing-only state. This is a re-pair request, not authentication: a hello
+with only one field, or with an invalid proof, is rejected and disconnected.
+The host retains its old key while the new commit-reveal exchange is pending;
+the new key replaces it only after both users confirm the displayed code.
+The device ends the old session before sending this request, so pairing
+traffic never rides an authenticated session. A retry requested while no
+session is available is held until the next connection and then starts
+pairing automatically. USB follows the same reconnect and pairing rules.
+
 When an iPad already holds a key but receives an unauthenticated
 `pairingRequired` hint, it keeps the key and surfaces “Mac asks to pair again.”
-The user must explicitly choose Pair again; that action deletes the old key and
-starts pairing. Until then normal reconnect with backoff continues. The device
-keeps pairing-only gating enabled: it accepts only `helloAck`, `pairResponse`,
+The user must explicitly choose Pair again; that action ends the current
+connection, deletes the old key, and starts pairing on the next connection.
+Until then normal reconnect with backoff continues. The device keeps
+pairing-only gating enabled: it accepts only `helloAck`, `pairResponse`,
 `pairResult` and `ping`, and ignores pen, geometry, probe, gesture and app
 messages.
 

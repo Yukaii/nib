@@ -1,7 +1,7 @@
 ---
 id: "0025"
 title: Re-pairing after Forget works from either side
-status: doing
+status: review
 milestone: M3
 depends: ["0024"]
 ---
@@ -59,9 +59,13 @@ showed no code on either screen. Code reading (`Packages/NibCore/Sources/NibCore
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: t3/repair-pairing-recovery @ pending
+Verify: verify: ok (Test run with 159 tests; NibMac + NibPad built)
 Done:
-Manual checks:
-Not done / risks:
+- Known-device proofless hellos enter pairing-only mode without authenticating or replacing the stored host key.
+- Pair-again ends the old Wi-Fi or USB session and carries the pairing request to the next connection.
+- Pair buttons in onboarding and the pairing sheet work from disconnected or rejected states.
+- Protocol documentation and HostLink regression coverage updated.
+Manual checks: Not run. User should run `scripts/install-devices.sh both`, then verify (a) iPad Forget → Pair over Wi-Fi, (b) Mac Forget → Pair over Wi-Fi, (c) both Forget → Pair over Wi-Fi, (d) iPad stale key after Mac Forget shows the pairing prompt and completes, and (a) again over USB. On each run, confirm both screens show the same six-digit code before tapping Pair on both.
+Not done / risks: Real-device reconnect behavior, especially usbmuxd reconnect after the iPad closes the old USB stream, still needs the manual checks above.
 ```
