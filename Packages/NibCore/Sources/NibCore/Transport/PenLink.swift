@@ -885,12 +885,38 @@ public final class PenLinkReceiver {
   }
 
   private func handlePairingMessage(_ message: ControlMessage) {
-    guard connection != nil else { return }
+    let transport = transportIsUSB ? "usb" : "wifi"
+    let kind = Self.pairingKind(message)
+    guard connection != nil else {
+      transportLogger.info("pairing message=\(kind, privacy: .public) dropped=no-connection")
+      return
+    }
     // In pairing-only only pair*/ping are processed; full sessions ignore
     // stray pairing traffic.
-    if hostLink.sessionConnected { return }
-    if !hostLink.allows(message, connectionGeneration: connectionGeneration) { return }
+    if hostLink.sessionConnected {
+      transportLogger.info(
+        "pairing message=\(kind, privacy: .public) dropped=session transport=\(transport, privacy: .public)")
+      return
+    }
+    if !hostLink.allows(message, connectionGeneration: connectionGeneration) {
+      transportLogger.info(
+        "pairing message=\(kind, privacy: .public) dropped=not-allowed transport=\(transport, privacy: .public)"
+      )
+      return
+    }
+    transportLogger.info("pairing message=\(kind, privacy: .public) transport=\(transport, privacy: .public)")
     pairingDriver?.receive(message, connectionGeneration: connectionGeneration)
+  }
+
+  /// Message type only: never keys, nonces, commitments or codes.
+  private static func pairingKind(_ message: ControlMessage) -> String {
+    switch message {
+    case .pairRequest: "pairRequest"
+    case .pairReveal: "pairReveal"
+    case .pairResult(let result): result.accepted ? "pairResult-accept" : "pairResult-cancel"
+    case .pairResponse: "pairResponse"
+    default: "other"
+    }
   }
 
   public func start() {
@@ -1155,6 +1181,18 @@ public final class PenLinkReceiver {
       let outcome = hostLink.receiveHello(
         hello, connectionGeneration: id, busy: hostLink.sessionConnected, now: now,
         hostAppVersion: hostInfo?.appVersion ?? "unknown")
+      let outcomeName: String =
+        switch outcome {
+        case .reject: "reject"
+        case .busy: "busy"
+        case .pairingRequired: "pairing-required"
+        case .needsAccept: "needs-accept"
+        case .authenticated: "authenticated"
+        }
+      let withProof = hello.proof != nil
+      transportLogger.info(
+        "hello outcome=\(outcomeName, privacy: .public) proof=\(withProof, privacy: .public) transport=\(self.transportIsUSB ? "usb" : "wifi", privacy: .public)"
+      )
       switch outcome {
       case .reject(let ack, _):
         sendControl(.helloAck(ack))
