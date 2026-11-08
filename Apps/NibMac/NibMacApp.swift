@@ -359,6 +359,8 @@ private final class NibMacModel: ObservableObject {
       pairingPanel = nil
       activePairingPeerName = nil
       pairingMessage = "Pairing could not finish: \(reason)"
+    case .notice(let message):
+      pairingMessage = message
     }
   }
 

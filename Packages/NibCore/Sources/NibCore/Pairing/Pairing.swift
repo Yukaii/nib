@@ -275,6 +275,7 @@ public enum PairingTransportEvent: Sendable, Equatable {
   case cancelled
   case timedOut
   case failed(String)
+  case notice(String)
 }
 
 public enum PairingTransportPolicy {

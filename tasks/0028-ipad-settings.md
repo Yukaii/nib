@@ -1,7 +1,7 @@
 ---
 id: "0028"
 title: iPad settings — sectioned panel, plain wording, Advanced for debug
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -72,9 +72,13 @@ tucked into Advanced, and every pairing/connection message reads naturally.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: `t3/ipad-settings` @ `23ee20782f220c407d3e217a5c4814e6554506d2`
+Verify: `verify: ok (Test run with 194 tests; NibMac + NibPad built)`
 Done:
-Manual checks:
-Not done / risks:
+- Replaced the companion scroll view with a dark NavigationStack/List organized into Connection, Pen, Profiles, Gestures, Display and Advanced.
+- Added live persisted reset-to-defaults logic that leaves pairing and device identity untouched, with deterministic status and reset tests.
+- Added a neutral pairing transport notice so cable switching is not shown as a failure; pairing errors remain distinct.
+- Kept pressure capture and profile editing behavior intact while making status and connection wording plain.
+Manual checks: Not run. User should run `scripts/install-devices.sh pad`, open the four-finger panel, visit every section in portrait and landscape, change pressure and verify the test strip, edit a profile, then use Advanced → Reset all settings and confirm the Mac remains paired.
+Not done / risks: Full on-device UI and edge-control live preview still need the user’s iPad check. `Apps/NibMac/NibMacApp.swift` has a small exhaustive-switch notice case because the shared event enum is used by both apps; task 0029 can refine its Mac presentation.
 ```

@@ -16,50 +16,87 @@ struct CompanionPanel: View {
   @State private var testRaw: Double = 0.5
   @State private var editing: ProfileTarget?
   @State private var confirmsReset = false
+  @State private var confirmsSettingsReset = false
 
   private struct ProfileTarget: Identifiable { let id: UUID }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
-        HStack {
-          VStack(alignment: .leading) {
-            Text("Nib Companion").font(.title2.bold())
-            Text(plainStatus).font(.footnote).foregroundStyle(.secondary)
-            if let hostInfo {
-              Text(
-                "Connected to \(hostInfo.name) (\(hostInfo.platform.displayName), Nib \(hostInfo.appVersion))"
-              )
-              .font(.footnote).foregroundStyle(.secondary)
-            }
+    NavigationStack {
+      List {
+        Section("Connection") {
+          Label(plainStatus, systemImage: connectionSymbol)
+          if let hostInfo { LabeledContent("Mac", value: hostInfo.name) }
+          LabeledContent("Connection", value: connectionDescription)
+          Button("Change Mac") { changeMac() }
+          Button("Forget this Mac", role: .destructive) { forgetMac() }
+        }
+        Section("Pen") {
+          pressureSection
+          if pressureResult == .noPressure {
+            Text(
+              "This Pencil doesn’t report pressure. Use Apple Pencil (1st gen), Apple Pencil 2 or Apple Pencil Pro."
+            )
+            .font(.footnote).foregroundStyle(.orange)
           }
-          Spacer()
-          Button("Done") { NotificationCenter.default.post(name: .closeCompanionPanel, object: nil) }
         }
-        pressureSection
-        if pressureResult == .noPressure {
-          Text(
-            "This Pencil doesn’t report pressure. Nib needs Apple Pencil (1st gen), Apple Pencil 2 or Apple Pencil Pro."
-          )
-          .font(.footnote).foregroundStyle(.orange)
+        Section("Profiles") { profilesSection }
+        Section("Gestures") {
+          Text("Gestures are set per profile so each Mac app can behave the way you expect.")
+            .font(.footnote).foregroundStyle(.secondary)
+          Button("Edit gestures in Profiles") { editing = ProfileTarget(id: activeID) }
         }
-        profilesSection
-        Toggle("Debug HUD", isOn: $showsHUD)
-        Button("Change Mac") { changeMac() }
-        Button("Forget this Mac", role: .destructive) { forgetMac() }
-        Button("Show introduction again") { showIntroduction() }
-        HStack {
-          Text("Edge brightness")
-          Slider(value: edgeBrightness, in: 0...1)
-          Text(store.settings.edgeBrightness, format: .percent.precision(.fractionLength(0)))
-            .frame(width: 44, alignment: .trailing)
+        Section("Display") {
+          HStack {
+            Text("Edge brightness")
+            Slider(value: edgeBrightness, in: 0...1)
+            Text(store.settings.edgeBrightness, format: .percent.precision(.fractionLength(0)))
+              .frame(width: 44, alignment: .trailing)
+          }
+          Text("The edge controls stay visible while you adjust this.")
+            .font(.footnote).foregroundStyle(.secondary)
+        }
+        Section("Advanced") {
+          Toggle("Debug HUD", isOn: $showsHUD)
+          LabeledContent("App version", value: appVersion)
+          Button("Show introduction again") { showIntroduction() }
+          Button("Reset all settings", role: .destructive) { confirmsSettingsReset = true }
         }
       }
-      .padding(24)
+      .navigationTitle("Nib Companion")
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { NotificationCenter.default.post(name: .closeCompanionPanel, object: nil) }
+        }
+      }
+      .confirmationDialog(
+        "Reset pressure, profiles and display settings? Your pairing stays connected.",
+        isPresented: $confirmsSettingsReset, titleVisibility: .visible
+      ) {
+        Button("Reset all settings", role: .destructive) { store.resetToDefaults() }
+      }
     }
     .background(.black.opacity(0.92))
     .foregroundStyle(.white)
     .tint(.cyan)
+    .preferredColorScheme(.dark)
+  }
+
+  private var appVersion: String {
+    let version =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    return "\(version) (build \(build))"
+  }
+
+  private var connectionDescription: String {
+    if case .connected(_, let viaUSB) = linkState { return viaUSB ? "Cable" : "Wi-Fi" }
+    return "Not connected"
+  }
+
+  private var connectionSymbol: String {
+    if case .connected(_, true) = linkState { return "cable.connector" }
+    if case .connected = linkState { return "wifi" }
+    return "circle.dotted"
   }
 
   private var plainStatus: String {

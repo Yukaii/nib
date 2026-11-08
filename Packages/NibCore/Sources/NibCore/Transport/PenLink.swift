@@ -164,8 +164,14 @@ public enum PenLinkState: Sendable, Equatable {
       return selectedHost.map { "Looking for \($0)…" } ?? "Looking for your Mac…"
     case .connecting: return "Connecting to your Mac…"
     case .connected(_, true): return "Connected by cable"
-    case .connected(let name, false): return "Connected to \(name)"
-    case .rejected(let reason): return reason
+    case .connected(let name, false):
+      return name.isEmpty ? "Connected over Wi-Fi" : "Connected to \(name) over Wi-Fi"
+    case .rejected(let reason):
+      switch reason {
+      case "busy": return "Your Mac is busy. Try again in a moment."
+      case "Pairing required": return "Pair with your Mac to start."
+      default: return reason.isEmpty ? "Couldn’t connect to your Mac. Try again." : reason
+      }
     }
   }
 }
@@ -509,6 +515,7 @@ public final class PenLinkSender {
     case .cancelled: phase = "cancelled"
     case .timedOut: phase = "timed-out"
     case .failed: phase = "failed"
+    case .notice: phase = "notice"
     }
     transportLogger.info("pairing phase=\(phase, privacy: .public)")
     switch event {
@@ -529,6 +536,8 @@ public final class PenLinkSender {
       onPairingEvent?(.timedOut)
     case .failed(let reason):
       onPairingEvent?(.failed(reason))
+    case .notice(let message):
+      onPairingEvent?(.notice(message))
     }
   }
 
@@ -1035,6 +1044,7 @@ public final class PenLinkReceiver {
     case .cancelled: phase = "cancelled"
     case .timedOut: phase = "timed-out"
     case .failed: phase = "failed"
+    case .notice: phase = "notice"
     }
     transportLogger.info("pairing phase=\(phase, privacy: .public)")
     // After pairing the iPad sends a fresh authenticated hello on the same
@@ -1053,6 +1063,8 @@ public final class PenLinkReceiver {
       onPairingEvent?(.timedOut)
     case .failed(let reason):
       onPairingEvent?(.failed(reason))
+    case .notice(let message):
+      onPairingEvent?(.notice(message))
     }
   }
 

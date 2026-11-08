@@ -178,6 +178,7 @@ struct NibPadApp: App {
   @State private var linkState: PenLinkState = .searching
   @State private var pairingCode: String?
   @State private var pairingPeer: String?
+  @State private var pairingNotice: String?
   @State private var pairingSheetPresented = false
   @State private var pairingError: String?
   @State private var pressureResult: PressureCheckResult = Self.storedPressureResult
@@ -214,6 +215,7 @@ struct NibPadApp: App {
             cancelPairing: { sink.cancelPairing() },
             pairAgain: { sink.pairAgain() },
             pairingError: pairingError,
+            pairingNotice: pairingNotice,
             finish: { result in
               pressureResult = result
               Self.storePressureResult(result)
@@ -258,8 +260,9 @@ struct NibPadApp: App {
             sink.pairAgain()
             pairingCode = nil
             pairingError = nil
+            pairingNotice = nil
           },
-          error: pairingError
+          error: pairingError, notice: pairingNotice
         )
         .presentationDetents([.medium])
       }
@@ -276,30 +279,39 @@ struct NibPadApp: App {
           pairingCode = code
           pairingPeer = peer
           pairingError = nil
+          pairingNotice = nil
         case .pairingRequired(let peer):
           pairingPeer = peer
           pairingCode = nil
           pairingError = nil
+          pairingNotice = nil
           if onboardingCompleted { pairingSheetPresented = true }
           linkState = .rejected("Pair with \(peer) to start.")
         case .paired:
           pairingCode = nil
           pairingError = nil
+          pairingNotice = nil
           pairingSheetPresented = false
           // Onboarding's pairing screen has no other way forward.
           if !onboardingCompleted && onboardingStep == 3 { onboardingStep = 4 }
         case .cancelled:
           pairingCode = nil
           pairingError = "Pairing was cancelled. Try again when you’re ready."
+          pairingNotice = nil
           if onboardingCompleted { pairingSheetPresented = true }
         case .timedOut:
           pairingCode = nil
           pairingError = "Pairing took too long. Try again when both devices are ready."
+          pairingNotice = nil
           if onboardingCompleted { pairingSheetPresented = true }
         case .failed(let reason):
           pairingCode = nil
           pairingError = "Pairing could not finish: \(reason)"
+          pairingNotice = nil
           if onboardingCompleted { pairingSheetPresented = true }
+        case .notice(let message):
+          pairingNotice = message
+          pairingError = nil
         }
       }
     }

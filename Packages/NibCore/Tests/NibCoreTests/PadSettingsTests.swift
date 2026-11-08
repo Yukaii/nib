@@ -115,3 +115,30 @@ import Testing
 @Test func everyPickerKeyHasStableMacMapping() {
   #expect(KeyNames.pickerKeys.allSatisfy { KeyNames.w3cCode(forMacKeyCode: $0.macKeyCode) == $0.code })
 }
+
+@Test func resetToDefaultsPreservesPairingIdentityDefaults() {
+  let suite = "NibCoreTests.reset"
+  let defaults = UserDefaults(suiteName: suite)!
+  defaults.removePersistentDomain(forName: suite)
+  defaults.set("device-1", forKey: "nib.deviceID")
+  defaults.set("host-1", forKey: "nib.hostPeerID")
+  let store = PadSettingsStore(defaults: defaults, key: "settings")
+  store.settings.pressure = .firm
+  store.settings.edgeBrightness = 0.9
+  store.resetToDefaults()
+  #expect(store.settings.pressure == .linear)
+  #expect(store.settings.edgeBrightness == 0.08)
+  #expect(store.settings.profiles.map(\.name) == ["Default", "Krita", "Photoshop", "Affinity"])
+  #expect(defaults.string(forKey: "nib.deviceID") == "device-1")
+  #expect(defaults.string(forKey: "nib.hostPeerID") == "host-1")
+  defaults.removePersistentDomain(forName: suite)
+}
+
+@Test func linkStateUsesPlainStatusLines() {
+  #expect(PenLinkState.connected(name: "MacBook", viaUSB: true).userFacingText() == "Connected by cable")
+  #expect(
+    PenLinkState.connected(name: "MacBook", viaUSB: false).userFacingText()
+      == "Connected to MacBook over Wi-Fi")
+  #expect(PenLinkState.searching.userFacingText() == "Looking for your Mac…")
+  #expect(PenLinkState.rejected("busy").userFacingText() == "Your Mac is busy. Try again in a moment.")
+}
