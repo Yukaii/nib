@@ -98,9 +98,13 @@ public final class PairingDriver {
 
   public func connectionLost(_ generation: UInt64) {
     guard connection == generation else { return }
+    let hadActivePairing = machine != nil && machine?.isTerminal == false
     cancelTimeout()
     machine = nil
     connection = nil
+    if hadActivePairing {
+      onEvent?(.failed("Connection lost. Try pairing again."))
+    }
   }
 
   public func newConnection(_ generation: UInt64) {

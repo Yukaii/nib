@@ -2,6 +2,26 @@ import Foundation
 import NibCore
 import Testing
 
+private final class DispatcherTransport: LinkByteTransport, @unchecked Sendable {
+  func send(bytes: Data) {}
+  func close() {}
+}
+
+private final class CloseReasons: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [String] = []
+  func append(_ value: String) {
+    lock.lock()
+    values.append(value)
+    lock.unlock()
+  }
+  func get() -> [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return values
+  }
+}
+
 struct USBTransportTests {
   @Test func listenHeaderUsesUsbmuxLittleEndianEnvelope() {
     let bytes = UsbmuxPacket.listenRequest(tag: 7)
@@ -43,6 +63,22 @@ struct USBTransportTests {
     var truncated = StreamFramer()
     #expect(try truncated.append([StreamFramer.sampleType]).isEmpty)
     #expect(truncated.bufferedByteCount == 1)
+  }
+
+  @Test func streamDispatcherReportsMalformedUSBFrameOnce() {
+    let reasons = CloseReasons()
+    let dispatcher = StreamLinkDispatcher(
+      transport: DispatcherTransport(),
+      onControl: { _ in },
+      onSample: { _ in },
+      onCloseReason: { reasons.append($0) })
+    #expect(throws: StreamFramer.Error.unknownType(0x7f)) {
+      try dispatcher.receive(Data([0x7f]))
+    }
+    #expect(throws: StreamFramer.Error.unknownType(0x7f)) {
+      try dispatcher.receive(Data([0x7f]))
+    }
+    #expect(reasons.get() == ["malformed-frame"])
   }
 
   @Test func onlyIPv4AndIPv6LoopbackAreAllowed() {
@@ -167,10 +203,51 @@ struct USBTransportTests {
     #expect(USBPairingTransport.choose(usbHasLiveConnection: false) == .wifi)
   }
 
+  @Test func wifiPausesForCableAndResumesOnceOnUnplug() {
+    #expect(WiFiTransportDecision.transition(wifiPaused: false, usbConnected: true) == .pause)
+    #expect(WiFiTransportDecision.transition(wifiPaused: true, usbConnected: false) == .resume)
+    #expect(WiFiTransportDecision.transition(wifiPaused: false, usbConnected: false) == .unchanged)
+    #expect(WiFiTransportDecision.transition(wifiPaused: true, usbConnected: true) == .unchanged)
+  }
+
+  @Test func pairingRoutingKeepsWiFiUntouchedWhenUSBIsBusy() {
+    let decision = PairingTransportRoutingDecision.transition(
+      current: .wifi, usbLive: false, wifiPairingActive: true)
+    #expect(decision.transport == .wifi)
+    #expect(decision.switchEvent == nil)
+    #expect(
+      PairingTransportRoutingDecision.accepts(
+        eventTransport: .wifi, selectedTransport: decision.transport))
+  }
+
+  @Test func pairingRoutingSwitchesOnceThenAcceptsUSBEvents() {
+    let decision = PairingTransportRoutingDecision.transition(
+      current: .wifi, usbLive: true, wifiPairingActive: true)
+    #expect(decision.transport == .usb)
+    #expect(
+      decision.switchEvent
+        == .failed("Switched to the cable. Tap Pair to continue."))
+    #expect(
+      PairingTransportRoutingDecision.accepts(
+        eventTransport: .usb, selectedTransport: decision.transport))
+    #expect(
+      !PairingTransportRoutingDecision.accepts(
+        eventTransport: .wifi, selectedTransport: decision.transport))
+    let repeated = PairingTransportRoutingDecision.transition(
+      current: decision.transport, usbLive: true, wifiPairingActive: true)
+    #expect(repeated.switchEvent == nil)
+  }
+
   @Test func usbHeartbeatTimesOutAfterThreeSecondsWithoutTraffic() {
     #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 12.99))
     #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 13))
     #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: nil, now: 100))
+  }
+
+  @Test func usbPairingWatchdogAllowsTenSecondsWithoutTraffic() {
+    #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 19.99, connected: false))
+    #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 20, connected: false))
+    #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 13, connected: true))
   }
 }
 

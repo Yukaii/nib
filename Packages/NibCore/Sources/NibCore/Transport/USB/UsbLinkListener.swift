@@ -12,6 +12,40 @@ public enum USBPairingTransport: Sendable, Equatable {
   }
 }
 
+public enum WiFiTransportDecision: Sendable, Equatable {
+  case pause, resume, unchanged
+
+  public static func transition(wifiPaused: Bool, usbConnected: Bool) -> Self {
+    if usbConnected == wifiPaused { return .unchanged }
+    return usbConnected ? .pause : .resume
+  }
+}
+
+/// Pure UI routing for the iPad's pairing flow when USB and Wi-Fi change
+/// ownership. The selected transport follows the live cable state; a switch
+/// away from an active Wi-Fi machine gets one plain-language recovery step.
+public struct PairingTransportRoutingDecision: Sendable, Equatable {
+  public let transport: USBPairingTransport
+  public let switchEvent: PairingTransportEvent?
+
+  public static func transition(
+    current: USBPairingTransport?, usbLive: Bool, wifiPairingActive: Bool
+  ) -> Self {
+    let transport: USBPairingTransport = usbLive ? .usb : .wifi
+    let switchedFromActiveWiFi = usbLive && current == .wifi && wifiPairingActive
+    return Self(
+      transport: transport,
+      switchEvent: switchedFromActiveWiFi
+        ? .failed("Switched to the cable. Tap Pair to continue.") : nil)
+  }
+
+  public static func accepts(
+    eventTransport: USBPairingTransport, selectedTransport: USBPairingTransport?
+  ) -> Bool {
+    selectedTransport == eventTransport
+  }
+}
+
 /// iPad-side TCP listener used by usbmuxd. The listener is intentionally
 /// loopback-only: usbmuxd forwards a cable connection through localhost.
 @MainActor
@@ -22,6 +56,8 @@ public final class UsbLinkListener {
   /// pairing-only connection.
   public var hasLiveConnection: Bool { connection != nil }
   public var stateHandler: StateHandler?
+  /// Reports an open USB stream, including pairing-only connections.
+  public var onLiveConnectionChanged: StateHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
   public private(set) var hostInfo: ControlMessage.HostInfo?
   public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
@@ -76,6 +112,7 @@ public final class UsbLinkListener {
     do {
       let tcp = NWProtocolTCP.Options()
       tcp.noDelay = true
+      tcp.enableKeepalive = true
       let parameters = NWParameters(tls: nil, tcp: tcp)
       parameters.allowLocalEndpointReuse = true
       let newListener = try NWListener(using: parameters, on: port)
@@ -129,10 +166,12 @@ public final class UsbLinkListener {
     listener?.cancel()
     listener = nil
     listenerReady = false
+    let hadConnection = connection != nil
     connection?.cancel()
     connection = nil
     lastTrafficAt = nil
     setConnected(false)
+    if hadConnection { onLiveConnectionChanged?(false) }
   }
 
   private func stopListenerOnly() {
@@ -150,10 +189,12 @@ public final class UsbLinkListener {
     listener?.cancel()
     listener = nil
     listenerReady = false
+    let hadConnection = connection != nil
     connection?.cancel()
     connection = nil
     lastTrafficAt = nil
     setConnected(false)
+    if hadConnection { onLiveConnectionChanged?(false) }
   }
 
   // MARK: - Device-role pairing over USB (same code path as Wi-Fi)
@@ -331,8 +372,11 @@ public final class UsbLinkListener {
         }
       },
       onSample: { _ in },
-      onCloseReason: { reason in
-        usbListenerLogger.info("connection close transport=usb reason=\(reason, privacy: .public)")
+      onCloseReason: { [weak self] reason in
+        Task { @MainActor [weak self] in
+          guard let self else { return }
+          self.drop(newConnection, reason: reason)
+        }
       })
     newConnection.stateUpdateHandler = { [weak self, weak newConnection] state in
       guard case .ready = state, let newConnection else { return }
@@ -351,6 +395,8 @@ public final class UsbLinkListener {
     }
     newConnection.start(queue: queue)
     receive(from: newConnection)
+    lastTrafficAt = Date.timeIntervalSinceReferenceDate
+    startHeartbeat()
   }
 
   private func receive(from expected: NWConnection) {
@@ -388,6 +434,7 @@ public final class UsbLinkListener {
           onHostInfo(info)
         }
         setConnected(false)
+        onLiveConnectionChanged?(true)
         onPairingEvent?(.pairingRequired(peerName: hostInfo?.name ?? info?.name ?? "Mac"))
         if pairingRequested {
           beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
@@ -413,6 +460,7 @@ public final class UsbLinkListener {
           streamDispatcher?.clearSession()
         }
         setConnected(true)
+        onLiveConnectionChanged?(true)
         if isConnected { startHeartbeat() }
       }
     case .probe(let sentAtNs):
@@ -439,6 +487,7 @@ public final class UsbLinkListener {
     heartbeatTask = nil
     lastTrafficAt = nil
     setConnected(false)
+    onLiveConnectionChanged?(false)
   }
 
   private func startHeartbeat() {
@@ -447,9 +496,11 @@ public final class UsbLinkListener {
     heartbeatTask = Task { @MainActor [weak self] in
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(1))
-        guard let self, !Task.isCancelled, self.isConnected else { return }
+        guard let self, !Task.isCancelled, self.connection != nil else { return }
         let now = Date.timeIntervalSinceReferenceDate
-        if USBHeartbeatPolicy.isTimedOut(lastTraffic: self.lastTrafficAt, now: now) {
+        if USBHeartbeatPolicy.isTimedOut(
+          lastTraffic: self.lastTrafficAt, now: now, connected: self.isConnected)
+        {
           if let connection = self.connection { self.drop(connection, reason: "heartbeat-timeout") }
           return
         }

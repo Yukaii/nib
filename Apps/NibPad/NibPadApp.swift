@@ -56,6 +56,9 @@ final class NetworkSink: PenSampleSink, GestureSink {
       self?.linkState = state
       self?.onLinkStateChanged?(state)
     }
+    usb.onLiveConnectionChanged = { [weak self] live in
+      self?.handleUSBLiveConnectionChanged(live)
+    }
     usb.onFrontApp = { [weak self] app in self?.frontApp = app }
     usb.onHostInfo = { [weak self] info in self?.hostInfo = info }
     usb.onPairingEvent = { [weak self] event in self?.handlePairingEvent(event, transport: .usb) }
@@ -143,9 +146,24 @@ final class NetworkSink: PenSampleSink, GestureSink {
   }
 
   private func handlePairingEvent(_ event: PairingTransportEvent, transport: USBPairingTransport) {
-    guard pairingTransport == transport else { return }
+    guard
+      PairingTransportRoutingDecision.accepts(
+        eventTransport: transport, selectedTransport: pairingTransport)
+    else { return }
     if case .paired(let peerID) = event { defaults.set(peerID, forKey: "nib.hostPeerID") }
     onPairingEvent?(event)
+  }
+
+  private func handleUSBLiveConnectionChanged(_ live: Bool) {
+    let decision = PairingTransportRoutingDecision.transition(
+      current: pairingTransport,
+      usbLive: live,
+      wifiPairingActive: sender.pairingPhase != nil)
+    pairingTransport = decision.transport
+    if let switchEvent = decision.switchEvent {
+      onPairingEvent?(switchEvent)
+    }
+    sender.setWiFiPausedForUSB(live)
   }
 }
 
