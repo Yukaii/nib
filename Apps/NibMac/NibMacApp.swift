@@ -12,9 +12,9 @@ private let macLogger = Logger(subsystem: "dev.yukai.nib", category: "mac")
 
 private func displayUUID(_ id: CGDirectDisplayID) -> String {
   guard let uuid = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else {
-    return "display-\(id)"
+    return "follow-main"
   }
-  return (CFUUIDCreateString(nil, uuid) as String?) ?? "display-\(id)"
+  return (CFUUIDCreateString(nil, uuid) as String?) ?? "follow-main"
 }
 
 private struct MacPairingPanelView: View {
@@ -133,6 +133,12 @@ private final class NibMacModel: ObservableObject {
 
   var launchAtLoginEnabled: Bool { SMAppService.mainApp.status == .enabled }
 
+  var mappingBaseRect: CGRect? {
+    let descriptors = displays.map { MappingSettings.Display(uuid: $0.uuid, bounds: $0.bounds) }
+    return mappingSettings.resolveBaseRect(
+      displays: descriptors, mainUUID: displayUUID(CGMainDisplayID()))?.rect
+  }
+
   init() {
     pairingStore = KeychainPairingKeyStore()
     let defaults = UserDefaults.standard
@@ -166,9 +172,9 @@ private final class NibMacModel: ObservableObject {
       mappingSettings = MappingSettings(
         target: .display(uuid: displayUUID(CGDirectDisplayID(old.uint32Value))))
     } else {
-      mappingSettings = MappingSettings(
-        target: .display(uuid: displayUUID(CGMainDisplayID())))
+      mappingSettings = MappingSettings(target: .followMain)
     }
+    saveMappingSettings()
 
     if let receiver {
       configure(receiver)
@@ -587,6 +593,7 @@ private struct SetupView: View {
 
 private struct MappingPreview: View {
   let displays: [NibMacModel.Display]
+  let baseRect: CGRect?
   let area: MappingSettings.Area
   let setArea: (MappingSettings.Area) -> Void
 
@@ -596,37 +603,48 @@ private struct MappingPreview: View {
         $0.union($1.bounds)
       }
       let scale = min(proxy.size.width / max(union.width, 1), proxy.size.height / max(union.height, 1))
+      let previewBase =
+        baseRect.map {
+          CGRect(
+            x: ($0.minX - union.minX) * scale, y: ($0.minY - union.minY) * scale,
+            width: $0.width * scale, height: $0.height * scale)
+        } ?? .zero
+      let box = MappingSettings.previewRect(for: area, in: previewBase)
       ZStack(alignment: .topLeading) {
         ForEach(displays) { display in
           Rectangle()
-            .fill(Color.secondary.opacity(0.16))
+            .fill(
+              display.bounds == baseRect ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.16)
+            )
             .overlay(Text(display.name).font(.caption))
             .frame(width: display.bounds.width * scale, height: display.bounds.height * scale)
             .offset(
               x: (display.bounds.minX - union.minX) * scale, y: (display.bounds.minY - union.minY) * scale)
         }
         Rectangle()
-          .stroke(Color.accentColor, lineWidth: 3)
-          .frame(width: union.width * area.width * scale, height: union.height * area.height * scale)
-          .offset(x: union.width * area.x * scale, y: union.height * area.y * scale)
+          .fill(Color.accentColor.opacity(0.10))
+          .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 3))
+          .frame(width: box.width, height: box.height)
+          .offset(x: box.minX, y: box.minY)
+          .contentShape(Rectangle())
           .gesture(
-            DragGesture().onEnded { value in
-              let x = area.x + value.translation.width / max(union.width * scale, 1)
-              let y = area.y + value.translation.height / max(union.height * scale, 1)
-              setArea(.init(x: x, y: y, width: area.width, height: area.height))
+            DragGesture().onChanged { value in
+              setArea(
+                MappingSettings.area(
+                  from: box.offsetBy(dx: value.translation.width, dy: value.translation.height),
+                  in: previewBase))
             })
         Circle()
           .fill(Color.accentColor)
-          .frame(width: 12, height: 12)
-          .offset(
-            x: (union.width * (area.x + area.width) * scale) - 6,
-            y: (union.height * (area.y + area.height) * scale) - 6
-          )
+          .frame(width: 20, height: 20)
+          .offset(x: box.maxX - 10, y: box.maxY - 10)
           .gesture(
-            DragGesture().onEnded { value in
-              let width = area.width + value.translation.width / max(union.width * scale, 1)
-              let height = area.height + value.translation.height / max(union.height * scale, 1)
-              setArea(.init(x: area.x, y: area.y, width: width, height: height))
+            DragGesture().onChanged { value in
+              setArea(
+                MappingSettings.area(
+                  from: CGRect(
+                    x: box.minX, y: box.minY, width: box.width + value.translation.width,
+                    height: box.height + value.translation.height), in: previewBase))
             })
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -641,7 +659,13 @@ private struct SettingsView: View {
   @ObservedObject var model: NibMacModel
 
   private var selectedUUID: String {
-    if case .display(let uuid) = model.mappingSettings.target { return uuid }
+    if case .display(let uuid) = model.mappingSettings.target {
+      if model.displays.contains(where: { $0.uuid == uuid }) { return uuid }
+      return model.displays.first(where: { $0.id == CGMainDisplayID() })?.uuid ?? uuid
+    }
+    if case .followMain = model.mappingSettings.target {
+      return model.displays.first(where: { $0.id == CGMainDisplayID() })?.uuid ?? "all"
+    }
     return "all"
   }
 
@@ -671,8 +695,13 @@ private struct SettingsView: View {
           "Whole screen",
           isOn: Binding(
             get: { model.mappingSettings.area == .whole },
-            set: { if $0 { model.setArea(.whole) } }))
-        MappingPreview(displays: model.displays, area: model.mappingSettings.area, setArea: model.setArea)
+            set: { model.setArea($0 ? .whole : .init(x: 0.1, y: 0.1, width: 0.8, height: 0.8)) }))
+        MappingPreview(
+          displays: model.displays,
+          baseRect: model.mappingBaseRect,
+          area: model.mappingSettings.area,
+          setArea: model.setArea)
+        Text("Drag the box to move it; drag the corner to resize.").font(.caption).foregroundStyle(.secondary)
         Picker(
           "Pencil proportions",
           selection: Binding(
@@ -689,6 +718,7 @@ private struct SettingsView: View {
           "Launch Nib at login",
           isOn: Binding(
             get: { model.launchAtLoginEnabled }, set: { model.setLaunchAtLogin($0) }))
+        if let error = model.launchAtLoginError { Text(error).font(.caption).foregroundStyle(.secondary) }
         Toggle("Show diagnostics", isOn: $model.showsDiagnostics)
       }
       Section("Paired iPads") {

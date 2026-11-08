@@ -16,7 +16,6 @@ public struct DisplayMapper: Sendable, Equatable {
   }
 
   public mutating func surfaceChanged(_ size: CGSize) { surfaceSize = size }
-  public mutating func displayChanged(_ rect: CGRect) { displayRect = rect }
   public mutating func mappingChanged(_ rect: CGRect, proportions: MappingSettings.Proportions) {
     displayRect = rect
     self.proportions = proportions

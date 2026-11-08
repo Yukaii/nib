@@ -73,13 +73,13 @@ persist.
 ## Handoff
 
 ```
-Branch/commit: t3/mac-settings-window @ 2ace4f7f584ee0cd65f8f614020e92dcdcf841f3
-Verify: verify: ok (Test run with 196 tests; NibMac + NibPad built)
+Branch/commit: t3/fix-mac-settings-window @ 0daf0dddbc61cf1e01cfc394acfe1f0b1ae6b587
+Verify: verify: ok (Test run with 200 tests; NibMac + NibPad built)
 Done:
-- Added Codable host mapping settings with stable display UUID targets, all-display unions, normalized active areas, and live proportion modes.
-- Extended the pure mapper and injection worker so mapping changes are applied on the worker queue without per-sample allocations or main-thread hops.
-- Added a macOS Settings scene with display selection, active-area preview, proportions, smoothing, launch-at-login, diagnostics, and paired iPad controls; the menu now stays concise and activates Settings in front.
-- Added mapper and settings tests for round-trips, fallback/reappearance, corners, clamp behavior, sub-rectangles, negative display origins, and stretch versus keep-proportions.
-Manual checks: Not run. User: run `scripts/install-devices.sh mac`, open Settings… (⌘,), select an active area and draw in Krita to confirm strokes stay inside it; toggle proportions during a stroke; with a second display select it and then All displays; relaunch Nib and confirm the selection persists. The second-display portion is optional when no second display is available.
-Not done / risks: Hardware Krita verification remains with the user; preview coordinates are a scaled overview of global display bounds.
+- Added follow-main migration/defaults, resilient decoding and clamped active areas, plus pure preview↔normalized geometry shared with display resolution.
+- Fixed selected-display previews, live whole-box dragging, 20 pt resize handle, centered 80% default sub-area, missing-display picker fallback, and launch-at-login errors in Settings.
+- Removed the unused displayChanged path while keeping mapping updates on the injection worker queue and the allocation-free sample path intact.
+- Added mapper, preview geometry, migration compatibility, decode-clamp, negative-origin, edge, and stretch tests.
+Manual checks: Not run. Run `scripts/install-devices.sh mac`; verify **Settings… opens in front while another app (e.g. Krita) is frontmost**, select an active area and draw in Krita to confirm strokes stay inside it; toggle proportions during a stroke; with a second display select it and then All displays; relaunch Nib and confirm the selection persists. The second-display portion is optional when no second display is available.
+Not done / risks: Hardware Krita verification remains with the user.
 ```

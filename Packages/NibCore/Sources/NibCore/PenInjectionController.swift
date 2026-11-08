@@ -54,10 +54,6 @@
       mapper.surfaceChanged(size)
     }
 
-    public mutating func displayChanged(_ rect: CGRect) {
-      mapper.displayChanged(rect)
-    }
-
     public mutating func mappingChanged(
       _ rect: CGRect, proportions: MappingSettings.Proportions
     ) {
@@ -135,7 +131,6 @@
       }
     }
 
-    public func displayChanged(_ rect: CGRect) { queue.async { [self] in controller.displayChanged(rect) } }
     public func mappingChanged(_ rect: CGRect, proportions: MappingSettings.Proportions) {
       queue.async { [self] in controller.mappingChanged(rect, proportions: proportions) }
     }
