@@ -63,7 +63,7 @@ latency change.
 ## Handoff
 
 ```
-Branch/commit: t3/encrypted-session-fixes @ 3addacd0a416650858a2ac2ff10aaf6de46328af
+Branch/commit: t3/encrypted-session-fixes @ e0f5664f68015c2d6179b8a98676bb86b9dee912
 Verify: verify: ok (Test run with 171 tests; NibMac + NibPad built)
 Done:
 - Switched encrypted TCP and USB dispatchers to offset-based buffers, covering split, combined, and repeated sealed control reads without `Data` index traps.
