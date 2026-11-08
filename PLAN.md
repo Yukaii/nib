@@ -11,7 +11,7 @@ hosts for Windows/Linux later (M5).
 M3 in progress: protocol v2 (0016-0018), CI, Mac and iPad onboarding merged.
 Pairing confirmed on device over Wi-Fi and USB (0022, 0024-0026,
 2026-11-08). Encrypted sessions (0023) confirmed on device too. Transport tidy-up
-(0027) merged. iPad settings (0028) merged; Mac settings window (0029) running.
+(0027) merged. iPad settings (0028) and Mac settings window with edge margin (0029) merged.
 
 ## Milestones
 
@@ -48,7 +48,7 @@ Pairing confirmed on device over Wi-Fi and USB (0022, 0024-0026,
 - [x] 0023 Encrypted sessions: ChaCha20-Poly1305 (confirmed on device 2026-11-08)
 - [x] 0027 Transport tidy-up: USB arming race, Wi-Fi backoff on cable, log nits
 - [x] 0028 iPad settings: sectioned panel, plain wording, Advanced for debug
-- [ ] 0029 Mac settings window: display, active area, multi-display
+- [x] 0029 Mac settings window: display, active area, multi-display
 - [ ] Keep-awake, minimal brightness, palm rejection review
 
 Exit check (manual): a fresh Mac user account and a reset iPad reach a
