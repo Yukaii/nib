@@ -443,6 +443,8 @@ public final class PenLinkSender {
       // Fresh authenticated hello on the same connection.
       deviceLink.updateStore(store: pairingStoreRef, hostID: peerID)
       onPairingEvent?(.paired(peerID: peerID))
+      // Nothing may follow the hello until a verified helloAck arms the session.
+      awaitingAuthenticatedAck = deviceLink.requiresAuthentication
       sendControl(.hello(authenticatedHello()))
     case .showCode(let code, let peerName):
       onPairingEvent?(.showCode(code, peerName: peerName))
@@ -461,17 +463,24 @@ public final class PenLinkSender {
     guard let udpConnection else { return }
     let count = [.down, .up, .cancel, .proximityExit].contains(sample.kind) ? 3 : 1
     let sessionCipher = self.sessionCipher.get()
-    queue.async {
+    // An authenticated link never sends plaintext, even while a missing
+    // cipher is being torn down.
+    let mustSeal = deviceLink.requiresAuthentication
+    queue.async { [weak self] in
       let payload: Data
       if let sessionCipher {
         do { payload = try sessionCipher.sealSample(Data(sample.encode()), sequence: sample.sequence) } catch
         {
+          // The sealer latches after a wrap and refuses every later sample,
+          // so keep the cipher (never fall back to plaintext) and reconnect
+          // for fresh keys.
           if case SessionCryptoError.sequenceWrap = error {
-            self.sessionCipher.set(nil)
             Task { @MainActor [weak self] in self?.connectionLost() }
           }
           return
         }
+      } else if mustSeal {
+        return
       } else {
         payload = Data(sample.encode())
       }

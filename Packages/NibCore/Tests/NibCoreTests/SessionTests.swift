@@ -152,7 +152,7 @@ private func sessionData(_ hex: String) -> Data {
   #expect(arm.make(bad) == nil)
 }
 
-@Test func sampleSealOpenBenchmarkStaysUnderBudget() throws {
+@Test func sampleSealOpenBenchmarkPrintsTimings() throws {
   let key = Data(repeating: 0x42, count: 32)
   let nonce = Data(repeating: 0x10, count: 32)
   let hostNonce = Data(repeating: 0x20, count: 32)

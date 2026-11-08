@@ -203,6 +203,8 @@ public final class UsbLinkListener {
     case .paired(let peerID):
       deviceLink.updateStore(store: pairingStoreRef, hostID: peerID)
       onPairingEvent?(.paired(peerID: peerID))
+      // Nothing may follow the hello until a verified helloAck arms the session.
+      awaitingAuthenticatedAck = deviceLink.requiresAuthentication
       send(.hello(authenticatedHello()))
     case .showCode(let code, let peerName):
       onPairingEvent?(.showCode(code, peerName: peerName))
