@@ -9,9 +9,9 @@ notarized DMG for the Mac, App Store for the iPad, GitHub Sponsors. Rust
 hosts for Windows/Linux later (M5).
 
 M3 in progress: protocol v2 (0016-0018), CI, Mac and iPad onboarding merged.
-Pairing (0022, 0024) merged; awaiting the user's on-device pairing check.
-Encrypted sessions (0023) next. Then the iPad
-settings restructure and the Mac settings window.
+Pairing (0022, 0024) confirmed on device 2026-11-08. Encrypted sessions
+(0023) reverted after a device drop loop. Next: 0025 re-pair recovery, then
+0023 again; then iPad settings and the Mac settings window.
 
 ## Milestones
 
