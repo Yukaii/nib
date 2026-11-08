@@ -59,7 +59,7 @@ showed no code on either screen. Code reading (`Packages/NibCore/Sources/NibCore
 ## Handoff
 
 ```
-Branch/commit: t3/repair-pairing-recovery @ pending
+Branch/commit: t3/repair-pairing-recovery @ 027742a378065006eea9755634c3415e8df8c4b5
 Verify: verify: ok (Test run with 159 tests; NibMac + NibPad built)
 Done:
 - Known-device proofless hellos enter pairing-only mode without authenticating or replacing the stored host key.
