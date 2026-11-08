@@ -18,8 +18,8 @@ xcodegen generate --quiet
 if [[ $target == pad || $target == both ]]; then
   # First paired physical iPad; the iPad must be unlocked.
   udid=$(xcrun devicectl list devices 2>/dev/null |
-    awk '/physical/ && /iPad/ && /available/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')
-  [[ -n $udid ]] || { echo "No paired, unlocked iPad found (xcrun devicectl list devices)." >&2; exit 1; }
+    awk '/physical/ && /iPad/ && /available \(paired\)/ && !/unavailable/ { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')
+  [[ -n $udid ]] || { echo "No available iPad: wake and unlock it, then retry (xcrun devicectl list devices)." >&2; exit 1; }
   build -scheme NibPad -destination "platform=iOS,id=$udid" -derivedDataPath .build/device
   xcrun devicectl device install app --device "$udid" .build/device/Build/Products/Debug-iphoneos/NibPad.app >/dev/null
   xcrun devicectl device process launch --device "$udid" --terminate-existing dev.yukai.nib.pad >/dev/null
