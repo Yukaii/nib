@@ -159,13 +159,21 @@ struct OnboardingView: View {
     }
   }
 
-  private var pairing: some View {
-    PairingInstructionsView(
-      pairingCode: pairingCode, pairingPeer: pairingPeer, pair: pair,
-      cancel: {
-        cancelPairing()
-        step = 2
-      }, pairAgain: pairAgain, error: pairingError)
+  @ViewBuilder private var pairing: some View {
+    if case .connected = linkState {
+      // Already paired (e.g. intro reopened) or pairing just finished.
+      page(title: "Paired", symbol: "checkmark.shield") {
+        Text(linkState.userFacingText())
+        button("Continue") { step = 4 }
+      }
+    } else {
+      PairingInstructionsView(
+        pairingCode: pairingCode, pairingPeer: pairingPeer, pair: pair,
+        cancel: {
+          cancelPairing()
+          step = 2
+        }, pairAgain: pairAgain, error: pairingError)
+    }
   }
 
   private var pressure: some View {

@@ -245,6 +245,8 @@ struct NibPadApp: App {
           pairingCode = nil
           pairingError = nil
           pairingSheetPresented = false
+          // Onboarding's pairing screen has no other way forward.
+          if !onboardingCompleted && onboardingStep == 3 { onboardingStep = 4 }
         case .cancelled:
           pairingCode = nil
           pairingError = "Pairing was cancelled. Try again when you’re ready."
