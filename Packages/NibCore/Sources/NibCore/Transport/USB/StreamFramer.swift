@@ -164,10 +164,13 @@ public enum USBTransportArbitration {
 }
 
 public enum USBHeartbeatPolicy {
-  public static let timeout: TimeInterval = 3
+  public static let connectedTimeout: TimeInterval = 3
+  public static let pendingTimeout: TimeInterval = 10
 
-  public static func isTimedOut(lastTraffic: TimeInterval?, now: TimeInterval) -> Bool {
+  public static func isTimedOut(
+    lastTraffic: TimeInterval?, now: TimeInterval, connected: Bool = true
+  ) -> Bool {
     guard let lastTraffic else { return false }
-    return now - lastTraffic >= timeout
+    return now - lastTraffic >= (connected ? connectedTimeout : pendingTimeout)
   }
 }

@@ -374,7 +374,7 @@ private final class NibMacModel: ObservableObject {
   private func session(_ event: PenLinkSessionEvent) {
     switch event {
     case .connected(let hello):
-      macLogger.info("session connected: \(hello.deviceName, privacy: .public)")
+      macLogger.info("session connected: \(String(hello.deviceName.prefix(64)), privacy: .private)")
       injection.surfaceChanged(CGSize(width: hello.surfaceWidth, height: hello.surfaceHeight))
       if let app = NSWorkspace.shared.frontmostApplication,
         let bundleID = app.bundleIdentifier,

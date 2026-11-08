@@ -529,8 +529,8 @@ public final class PenLinkSender {
     // An authenticated link never sends plaintext, even while a missing
     // cipher is being torn down.
     let mustSeal = deviceLink.requiresAuthentication
+    let sampleWrapTriggered = self.sampleWrapTriggered
     queue.async { [weak self] in
-      guard let self else { return }
       let payload: Data
       if let sessionCipher {
         do { payload = try sessionCipher.sealSample(Data(sample.encode()), sequence: sample.sequence) } catch
@@ -538,8 +538,8 @@ public final class PenLinkSender {
           // The sealer latches after a wrap and refuses every later sample,
           // so keep the cipher (never fall back to plaintext) and reconnect
           // for fresh keys.
-          if case SessionCryptoError.sequenceWrap = error, !self.sampleWrapTriggered.get() {
-            self.sampleWrapTriggered.set(true)
+          if case SessionCryptoError.sequenceWrap = error, !sampleWrapTriggered.get() {
+            sampleWrapTriggered.set(true)
             transportLogger.info("sample close branch=sequence-wrap")
             Task { @MainActor [weak self] in self?.connectionLost(reason: "sequence-wrap") }
           }
@@ -668,12 +668,18 @@ public final class PenLinkSender {
       onMessage: { [weak self] message in
         Task { @MainActor [weak self] in self?.handle(message, connectionGeneration: generation) }
       },
-      onCloseReason: { [weak self] reason in
-        Task { @MainActor [weak self] in self?.connectionLost(reason: reason) }
+      onCloseReason: { [weak self, weak newConnection] reason in
+        Task { @MainActor [weak self, weak newConnection] in
+          guard let self, let newConnection, self.connection === newConnection else { return }
+          self.connectionLost(reason: reason)
+        }
       })
-    newConnection.stateUpdateHandler = { [weak self] newState in
+    newConnection.stateUpdateHandler = { [weak self, weak newConnection] newState in
       if case .failed = newState {
-        Task { @MainActor [weak self] in self?.connectionLost(reason: "peer-error") }
+        Task { @MainActor [weak self, weak newConnection] in
+          guard let self, let newConnection, self.connection === newConnection else { return }
+          self.connectionLost(reason: "peer-error")
+        }
       }
     }
     newConnection.start(queue: queue)
@@ -1229,10 +1235,6 @@ public final class PenLinkReceiver {
           do {
             try dispatcher.receive(data)
           } catch {
-            Task { @MainActor [weak self] in
-              self?.disconnectSession(
-                notify: self?.hostLink.sessionConnected ?? false, reason: SessionCloseReason.name(error))
-            }
             return
           }
         }

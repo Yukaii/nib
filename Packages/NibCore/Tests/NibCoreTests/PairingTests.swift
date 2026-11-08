@@ -610,6 +610,7 @@ struct PairingTests {
     // Loss of A resets; B can now start fresh.
     driver.connectionLost(1)
     #expect(driver.phase == nil)
+    #expect(events == [.failed("Connection lost. Try pairing again.")])
     driver.receive(reqMsg2, connectionGeneration: 2)
     #expect(driver.phase == .waitingForReveal)
     #expect(sent.count == 2)

@@ -317,6 +317,28 @@ private func sessionData(_ hex: String) -> Data {
   #expect(received.values.contains(.ping))
 }
 
+@Test func hostDispatcherDecodesSealedBytesImmediatelyAfterArming() throws {
+  let key = Data(repeating: 0x42, count: 32)
+  let ipadNonce = Data(repeating: 0x10, count: 32)
+  let hostNonce = Data(repeating: 0x20, count: 32)
+  let host = try SessionCipher(
+    pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .host)
+  let device = try SessionCipher(
+    pairKey: key, ipadNonce: ipadNonce, hostNonce: hostNonce, role: .device)
+  let received = MessageCapture()
+  let dispatcher = StreamLinkDispatcher(
+    transport: MemoryTransport(), onControl: { received.append($0) }, onSample: { _ in })
+  dispatcher.sendAndConfigureSession(.helloAck(.init(accepted: true)), session: host)
+  let body = try device.sealControl(
+    Data(ControlFramer().encode(.ping).dropFirst(4)))
+  var length = UInt32(body.count).littleEndian
+  let sealed =
+    Data([StreamFramer.controlType])
+    + Data(withUnsafeBytes(of: &length) { Data($0) }) + body
+  try dispatcher.receive(sealed)
+  #expect(received.values.contains(.ping))
+}
+
 @Test func replayedHelloGetsFreshHostNonceAndIsolatedCipher() throws {
   let key = Data(repeating: 0x42, count: 32)
   let deviceNonce = Data(repeating: 0x10, count: 32)

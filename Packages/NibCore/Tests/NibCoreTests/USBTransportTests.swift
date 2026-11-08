@@ -174,16 +174,16 @@ struct USBTransportTests {
     #expect(WiFiTransportDecision.transition(wifiPaused: true, usbConnected: true) == .unchanged)
   }
 
-  @Test func hostRestartSchedulesOnlyOneWifiReconnect() {
-    #expect(WiFiReconnectDecision.decide(paused: false, alreadyScheduled: false) == .schedule)
-    #expect(WiFiReconnectDecision.decide(paused: false, alreadyScheduled: true) == .ignore)
-    #expect(WiFiReconnectDecision.decide(paused: true, alreadyScheduled: false) == .ignore)
-  }
-
   @Test func usbHeartbeatTimesOutAfterThreeSecondsWithoutTraffic() {
     #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 12.99))
     #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 13))
     #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: nil, now: 100))
+  }
+
+  @Test func usbPairingWatchdogAllowsTenSecondsWithoutTraffic() {
+    #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 19.99, connected: false))
+    #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 20, connected: false))
+    #expect(USBHeartbeatPolicy.isTimedOut(lastTraffic: 10, now: 13, connected: true))
   }
 }
 

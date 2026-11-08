@@ -87,6 +87,7 @@ public final class UsbLinkListener {
     do {
       let tcp = NWProtocolTCP.Options()
       tcp.noDelay = true
+      tcp.enableKeepalive = true
       let parameters = NWParameters(tls: nil, tcp: tcp)
       parameters.allowLocalEndpointReuse = true
       let newListener = try NWListener(using: parameters, on: port)
@@ -325,7 +326,6 @@ public final class UsbLinkListener {
     pairingDriver?.newConnection(connectionGeneration)
     connection?.cancel()
     connection = newConnection
-    onLiveConnectionChanged?(true)
     usbListenerLogger.info("connection accept reason=usb")
     let generation = connectionGeneration
     let arm = deviceLink.sessionArm
@@ -370,6 +370,8 @@ public final class UsbLinkListener {
     }
     newConnection.start(queue: queue)
     receive(from: newConnection)
+    lastTrafficAt = Date.timeIntervalSinceReferenceDate
+    startHeartbeat()
   }
 
   private func receive(from expected: NWConnection) {
@@ -407,6 +409,7 @@ public final class UsbLinkListener {
           onHostInfo(info)
         }
         setConnected(false)
+        onLiveConnectionChanged?(true)
         onPairingEvent?(.pairingRequired(peerName: hostInfo?.name ?? info?.name ?? "Mac"))
         if pairingRequested {
           beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
@@ -432,6 +435,7 @@ public final class UsbLinkListener {
           streamDispatcher?.clearSession()
         }
         setConnected(true)
+        onLiveConnectionChanged?(true)
         if isConnected { startHeartbeat() }
       }
     case .probe(let sentAtNs):
@@ -467,9 +471,11 @@ public final class UsbLinkListener {
     heartbeatTask = Task { @MainActor [weak self] in
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(1))
-        guard let self, !Task.isCancelled, self.isConnected else { return }
+        guard let self, !Task.isCancelled, self.connection != nil else { return }
         let now = Date.timeIntervalSinceReferenceDate
-        if USBHeartbeatPolicy.isTimedOut(lastTraffic: self.lastTrafficAt, now: now) {
+        if USBHeartbeatPolicy.isTimedOut(
+          lastTraffic: self.lastTrafficAt, now: now, connected: self.isConnected)
+        {
           if let connection = self.connection { self.drop(connection, reason: "heartbeat-timeout") }
           return
         }
