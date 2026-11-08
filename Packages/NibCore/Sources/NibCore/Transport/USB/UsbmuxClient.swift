@@ -105,9 +105,12 @@
           devices[id] = device
           scheduleConnect(device)
         case .detached(let id):
+          let ended = deviceConnections[id]
           devices[id] = nil
-          deviceConnections[id]?.cancel()
+          ended?.cancel()
           deviceConnections[id] = nil
+          // Tell the receiver, or it keeps the unplugged link as current.
+          if let ended { onDeviceConnectionEnded?(Device(id: id, connectionType: "USB"), ended) }
           retryTasks[id]?.cancel()
           retryTasks[id] = nil
         default: break

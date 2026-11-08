@@ -262,14 +262,10 @@ public final class UsbLinkListener {
   }
 
   private func accept(_ newConnection: NWConnection) {
-    if deviceLink.pairingRequired, pairingDriver?.hasActiveMachine == true {
-      newConnection.start(queue: queue)
-      usbListenerLogger.info("connection busy reason=active-pairing")
-      newConnection.send(
-        content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
-        completion: .contentProcessed { _ in newConnection.cancel() })
-      return
-    }
+    // Only the Mac on the cable reaches this loopback listener, so a new
+    // connection means the old one is gone (e.g. replugged), even mid-pairing:
+    // replace it and let pairing restart. Refusing here kept a dead pairing
+    // alive and looped the Mac's reconnects.
     // A new connection never inherits pairing in progress.
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()

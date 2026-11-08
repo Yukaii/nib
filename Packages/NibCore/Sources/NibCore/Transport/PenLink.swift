@@ -906,6 +906,11 @@ public final class PenLinkReceiver {
       client.onDeviceConnection = { [weak self] device, connection in
         self?.acceptUSBConnection(device: device, connection: connection)
       }
+      client.onDeviceConnectionEnded = { [weak self] _, connection in
+        guard let self, self.usbConnection === connection else { return }
+        transportLogger.info("connection close transport=usb reason=detached")
+        self.disconnectSession(notify: self.hostLink.sessionConnected)
+      }
       usbClient = client
       client.start()
     #endif
