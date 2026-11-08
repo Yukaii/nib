@@ -116,9 +116,52 @@ struct USBTransportTests {
   }
 
   @Test func usbReplacesWifiButUsbIsExclusive() {
-    #expect(USBTransportArbitration.decide(current: .wifi, newcomer: .usb) == .replace)
-    #expect(USBTransportArbitration.decide(current: .usb, newcomer: .usb) == .busy)
+    #expect(USBTransportArbitration.decide(current: .wifiSession, newcomer: .usb) == .replace)
+    #expect(USBTransportArbitration.decide(current: .usbSession, newcomer: .usb) == .busy)
     #expect(USBTransportArbitration.decide(current: .none, newcomer: .usb) == .accept)
+  }
+
+  @Test func arbitrationCoversEveryConnectionState() {
+    let states: [USBTransportState] = [
+      .none, .wifiPending, .wifiPairingOnlyIdle, .wifiPairingActive, .wifiSession,
+      .usbPending, .usbPairingOnly, .usbSession,
+    ]
+    for state in states {
+      let wifi = USBTransportArbitration.decide(current: state, newcomer: .wifi)
+      let usb = USBTransportArbitration.decide(current: state, newcomer: .usb)
+      switch state {
+      case .none:
+        #expect(wifi == .accept)
+        #expect(usb == .accept)
+      case .wifiPending, .wifiPairingOnlyIdle, .wifiSession:
+        #expect(wifi == .replace)
+        #expect(usb == .replace)
+      case .wifiPairingActive:
+        #expect(wifi == .busy)
+        #expect(usb == .busy)
+      case .usbPending, .usbPairingOnly, .usbSession:
+        #expect(wifi == .busy)
+        #expect(usb == .busy)
+      }
+    }
+  }
+
+  @Test func wifiHellosStayBusyDuringUSBPairingOnly() throws {
+    let hello = ControlMessage.Hello(
+      appVersion: "1", deviceID: "device", deviceName: "iPad", surfaceWidth: 1,
+      surfaceHeight: 1)
+    let bytes = StreamFramer.encode(.control(.hello(hello)))
+    var framer = StreamFramer()
+    for _ in 0..<3 {
+      #expect(try framer.append(bytes) == [.control(.hello(hello))])
+      #expect(
+        USBTransportArbitration.decide(current: .usbPairingOnly, newcomer: .wifi) == .busy)
+    }
+  }
+
+  @Test func pairingChoosesUSBWhenBothTransportsAreLive() {
+    #expect(USBPairingTransport.choose(usbHasLiveConnection: true) == .usb)
+    #expect(USBPairingTransport.choose(usbHasLiveConnection: false) == .wifi)
   }
 
   @Test func usbHeartbeatTimesOutAfterThreeSecondsWithoutTraffic() {

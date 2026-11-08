@@ -286,6 +286,8 @@ public final class PenLinkSender {
   public var hostsHandler: HostsHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
   public private(set) var hostInfo: ControlMessage.HostInfo?
+  /// True while the Wi-Fi control stream is live, including pairing-only.
+  public var hasLiveConnection: Bool { connection != nil }
   public var onHostInfo: @MainActor (ControlMessage.HostInfo?) -> Void = { _ in }
   public var onPairingEvent: ((PairingTransportEvent) -> Void)?
   private var pairingDriver: PairingDriver?
@@ -434,6 +436,16 @@ public final class PenLinkSender {
   }
 
   private func handleDriverEvent(_ event: PairingTransportEvent) {
+    let phase: String
+    switch event {
+    case .showCode: phase = "show-code"
+    case .pairingRequired: phase = "required"
+    case .paired: phase = "paired"
+    case .cancelled: phase = "cancelled"
+    case .timedOut: phase = "timed-out"
+    case .failed: phase = "failed"
+    }
+    transportLogger.info("pairing phase=\(phase, privacy: .public)")
     switch event {
     case .paired(let peerID):
       // Fresh authenticated hello on the same connection.
@@ -540,6 +552,7 @@ public final class PenLinkSender {
     let newConnection = NWConnection(
       to: .service(name: name, type: type, domain: domain, interface: interface), using: tcpParameters)
     connection = newConnection
+    transportLogger.info("connection accept transport=wifi reason=selected-host")
     connectionGeneration &+= 1
     pairingDriver?.newConnection(connectionGeneration)
     framer = ControlFramer()
@@ -691,6 +704,7 @@ public final class PenLinkSender {
   }
 
   private func connectionLost(reconnect: Bool = true, reconnectDelay: Duration? = nil) {
+    if connection != nil { transportLogger.info("connection close transport=wifi reason=ended") }
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
     connection?.cancel()
@@ -841,6 +855,16 @@ public final class PenLinkReceiver {
   }
 
   private func handleDriverEvent(_ event: PairingTransportEvent) {
+    let phase: String
+    switch event {
+    case .showCode: phase = "show-code"
+    case .pairingRequired: phase = "required"
+    case .paired: phase = "paired"
+    case .cancelled: phase = "cancelled"
+    case .timedOut: phase = "timed-out"
+    case .failed: phase = "failed"
+    }
+    transportLogger.info("pairing phase=\(phase, privacy: .public)")
     // After pairing the iPad sends a fresh authenticated hello on the same
     // connection; the host clears pairing-only then and accepts it.
     switch event {
@@ -925,19 +949,33 @@ public final class PenLinkReceiver {
   }
 
   #if os(macOS)
+    private var transportState: USBTransportState {
+      if connection == nil { return .none }
+      if usbMode {
+        if hostLink.sessionConnected { return .usbSession }
+        if hostLink.pairingOnlyGeneration != nil {
+          return .usbPairingOnly
+        }
+        return .usbPending
+      }
+      if hostLink.sessionConnected { return .wifiSession }
+      if hostLink.pairingOnlyGeneration != nil {
+        return pairingDriver?.hasActiveMachine == true ? .wifiPairingActive : .wifiPairingOnlyIdle
+      }
+      return .wifiPending
+    }
+
     private func acceptUSBConnection(device: UsbmuxClient.Device, connection newConnection: NWConnection) {
-      let current: USBTransport = hostLink.sessionConnected ? (usbMode ? .usb : .wifi) : .none
+      let current = transportState
       switch USBTransportArbitration.decide(current: current, newcomer: .usb) {
       case .busy:
+        transportLogger.info("connection busy transport=usb reason=active-link")
         rejectUSBConnection(device: device, connection: newConnection)
         return
       case .replace:
+        transportLogger.info("connection replace transport=usb reason=prefer-usb")
         disconnectSession(notify: true)
       case .accept: break
-      }
-      if hostLink.pairingOnlyGeneration != nil, pairingDriver?.hasActiveMachine == true {
-        rejectUSBConnection(device: device, connection: newConnection)
-        return
       }
       pairingDriver?.connectionLost(connectionGeneration)
       hostLink.connectionLost(connectionGeneration)
@@ -951,6 +989,7 @@ public final class PenLinkReceiver {
       usbConnectionIdentity.set(newConnection)
       usbMode = true
       transportIsUSB = true
+      transportLogger.info("connection accept transport=usb reason=arbitration")
       let generation = connectionGeneration
       usbDispatcher = StreamLinkDispatcher(
         transport: NWLinkByteTransport(newConnection),
@@ -976,6 +1015,7 @@ public final class PenLinkReceiver {
     }
 
     private func rejectUSBConnection(device: UsbmuxClient.Device, connection: NWConnection) {
+      transportLogger.info("connection close transport=usb reason=busy")
       connection.start(queue: queue)
       connection.send(
         content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
@@ -1015,29 +1055,36 @@ public final class PenLinkReceiver {
   #endif
 
   private func acceptConnection(_ newConnection: NWConnection) {
-    if hostLink.sessionConnected {
-      rejectConnection(newConnection)
-      return
-    }
-    // An active pairing machine owns its connection until the 60 s timeout.
-    // Keep the old connection and answer newcomers as busy; otherwise an
-    // attacker can evict the legitimate user without consuming pairing tries.
-    if hostLink.pairingOnlyGeneration != nil, pairingDriver?.hasActiveMachine == true {
-      rejectConnection(newConnection)
-      return
-    }
-    // Idle invitations may be displaced. Reset both policy and machine state
-    // before assigning the next monotonically increasing generation.
+    #if os(macOS)
+      let current = transportState
+      switch USBTransportArbitration.decide(current: current, newcomer: .wifi) {
+      case .busy:
+        transportLogger.info("connection busy transport=wifi reason=preferred-link")
+        rejectConnection(newConnection)
+        return
+      case .replace:
+        transportLogger.info("connection replace transport=wifi reason=new-wifi-link")
+        disconnectSession(notify: true)
+      case .accept: break
+      }
+    #else
+      if hostLink.sessionConnected || pairingDriver?.hasActiveMachine == true {
+        rejectConnection(newConnection)
+        return
+      }
+      if connection != nil { disconnectSession(notify: true) }
+    #endif
     if connection != nil {
-      pairingDriver?.connectionLost(connectionGeneration)
-      hostLink.connectionLost(connectionGeneration)
-      connection?.cancel()
+      // Non-macOS builds have no transport arbitration helper, but still
+      // fully clear the previous link before accepting an idle invitation.
+      disconnectSession(notify: true)
     }
     connectionGeneration &+= 1
     pairingDriver?.newConnection(connectionGeneration)
     hostLink.newConnection(connectionGeneration)
     connection?.cancel()
     connection = newConnection
+    transportLogger.info("connection accept transport=wifi reason=arbitration")
     framer = ControlFramer()
     let generation = connectionGeneration
     controlDispatcher = ControlLinkDispatcher(transport: NWLinkByteTransport(newConnection)) {
@@ -1059,6 +1106,7 @@ public final class PenLinkReceiver {
   }
 
   private func rejectConnection(_ connection: NWConnection) {
+    transportLogger.info("connection close transport=wifi reason=busy")
     connection.start(queue: queue)
     connection.send(
       content: Data(ControlFramer().encode(.helloAck(.init(accepted: false, reason: "busy")))),

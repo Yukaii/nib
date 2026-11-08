@@ -4,12 +4,23 @@ import os
 
 private let usbListenerLogger = Logger(subsystem: "dev.yukai.nib", category: "usb")
 
+public enum USBPairingTransport: Sendable, Equatable {
+  case wifi, usb
+
+  public static func choose(usbHasLiveConnection: Bool) -> Self {
+    usbHasLiveConnection ? .usb : .wifi
+  }
+}
+
 /// iPad-side TCP listener used by usbmuxd. The listener is intentionally
 /// loopback-only: usbmuxd forwards a cable connection through localhost.
 @MainActor
 public final class UsbLinkListener {
   public typealias StateHandler = @MainActor (Bool) -> Void
   public private(set) var isConnected = false
+  /// True while the USB stream is live, including an unauthenticated
+  /// pairing-only connection.
+  public var hasLiveConnection: Bool { connection != nil }
   public var stateHandler: StateHandler?
   public var onFrontApp: @MainActor (ControlMessage.FrontApp) -> Void = { _ in }
   public private(set) var hostInfo: ControlMessage.HostInfo?
@@ -205,6 +216,16 @@ public final class UsbLinkListener {
   }
 
   private func handleDriverEvent(_ event: PairingTransportEvent) {
+    let phase: String
+    switch event {
+    case .showCode: phase = "show-code"
+    case .pairingRequired: phase = "required"
+    case .paired: phase = "paired"
+    case .cancelled: phase = "cancelled"
+    case .timedOut: phase = "timed-out"
+    case .failed: phase = "failed"
+    }
+    usbListenerLogger.info("pairing phase=\(phase, privacy: .public)")
     switch event {
     case .paired(let peerID):
       deviceLink.updateStore(store: pairingStoreRef, hostID: peerID)
@@ -243,6 +264,7 @@ public final class UsbLinkListener {
   private func accept(_ newConnection: NWConnection) {
     if deviceLink.pairingRequired, pairingDriver?.hasActiveMachine == true {
       newConnection.start(queue: queue)
+      usbListenerLogger.info("connection busy reason=active-pairing")
       newConnection.send(
         content: Data(StreamFramer.encode(.control(.helloAck(.init(accepted: false, reason: "busy"))))),
         completion: .contentProcessed { _ in newConnection.cancel() })
@@ -255,6 +277,7 @@ public final class UsbLinkListener {
     pairingDriver?.newConnection(connectionGeneration)
     connection?.cancel()
     connection = newConnection
+    usbListenerLogger.info("connection accept reason=usb")
     let generation = connectionGeneration
     streamDispatcher = StreamLinkDispatcher(
       transport: NWLinkByteTransport(newConnection),
@@ -347,6 +370,7 @@ public final class UsbLinkListener {
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
     expected.cancel()
+    usbListenerLogger.info("connection close reason=ended")
     connection = nil
     streamDispatcher = nil
     heartbeatTask?.cancel()
