@@ -31,6 +31,8 @@ public final class UsbLinkListener {
   private var pairingStoreRef: PairingKeyStore?
   private var pairingRequested = false
   public var pairingPhase: PairingPhase? { pairingDriver?.phase }
+  /// Whether pairing is configured; tests check it survives stop/start.
+  public var canPair: Bool { pairingDriver != nil }
 
   private let port: NWEndpoint.Port
   private let queue = DispatchQueue(label: "dev.yukai.nib.usb-listener")
@@ -115,9 +117,11 @@ public final class UsbLinkListener {
     pairingRequested = false
     retryTask?.cancel()
     retryTask = nil
+    // The driver is configuration (set by configurePairing), not socket
+    // state: end its connection but keep it. Clearing it here meant start()
+    // threw away the driver configured just before, so USB could never pair.
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
-    pairingDriver = nil
     listener?.cancel()
     listener = nil
     listenerReady = false
@@ -132,9 +136,11 @@ public final class UsbLinkListener {
     heartbeatTask = nil
     retryTask?.cancel()
     retryTask = nil
+    // The driver is configuration (set by configurePairing), not socket
+    // state: end its connection but keep it. Clearing it here meant start()
+    // threw away the driver configured just before, so USB could never pair.
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
-    pairingDriver = nil
     listener?.cancel()
     listener = nil
     listenerReady = false

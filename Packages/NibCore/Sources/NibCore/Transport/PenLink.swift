@@ -295,6 +295,8 @@ public final class PenLinkSender {
   private var pairingStoreRef: PairingKeyStore?
   private var pairingRequested = false
   public var pairingPhase: PairingPhase? { pairingDriver?.phase }
+  /// Whether pairing is configured; tests check it survives stop/start.
+  public var canPair: Bool { pairingDriver != nil }
 
   private var browser: NWBrowser?
   private var latestResult: NWBrowser.Result?
@@ -339,9 +341,9 @@ public final class PenLinkSender {
     pairingRequested = false
     pingTask?.cancel()
     pingTask = nil
+    // Keep the driver: it is configuration, and a stop/start must not lose it.
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
-    pairingDriver = nil
     browser?.cancel()
     browser = nil
     connection?.cancel()

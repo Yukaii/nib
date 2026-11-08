@@ -170,3 +170,21 @@ struct USBTransportTests {
     #expect(!USBHeartbeatPolicy.isTimedOut(lastTraffic: nil, now: 100))
   }
 }
+
+// Found on device: start(hello:) stopped the old listener and threw away the
+// pairing driver configured just before, so USB could never begin pairing.
+@Test @MainActor func usbPairingDriverSurvivesStop() {
+  let usb = UsbLinkListener()
+  usb.configurePairing(store: InMemoryPairingKeyStore(), hostID: "pending-host")
+  #expect(usb.canPair)
+  usb.stop()
+  #expect(usb.canPair)
+}
+
+@Test @MainActor func wifiPairingDriverSurvivesStop() {
+  let sender = PenLinkSender()
+  sender.configurePairing(store: InMemoryPairingKeyStore(), hostID: "pending-host")
+  #expect(sender.canPair)
+  sender.stop()
+  #expect(sender.canPair)
+}
