@@ -72,7 +72,7 @@ tucked into Advanced, and every pairing/connection message reads naturally.
 ## Handoff
 
 ```
-Branch/commit: `t3/ipad-settings` @ `23ee20782f220c407d3e217a5c4814e6554506d2`
+Branch/commit: `t3/ipad-settings` @ `2c4a9aabdb8f834f49cda26650eff3cc81e123ba`
 Verify: `verify: ok (Test run with 194 tests; NibMac + NibPad built)`
 Done:
 - Replaced the companion scroll view with a dark NavigationStack/List organized into Connection, Pen, Profiles, Gestures, Display and Advanced.
