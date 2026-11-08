@@ -770,6 +770,227 @@ struct PairingTests {
     #expect(streamControls.value == [.ping])
     #expect(samples.value == [sample])
   }
+
+  @Test @MainActor func iPadForgetReplacesHostKeyAndAcceptsFreshHello() throws {
+    let harness = try RecoveryHarness(deviceKey: nil, hostKey: Data(repeating: 1, count: 32))
+    try harness.invitePairing(with: harness.prooflessHello())
+    try harness.pair()
+    #expect(harness.deviceStore.key(for: "host-001") != nil)
+    #expect(harness.hostStore.key(for: "device-001") != nil)
+    #expect(harness.hostStore.key(for: "device-001") != Data(repeating: 1, count: 32))
+    try harness.authenticateFreshHello()
+  }
+
+  @Test @MainActor func macForgetKeepsStaleDeviceKeyUntilReconnectPairing() throws {
+    let stale = Data(repeating: 2, count: 32)
+    let harness = try RecoveryHarness(deviceKey: stale, hostKey: nil)
+    let first = try harness.invitePairing(with: harness.deviceLink.makeHello())
+    guard case .pairingRequired = first else {
+      Issue.record("host forgetting its key must invite pairing")
+      return
+    }
+    #expect(harness.deviceStore.key(for: "host-001") == stale)
+    harness.pairAgainAndReconnect()
+    try harness.invitePairing(with: harness.prooflessHello())
+    try harness.pair()
+    #expect(harness.deviceStore.key(for: "host-001") != stale)
+    try harness.authenticateFreshHello()
+  }
+
+  @Test @MainActor func bothSidesForgetAndPairOnFreshConnection() throws {
+    let harness = try RecoveryHarness(deviceKey: nil, hostKey: nil)
+    harness.pairAgainAndReconnect()
+    try harness.invitePairing(with: harness.prooflessHello())
+    try harness.pair()
+    try harness.authenticateFreshHello()
+  }
+
+  @Test @MainActor func pairingHintNeverDeletesStaleDeviceKey() throws {
+    let stale = Data(repeating: 3, count: 32)
+    let harness = try RecoveryHarness(deviceKey: stale, hostKey: nil)
+    let outcome = try harness.invitePairing(with: harness.deviceLink.makeHello())
+    guard case .pairingRequired = outcome else {
+      Issue.record("stale proof must be an untrusted pairing hint")
+      return
+    }
+    #expect(harness.deviceStore.key(for: "host-001") == stale)
+    harness.pairAgainAndReconnect()
+    #expect(harness.deviceStore.key(for: "host-001") == nil)
+  }
+
+  @Test @MainActor func wrongProofFromKnownDeviceIsRejectedAndDisconnected() throws {
+    let key = Data(repeating: 4, count: 32)
+    let harness = try RecoveryHarness(deviceKey: key, hostKey: key)
+    let badHello = harness.baseHello(
+      nonce: Data(repeating: 5, count: 32), proof: Data(repeating: 0, count: 32))
+    guard case .reject(let ack, let disconnect) = try harness.invitePairing(with: badHello) else {
+      Issue.record("wrong proof from a known device must be rejected")
+      return
+    }
+    #expect(ack.reason == "Pair again")
+    #expect(disconnect)
+    harness.disconnect()
+    #expect(harness.hostLink.pairingOnlyGeneration == nil)
+  }
+
+  @Test @MainActor func cancelledRepairKeepsHostKeyAndOriginalHelloStillAuthenticates() throws {
+    let key = Data(repeating: 6, count: 32)
+    let harness = try RecoveryHarness(deviceKey: key, hostKey: key)
+    try harness.invitePairing(with: harness.prooflessHello())
+    harness.beginPairing()
+    harness.hostDriver.cancel(connectionGeneration: harness.generation)
+    harness.deliverDeviceMessage()
+    #expect(harness.hostStore.key(for: "device-001") == key)
+    harness.reconnect()
+    try harness.authenticateFreshHello()
+  }
+}
+
+@MainActor
+private final class RecoveryHarness {
+  let deviceStore = InMemoryPairingKeyStore()
+  let hostStore = InMemoryPairingKeyStore()
+  var hostLink: HostLink
+  var deviceLink: DeviceLink
+  let hostDriver: PairingDriver
+  let deviceDriver: PairingDriver
+  var hostMessages: [ControlMessage] = []
+  var deviceMessages: [ControlMessage] = []
+  var generation: UInt64 = 1
+  private let base: ControlMessage.Hello
+
+  init(deviceKey: Data?, hostKey: Data?) throws {
+    if let deviceKey { deviceStore.save(deviceKey, for: "host-001") }
+    if let hostKey { hostStore.save(hostKey, for: "device-001") }
+    base = .init(
+      appVersion: "0.3.0", deviceID: "device-001", deviceName: "iPad", surfaceWidth: 100,
+      surfaceHeight: 100)
+    hostLink = HostLink(store: hostStore, hostID: "host-001")
+    deviceLink = DeviceLink(store: deviceStore, hostID: "host-001", baseHello: base)
+    hostDriver = PairingDriver(
+      role: .host, localID: "host-001", localName: { "Mac" }, store: hostStore)
+    deviceDriver = PairingDriver(
+      role: .device, localID: "device-001", localName: { "iPad" }, store: deviceStore)
+    hostDriver.onSend = { [weak self] message in self?.hostMessages.append(message) }
+    deviceDriver.onSend = { [weak self] message in self?.deviceMessages.append(message) }
+    hostDriver.onEvent = { [weak self] event in
+      guard let self else { return }
+      if case .paired = event { self.hostLink.clearPairingOnly(self.generation) }
+    }
+    deviceDriver.onEvent = { [weak self] event in
+      guard let self else { return }
+      if case .paired(let peerID) = event {
+        self.deviceLink.updateStore(store: self.deviceStore, hostID: peerID)
+      }
+    }
+  }
+
+  func baseHello(nonce: Data?, proof: Data?) -> ControlMessage.Hello {
+    var hello = base
+    hello.nonce = nonce.map(PairingCrypto.base64)
+    hello.proof = proof.map(PairingCrypto.base64)
+    return hello
+  }
+
+  func prooflessHello() -> ControlMessage.Hello { baseHello(nonce: nil, proof: nil) }
+
+  @discardableResult
+  func invitePairing(with hello: ControlMessage.Hello) throws -> HostLink.HelloOutcome {
+    let outcome = hostLink.receiveHello(hello, connectionGeneration: generation, busy: false, now: 0)
+    guard case .pairingRequired(let ack) = outcome else { return outcome }
+    guard case .helloAck(let framedAck) = try wire(.helloAck(ack)) else {
+      Issue.record("helloAck failed to round-trip through the framer")
+      return outcome
+    }
+    let deviceOutcome = deviceLink.receiveHelloAck(framedAck)
+    guard case .pairingRequired = deviceOutcome else {
+      Issue.record("device must accept pairingRequired over framed bytes")
+      return outcome
+    }
+    return outcome
+  }
+
+  func beginPairing() {
+    deviceDriver.beginPairing(deviceID: "device-001", deviceName: "iPad", connectionGeneration: generation)
+  }
+
+  func pair() throws {
+    beginPairing()
+    deliverDeviceMessage()
+    deliverHostMessage()
+    deliverDeviceMessage()
+    deviceDriver.confirm(connectionGeneration: generation)
+    deliverDeviceMessage()
+    hostDriver.confirm(connectionGeneration: generation)
+    deliverHostMessage()
+    #expect(deviceStore.key(for: "host-001") != nil)
+    #expect(hostStore.key(for: "device-001") != nil)
+  }
+
+  func authenticateFreshHello() throws {
+    let hello = deviceLink.makeHello()
+    guard case .hello(let framedHello) = try wire(.hello(hello)) else {
+      Issue.record("hello failed to round-trip through the framer")
+      return
+    }
+    guard
+      case .authenticated(let authenticated) = hostLink.receiveHello(
+        framedHello, connectionGeneration: generation, busy: false, now: 1)
+    else {
+      Issue.record("fresh authenticated hello must be accepted")
+      return
+    }
+    let ack = hostLink.acceptHello(
+      authenticated, now: 1, udpPort: 0, displayWidth: 100, displayHeight: 100, host: nil)
+    #expect(ack.accepted)
+    guard case .helloAck(let framedAck) = try wire(.helloAck(ack)) else {
+      Issue.record("helloAck failed to round-trip through the framer")
+      return
+    }
+    #expect(deviceLink.receiveHelloAck(framedAck) == .connected(hostInfo: nil))
+  }
+
+  func pairAgainAndReconnect() {
+    deviceStore.removeKey(for: "host-001")
+    reconnect()
+  }
+
+  func reconnect() {
+    disconnect()
+    generation += 1
+    hostLink.newConnection(generation)
+    deviceLink.updateStore(store: deviceStore, hostID: "host-001")
+  }
+
+  func disconnect() {
+    hostLink.connectionLost(generation)
+    deviceLink.connectionLost()
+    hostDriver.connectionLost(generation)
+    deviceDriver.connectionLost(generation)
+  }
+
+  func deliverDeviceMessage() {
+    guard !deviceMessages.isEmpty else {
+      Issue.record("device driver did not send the expected pairing message")
+      return
+    }
+    let message = deviceMessages.removeFirst()
+    hostDriver.receive(try! wire(message), connectionGeneration: generation)
+  }
+
+  func deliverHostMessage() {
+    guard !hostMessages.isEmpty else {
+      Issue.record("host driver did not send the expected pairing message")
+      return
+    }
+    let message = hostMessages.removeFirst()
+    deviceDriver.receive(try! wire(message), connectionGeneration: generation)
+  }
+
+  func wire(_ message: ControlMessage) throws -> ControlMessage {
+    var framer = ControlFramer()
+    return try #require(framer.append(ControlFramer.encode(message)).first)
+  }
 }
 
 private func message(from event: PairingEvent) -> ControlMessage? {
