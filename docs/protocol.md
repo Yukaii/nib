@@ -62,6 +62,64 @@ On USB, prepend one byte to each frame: `0x01` means the TCP control frame
 above, and `0x02` means one 40-byte pen sample. An unknown tag is an error.
 USB control length limits are the same as TCP.
 
+### Authenticated session frames
+
+When pairing has produced a `pairKey`, the fresh authenticated hello nonces
+are the session inputs. The iPad nonce is followed by the host nonce, with no
+additional encoding, to form the HKDF salt. HKDF `info` is UTF-8, including
+the `→` character (U+2192). Control and sample traffic use separate keys in
+each direction:
+
+```
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session control ipad→host")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session control host→ipad")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session sample ipad→host")
+HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session sample host→ipad")
+```
+
+The output length is 32 bytes. A third derivation,
+`HKDF-SHA256(pairKey, salt = nD ‖ nH, info = "nib-session epoch")`, has an
+8-byte output. Those eight bytes are the per-session sample epoch. The epoch
+changes with a fresh authenticated hello; a sender MUST rekey before its
+32-bit sample sequence wraps.
+
+The host treats every byte after the `helloAck` it sends as sealed. The iPad
+arms its session cipher only after reading and verifying the `helloAck`; every
+remaining byte in that read is sealed. The iPad MUST NOT send anything between
+its `hello` and a verified `helloAck`. After `helloAck`, the body of every TCP control frame (and every USB `0x01`
+frame) is, byte by byte:
+
+```
+offset  size  value
+0       8     unsigned control counter, little-endian
+8       N     ChaCha20-Poly1305 ciphertext of the UTF-8 JSON body
+8+N     16    authentication tag
+```
+
+The outer four-byte little-endian length still counts this whole body. The
+12-byte AEAD nonce is four zero bytes followed by the eight-byte little-endian
+counter. Counters start at zero independently in each direction; receivers
+require the next counter exactly, so a replay, gap, or out-of-order frame
+closes the session. The frame has no separate AAD.
+
+An encrypted UDP sample (and a USB `0x02` frame) is, byte by byte:
+
+```
+offset  size  value
+0       4     plaintext sample sequence, little-endian
+4       40    ChaCha20-Poly1305 ciphertext of the PenSample bytes
+44      16    authentication tag
+```
+
+Its AEAD nonce is the eight-byte session epoch followed by the four-byte
+little-endian sequence. The header is authenticated by nonce selection. A
+sender never seals predicted samples and never seals two different plaintexts
+with one sequence; an identical re-seal is allowed for Wi-Fi triple-send.
+When the next sequence would be `UInt32.max`, the sender closes the session
+cleanly and reconnects, producing a fresh hello, epoch, and keys. A failed
+sample open on UDP drops the datagram and counts loss; on the reliable USB
+byte stream it closes the session. The legacy no-store path remains plaintext.
+
 ## 5. Control messages
 
 Every object has a string `type` and a payload property where shown. Unknown
@@ -191,8 +249,8 @@ other proof with a constant-time HMAC comparison and requires exactly 32-byte
 nonces. Missing or invalid proofs are rejected with a next step to pair again.
 When a key is held, the device applies `hostInfo` and acts on a rejection
 reason only after proof verification; an unauthenticated rejection is shown
-but never deletes a stored key. Frame and sample encryption begins in the
-subsequent encrypted-sessions version.
+but never deletes a stored key. After the authenticated `helloAck`, encrypted
+session frames begin on the same connection.
 
 After 3 failed, cancelled, or timed-out pairing machines within 5 minutes, the
 host refuses new `pairRequest`s for 60 seconds with
