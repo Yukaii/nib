@@ -291,6 +291,7 @@ public final class PenLinkSender {
   private var pairingDriver: PairingDriver?
   private var deviceLink = DeviceLink()
   private var pairingStoreRef: PairingKeyStore?
+  private var pairingRequested = false
   public var pairingPhase: PairingPhase? { pairingDriver?.phase }
 
   private var browser: NWBrowser?
@@ -333,6 +334,7 @@ public final class PenLinkSender {
   public func stop() {
     reconnectTask?.cancel()
     reconnectTask = nil
+    pairingRequested = false
     pingTask?.cancel()
     pingTask = nil
     pairingDriver?.connectionLost(connectionGeneration)
@@ -390,7 +392,19 @@ public final class PenLinkSender {
   }
 
   public func beginPairing(deviceID: String, deviceName: String) {
-    guard connection != nil, let driver = pairingDriver else { return }
+    // A host that no longer has our key invited a re-pair on this connection.
+    // Drop the stale authenticated session before sending pairing traffic.
+    if deviceLink.pairingRequired && deviceLink.requiresAuthentication {
+      pairAgain()
+      return
+    }
+    guard let driver = pairingDriver else { return }
+    guard connection != nil else {
+      pairingRequested = true
+      scheduleReconnect()
+      return
+    }
+    pairingRequested = false
     driver.beginPairing(
       deviceID: deviceID, deviceName: deviceName, connectionGeneration: connectionGeneration)
   }
@@ -400,7 +414,8 @@ public final class PenLinkSender {
     guard let store = pairingStoreRef, let hostID = deviceLink.knownHostID else { return }
     store.removeKey(for: hostID)
     deviceLink.updateStore(store: store, hostID: hostID)
-    beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
+    pairingRequested = true
+    connectionLost()
   }
 
   public func confirmPairing() {
@@ -591,8 +606,11 @@ public final class PenLinkSender {
         state = .searching
         transportLogger.info("pairing required: \(String(reason.prefix(200)), privacy: .private)")
         onPairingEvent?(.pairingRequired(peerName: self.hostInfo?.name ?? info?.name ?? "Mac"))
-        // Keep the connection open in a pairing-only state; beginPairing
-        // sends pairRequest on this same connection.
+        // Keep the connection open in a pairing-only state. A retry requested
+        // before reconnect is started automatically on this fresh link.
+        if pairingRequested {
+          beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
+        }
         return
       case .rejected(let reason, let info, let retryLater):
         if info != nil {

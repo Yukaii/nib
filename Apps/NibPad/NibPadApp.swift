@@ -168,7 +168,7 @@ struct NibPadApp: App {
             pairingCode: pairingCode, pairingPeer: pairingPeer,
             chooseMac: { sink.chooseMac($0) },
             pair: {
-              if pairingCode == nil { sink.beginPairing() } else { sink.confirmPairing() }
+              if pairingCode == nil { sink.pairAgain() } else { sink.confirmPairing() }
             },
             cancelPairing: { sink.cancelPairing() },
             pairAgain: { sink.pairAgain() },

@@ -18,6 +18,7 @@ public final class UsbLinkListener {
   private var pairingDriver: PairingDriver?
   private var deviceLink = DeviceLink()
   private var pairingStoreRef: PairingKeyStore?
+  private var pairingRequested = false
   public var pairingPhase: PairingPhase? { pairingDriver?.phase }
 
   private let port: NWEndpoint.Port
@@ -100,6 +101,7 @@ public final class UsbLinkListener {
   public func stop() {
     heartbeatTask?.cancel()
     heartbeatTask = nil
+    pairingRequested = false
     retryTask?.cancel()
     retryTask = nil
     pairingDriver?.connectionLost(connectionGeneration)
@@ -170,7 +172,15 @@ public final class UsbLinkListener {
   }
 
   public func beginPairing(deviceID: String, deviceName: String) {
-    guard connection != nil else { return }
+    if deviceLink.pairingRequired && deviceLink.requiresAuthentication {
+      pairAgain()
+      return
+    }
+    guard connection != nil else {
+      pairingRequested = true
+      return
+    }
+    pairingRequested = false
     pairingDriver?.beginPairing(
       deviceID: deviceID, deviceName: deviceName, connectionGeneration: connectionGeneration)
   }
@@ -180,7 +190,8 @@ public final class UsbLinkListener {
     guard let store = pairingStoreRef, let hostID = deviceLink.knownHostID else { return }
     store.removeKey(for: hostID)
     deviceLink.updateStore(store: store, hostID: hostID)
-    beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
+    pairingRequested = true
+    if let connection { drop(connection) }
   }
 
   public func confirmPairing() {
@@ -307,6 +318,9 @@ public final class UsbLinkListener {
         }
         setConnected(false)
         onPairingEvent?(.pairingRequired(peerName: hostInfo?.name ?? info?.name ?? "Mac"))
+        if pairingRequested {
+          beginPairing(deviceID: hello?.deviceID ?? "", deviceName: hello?.deviceName ?? "iPad")
+        }
         usbListenerLogger.info("pairing required: \(String(reason.prefix(200)), privacy: .private)")
       case .rejected(let reason, let info, _):
         if let info {

@@ -74,6 +74,15 @@ public struct HostLink: Sendable {
         accepted: false, reason: "Pair with this Mac", pairingRequired: true)
       return .pairingRequired(ack)
     }
+    // A device that deliberately forgot its key starts a new pairing flow
+    // without proof. Keep the host key until commit-reveal completes; this
+    // invitation is not authentication.
+    if hello.nonce == nil, hello.proof == nil {
+      pairingOnlyGeneration = connectionGeneration
+      let ack = ControlMessage.HelloAck(
+        accepted: false, reason: "Pair with this Mac", pairingRequired: true)
+      return .pairingRequired(ack)
+    }
     // Paired: require a valid proof with exactly 32-byte nonce.
     guard session.verifiesPairingProof(hello) else {
       pairingOnlyGeneration = nil
