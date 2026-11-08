@@ -4,14 +4,22 @@ import CoreGraphics
 public struct DisplayMapper: Sendable, Equatable {
   public private(set) var surfaceSize: CGSize
   public private(set) var displayRect: CGRect
+  public private(set) var proportions: MappingSettings.Proportions
 
-  public init(surfaceSize: CGSize = .zero, displayRect: CGRect = .zero) {
+  public init(
+    surfaceSize: CGSize = .zero, displayRect: CGRect = .zero,
+    proportions: MappingSettings.Proportions = .keep
+  ) {
     self.surfaceSize = surfaceSize
     self.displayRect = displayRect
+    self.proportions = proportions
   }
 
   public mutating func surfaceChanged(_ size: CGSize) { surfaceSize = size }
-  public mutating func displayChanged(_ rect: CGRect) { displayRect = rect }
+  public mutating func mappingChanged(_ rect: CGRect, proportions: MappingSettings.Proportions) {
+    displayRect = rect
+    self.proportions = proportions
+  }
 
   public func map(_ sample: PenSample) -> CGPoint {
     guard displayRect.width > 0, displayRect.height > 0 else { return displayRect.origin }
@@ -21,6 +29,7 @@ public struct DisplayMapper: Sendable, Equatable {
       return point(x: x, y: y)
     }
 
+    guard proportions == .keep else { return point(x: x, y: y) }
     let surfaceAspect = surfaceSize.width / surfaceSize.height
     let displayAspect = displayRect.width / displayRect.height
     let activeSize: CGSize
