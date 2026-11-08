@@ -30,10 +30,51 @@ private func mappedSample(x: Float, y: Float, pressure: Float = 0) -> PenSample 
   #expect(decoded.area == .init(x: 0.9, y: 0, width: 0.1, height: 1))
   let missing = try JSONDecoder().decode(MappingSettings.self, from: Data(#"{}"#.utf8))
   #expect(missing == MappingSettings(target: .followMain))
+  let missingMargin = try JSONDecoder().decode(
+    MappingSettings.self,
+    from: Data(#"{"target":{"kind":"followMain"},"area":{},"proportions":"stretch"}"#.utf8))
+  #expect(missingMargin.edgeMargin == 0)
   let legacy = try JSONDecoder().decode(
     MappingSettings.self,
     from: Data(#"{"target":{"display":{"uuid":"legacy"}}}"#.utf8))
   #expect(legacy.target == .display(uuid: "legacy"))
+}
+
+@Test func edgeMarginPinsEdgesBeforeStretchMapping() {
+  let mapper = DisplayMapper(
+    surfaceSize: CGSize(width: 4, height: 3), displayRect: CGRect(x: 10, y: 20, width: 1600, height: 900),
+    proportions: .stretch, edgeMargin: 0.1)
+  #expect(abs(mapper.map(mappedSample(x: 0.05, y: 0.5)).x - 10) < 0.01)
+  #expect(abs(mapper.map(mappedSample(x: 0.05, y: 0.5)).y - 470) < 0.01)
+  #expect(abs(mapper.map(mappedSample(x: 0.1, y: 0.5)).x - 10) < 0.01)
+  #expect(abs(mapper.map(mappedSample(x: 0.9, y: 0.5)).x - 1_609.999999) < 0.01)
+  #expect(abs(mapper.map(mappedSample(x: 0.5, y: 0.5)).x - 810) < 0.01)
+}
+
+@Test func edgeMarginAppliesBeforeKeepProportionsAndSubRect() {
+  let mapper = DisplayMapper(
+    surfaceSize: CGSize(width: 4, height: 3), displayRect: CGRect(x: 100, y: 200, width: 800, height: 400),
+    proportions: .keep, edgeMargin: 0.1)
+  // The 4:3 surface is narrower than this 2:1 target, so keep mode clamps the top and bottom bands.
+  #expect(abs(mapper.map(mappedSample(x: 0.1, y: 0.5)).x - 100) < 0.01)
+  #expect(abs(mapper.map(mappedSample(x: 0.9, y: 0.5)).x - 899.999999) < 0.01)
+  #expect(abs(mapper.map(mappedSample(x: 0.5, y: 0.5)).y - 400) < 0.01)
+}
+
+@Test func edgeMarginMapsInsideMultiDisplayUnionSubRect() {
+  let displays = [
+    MappingSettings.Display(uuid: "main", bounds: CGRect(x: 0, y: 0, width: 100, height: 100)),
+    MappingSettings.Display(uuid: "left", bounds: CGRect(x: -100, y: 0, width: 100, height: 100)),
+  ]
+  let settings = MappingSettings(
+    target: .allDisplays, area: .init(x: 0.25, y: 0.25, width: 0.5, height: 0.5),
+    proportions: .stretch, edgeMargin: 0.1)
+  let rect = settings.resolve(displays: displays, mainUUID: "main")!.rect
+  let mapper = DisplayMapper(
+    surfaceSize: CGSize(width: 1, height: 1), displayRect: rect, proportions: .stretch,
+    edgeMargin: settings.edgeMargin)
+  #expect(abs(mapper.map(mappedSample(x: 0.1, y: 0.5)).x - rect.minX) < 0.001)
+  #expect(abs(mapper.map(mappedSample(x: 0.9, y: 0.5)).x - rect.maxX.nextDown) < 0.001)
 }
 
 @Test func missingDisplayFallsBackToMainAndReturnsWhenPresent() {

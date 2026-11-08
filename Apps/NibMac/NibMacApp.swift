@@ -302,6 +302,11 @@ private final class NibMacModel: ObservableObject {
     applyMapping()
   }
 
+  func setEdgeMargin(_ margin: CGFloat) {
+    mappingSettings.edgeMargin = min(0.15, max(0, margin))
+    applyMapping()
+  }
+
   private func saveMappingSettings() {
     guard let data = try? JSONEncoder().encode(mappingSettings) else { return }
     defaults.set(data, forKey: mappingKey)
@@ -351,7 +356,8 @@ private final class NibMacModel: ObservableObject {
         displays: descriptors, mainUUID: displayUUID(CGMainDisplayID()))
     else { return }
     mappingFallback = resolution.usedFallback
-    injection.mappingChanged(resolution.rect, proportions: mappingSettings.proportions)
+    injection.mappingChanged(
+      resolution.rect, proportions: mappingSettings.proportions, edgeMargin: mappingSettings.edgeMargin)
     receiver?.displayWidth = resolution.rect.width
     receiver?.displayHeight = resolution.rect.height
   }
@@ -597,6 +603,7 @@ private struct MappingPreview: View {
   let displays: [NibMacModel.Display]
   let baseRect: CGRect?
   let area: MappingSettings.Area
+  let showsActiveArea: Bool
   let setArea: (MappingSettings.Area) -> Void
 
   var body: some View {
@@ -623,37 +630,64 @@ private struct MappingPreview: View {
             .offset(
               x: (display.bounds.minX - union.minX) * scale, y: (display.bounds.minY - union.minY) * scale)
         }
-        Rectangle()
-          .fill(Color.accentColor.opacity(0.10))
-          .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 3))
-          .frame(width: box.width, height: box.height)
-          .offset(x: box.minX, y: box.minY)
-          .contentShape(Rectangle())
-          .gesture(
-            DragGesture().onChanged { value in
-              setArea(
-                MappingSettings.area(
-                  from: box.offsetBy(dx: value.translation.width, dy: value.translation.height),
-                  in: previewBase))
-            })
-        Circle()
-          .fill(Color.accentColor)
-          .frame(width: 20, height: 20)
-          .offset(x: box.maxX - 10, y: box.maxY - 10)
-          .gesture(
-            DragGesture().onChanged { value in
-              setArea(
-                MappingSettings.area(
-                  from: CGRect(
-                    x: box.minX, y: box.minY, width: box.width + value.translation.width,
-                    height: box.height + value.translation.height), in: previewBase))
-            })
+        if showsActiveArea {
+          Rectangle()
+            .fill(Color.accentColor.opacity(0.10))
+            .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 3))
+            .frame(width: box.width, height: box.height)
+            .offset(x: box.minX, y: box.minY)
+            .contentShape(Rectangle())
+            .gesture(
+              DragGesture().onChanged { value in
+                setArea(
+                  MappingSettings.area(
+                    from: box.offsetBy(dx: value.translation.width, dy: value.translation.height),
+                    in: previewBase))
+              })
+          Circle()
+            .fill(Color.accentColor)
+            .frame(width: 20, height: 20)
+            .offset(x: box.maxX - 10, y: box.maxY - 10)
+            .gesture(
+              DragGesture().onChanged { value in
+                setArea(
+                  MappingSettings.area(
+                    from: CGRect(
+                      x: box.minX, y: box.minY, width: box.width + value.translation.width,
+                      height: box.height + value.translation.height), in: previewBase))
+              })
+        }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .padding(8)
     }
     .frame(height: 170)
     .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+  }
+}
+
+private struct EdgeMarginPreview: View {
+  let margin: CGFloat
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Image(systemName: "rectangle.portrait")
+        .font(.title2)
+        .overlay {
+          GeometryReader { proxy in
+            RoundedRectangle(cornerRadius: 2)
+              .stroke(Color.accentColor, lineWidth: 2)
+              .frame(
+                width: proxy.size.width * (1 - 2 * margin),
+                height: proxy.size.height * (1 - 2 * margin)
+              )
+              .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+          }
+        }
+      Text("The inner area maps to the whole target.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
   }
 }
 
@@ -702,8 +736,25 @@ private struct SettingsView: View {
           displays: model.displays,
           baseRect: model.mappingBaseRect,
           area: model.mappingSettings.area,
+          showsActiveArea: model.mappingSettings.area != .whole,
           setArea: model.setArea)
         Text("Drag the box to move it; drag the corner to resize.").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+          HStack {
+            Text("Edge margin")
+            Spacer()
+            Text("\(Int((model.mappingSettings.edgeMargin * 100).rounded()))%")
+              .monospacedDigit()
+          }
+          Slider(
+            value: Binding(
+              get: { Double(model.mappingSettings.edgeMargin) },
+              set: { model.setEdgeMargin(CGFloat($0)) }), in: 0...0.15, step: 0.01)
+          EdgeMarginPreview(margin: model.mappingSettings.edgeMargin)
+          Text("Reach the screen's edges (and the Dock) without touching the iPad's edge.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
         Picker(
           "Pencil proportions",
           selection: Binding(

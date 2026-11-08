@@ -86,23 +86,28 @@ public struct MappingSettings: Codable, Equatable, Sendable {
   public var target: Target
   public var area: Area
   public var proportions: Proportions
+  /// Fraction of each iPad edge reserved as a comfortable pen margin.
+  public var edgeMargin: CGFloat
 
   public init(
-    target: Target = .allDisplays, area: Area = .whole, proportions: Proportions = .keep
+    target: Target = .allDisplays, area: Area = .whole, proportions: Proportions = .keep,
+    edgeMargin: CGFloat = 0
   ) {
     self.target = target
     self.area = area
     self.proportions = proportions
+    self.edgeMargin = min(0.15, max(0, edgeMargin))
   }
 
-  private enum CodingKeys: String, CodingKey { case target, area, proportions }
+  private enum CodingKeys: String, CodingKey { case target, area, proportions, edgeMargin }
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.init(
       target: (try? container.decodeIfPresent(Target.self, forKey: .target)) ?? .followMain,
       area: (try? container.decodeIfPresent(Area.self, forKey: .area)) ?? .whole,
-      proportions: (try? container.decodeIfPresent(Proportions.self, forKey: .proportions)) ?? .keep)
+      proportions: (try? container.decodeIfPresent(Proportions.self, forKey: .proportions)) ?? .keep,
+      edgeMargin: (try? container.decodeIfPresent(CGFloat.self, forKey: .edgeMargin)) ?? 0)
   }
 
   public struct Display: Equatable, Sendable {
