@@ -33,6 +33,13 @@ handle the canvas: scroll, pinch to zoom, twist to rotate, tap to undo.
   edit everything on the iPad.
 - **Pressure curve on the iPad** — soft/linear/firm presets, min/max
   thresholds, and a test strip that shows what the Mac receives.
+- **Choose where you draw** — one display or all of them, the whole screen or a
+  region, keep the iPad's proportions or stretch. An **edge margin** lets the
+  Pencil reach the screen's edges (and an auto-hidden Dock) without touching
+  the iPad's edge.
+- **Paired and encrypted** — the iPad and Mac pair once by comparing a 6-digit
+  code; after that every Pencil sample and command is encrypted, over Wi-Fi
+  and USB.
 
 ## Requirements
 
@@ -62,16 +69,26 @@ open Nib.xcodeproj
 
 ## First run
 
-1. **Accessibility** — NibMac posts input events, so macOS asks for
-   Accessibility permission. Grant it in System Settings → Privacy & Security →
-   Accessibility, then **quit and reopen NibMac** (macOS only applies the grant
-   to a fresh launch).
-2. **Connect** — open Nib on the iPad. Over Wi-Fi, both devices must be on the
-   same network; allow Local Network access when asked. Over USB-C, plug in and
-   accept "Trust This Computer". The Mac asks once to **Allow** the iPad.
-3. **Draw** — the menu shows `iPad · Connected via USB` (or `Wi-Fi`). Pick the
-   target display in the menu if you have more than one; turn on
-   **Show Diagnostics** to see sample rate, loss, jitter and latency.
+Both apps walk you through setup on screen; this is the short version.
+
+1. **Accessibility** — NibMac's setup window asks for Accessibility permission
+   (it posts input events) and restarts itself once you grant it.
+2. **Connect** — open Nib on the iPad and choose your Mac. Over Wi-Fi, both
+   devices must be on the same network; allow Local Network access when asked.
+   Over USB-C, plug in and accept "Trust This Computer".
+3. **Pair** — tap **Pair** on the iPad and check that both screens show the
+   same 6-digit code, then confirm on both. You only do this once; the keys
+   are kept in the Keychain on each device.
+4. **Draw** — the Mac's setup window has a test canvas: a light-to-heavy stroke
+   should go from thin to thick.
+
+## Settings
+
+- **On the iPad** (four-finger tap): Connection, Pen (pressure curve and test
+  strip), Profiles, Gestures, Display (edge brightness) and Advanced (debug
+  HUD, reset).
+- **On the Mac** (menu → **Settings…**): which display, the drawing area,
+  proportions, edge margin, smoothing, launch at login and paired iPads.
 
 ## Using Nib
 
@@ -131,9 +148,13 @@ Contributor and agent workflow: [`AGENTS.md`](AGENTS.md).
 
 ## Security note
 
-Pairing is an Allow/Deny prompt remembered by device name; traffic is not yet
-encrypted or authenticated. Use Nib on networks you trust (or over USB).
-Pairing and encryption are planned (`PLAN.md`, M3).
+The iPad and Mac pair by comparing a 6-digit code (commit-then-reveal, so a
+device in the middle can't force matching codes). Every session after that is
+authenticated and encrypted with ChaCha20-Poly1305, over Wi-Fi and USB. The
+cable is not trusted on its own: USB pairs the same way. Details:
+[decision 0011](docs/decisions/0011-pairing-and-encryption.md) and
+[`docs/protocol.md`](docs/protocol.md). The handshake is ours and has been
+reviewed, not audited; please report issues privately.
 
 ## License
 
