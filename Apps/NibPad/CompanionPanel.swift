@@ -12,6 +12,7 @@ struct CompanionPanel: View {
   let changeMac: () -> Void
   let forgetMac: () -> Void
   let pressureResult: PressureCheckResult
+  let pairingNotice: String?
   @Binding var showsHUD: Bool
   @State private var testRaw: Double = 0.5
   @State private var editing: ProfileTarget?
@@ -26,7 +27,7 @@ struct CompanionPanel: View {
         Section("Connection") {
           Label(plainStatus, systemImage: connectionSymbol)
           if let hostInfo { LabeledContent("Mac", value: hostInfo.name) }
-          LabeledContent("Connection", value: connectionDescription)
+          LabeledContent("Connection method", value: connectionDescription)
           Button("Change Mac") { changeMac() }
           Button("Forget this Mac", role: .destructive) { forgetMac() }
         }
@@ -46,13 +47,17 @@ struct CompanionPanel: View {
           Button("Edit gestures in Profiles") { editing = ProfileTarget(id: activeID) }
         }
         Section("Display") {
+          if let pairingNotice {
+            Text(pairingNotice).foregroundStyle(.cyan).font(.callout)
+          }
           HStack {
             Text("Edge brightness")
             Slider(value: edgeBrightness, in: 0...1)
             Text(store.settings.edgeBrightness, format: .percent.precision(.fractionLength(0)))
               .frame(width: 44, alignment: .trailing)
           }
-          Text("The edge controls stay visible while you adjust this.")
+          edgeControlsPreview
+          Text("Preview of the edge controls at this brightness.")
             .font(.footnote).foregroundStyle(.secondary)
         }
         Section("Advanced") {
@@ -85,7 +90,9 @@ struct CompanionPanel: View {
     let version =
       Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
     let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
-    return "\(version) (build \(build))"
+    let platform = hostInfo?.platform.displayName ?? "Mac"
+    let hostVersion = hostInfo?.appVersion ?? "unknown"
+    return "\(platform) · Nib \(hostVersion) (iPad build \(version), \(build))"
   }
 
   private var connectionDescription: String {
@@ -105,7 +112,6 @@ struct CompanionPanel: View {
 
   private var pressureSection: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Text("Pressure").font(.headline)
       HStack {
         ForEach([(PadSettings.Pressure.soft, "Soft"), (.linear, "Linear"), (.firm, "Firm")], id: \.1) {
           preset, title in
@@ -125,11 +131,9 @@ struct CompanionPanel: View {
         Text("Max \(store.settings.pressure.maximum, format: .number.precision(.fractionLength(2)))")
         Slider(value: maximum, in: 0.5...1)
       }
-      Text("Curve").font(.subheadline)
       CurvePreview(pressure: store.settings.pressure)
         .frame(height: 100)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-      Text("Test strip").font(.subheadline)
       ZStack(alignment: .leading) {
         GeometryReader { proxy in
           ZStack(alignment: .leading) {
@@ -148,13 +152,25 @@ struct CompanionPanel: View {
     }
   }
 
+  private var edgeControlsPreview: some View {
+    HStack(spacing: 8) {
+      RoundedRectangle(cornerRadius: 3).fill(.white.opacity(store.settings.edgeBrightness * 0.8)).frame(
+        width: 8)
+      ForEach(0..<3, id: \.self) { index in
+        RoundedRectangle(cornerRadius: 6)
+          .fill(.white.opacity(store.settings.edgeBrightness * (0.45 + Double(index) * 0.2)))
+          .frame(width: 34, height: 22)
+      }
+    }
+    .frame(maxWidth: .infinity).padding(10).background(.black).clipShape(RoundedRectangle(cornerRadius: 8))
+  }
+
   private var activeID: UUID { store.settings.profile(forAppID: frontApp.appID).id }
 
   private var profilesSection: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Profiles").font(.headline)
       Text(
-        "Active: \(profileName) (front app: \(frontApp.appID.isEmpty ? "none reported" : frontApp.name))"
+        "Active: \(profileName). Use the app in front on your Mac: \(frontApp.appID.isEmpty ? "No app reported" : frontApp.name)."
       )
       .font(.footnote).foregroundStyle(.secondary)
       ForEach(store.settings.profiles) { profile in
@@ -241,6 +257,7 @@ private struct PencilPressureProbe: UIViewRepresentable {
 
   func makeUIView(context: Context) -> ProbeView {
     let view = ProbeView()
+    view.isExclusiveTouch = true
     view.onPressure = onPressure
     return view
   }

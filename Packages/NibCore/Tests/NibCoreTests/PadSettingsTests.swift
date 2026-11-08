@@ -141,4 +141,47 @@ import Testing
       == "Connected to MacBook over Wi-Fi")
   #expect(PenLinkState.searching.userFacingText() == "Looking for your Mac…")
   #expect(PenLinkState.rejected("busy").userFacingText() == "Your Mac is busy. Try again in a moment.")
+  let expected = [
+    ("rejected", "Your Mac declined"),
+    ("Pair again", "doesn’t recognise"),
+    ("Session could not be established", "couldn’t establish"),
+    ("UDP listener unavailable", "couldn’t start"),
+    ("Pairing required", "Pair with your Mac"),
+    ("unknown", "Couldn’t connect"),
+  ]
+  for (reason, phrase) in expected {
+    #expect(PenLinkState.rejected(reason).userFacingText().contains(phrase))
+  }
+}
+
+@Test func pairingUIReducerHandlesEveryTransportEvent() {
+  var state = PairingUIState()
+  state.reduce(.showCode("123456", peerName: "Mac"), onboardingCompleted: true)
+  #expect(state.code == "123456")
+  #expect(state.pairButtonAction == .confirmPairing)
+  state.reduce(.notice("Switched to the cable. Tap Pair to continue."), onboardingCompleted: true)
+  #expect(state.code == nil)
+  #expect(state.notice != nil && state.error == nil)
+  #expect(state.sheetPresented)
+  #expect(state.pairButtonAction == .beginPairing)
+  state.reduce(.failed("rejected"), onboardingCompleted: true)
+  #expect(state.error?.contains("declined") == true)
+  #expect(state.notice == nil)
+  state.reduce(.paired(peerID: "host"), onboardingCompleted: true)
+  #expect(!state.sheetPresented && state.error == nil)
+  state.reduce(.cancelled, onboardingCompleted: true)
+  #expect(state.error != nil && state.sheetPresented)
+  state.reduce(.timedOut, onboardingCompleted: true)
+  #expect(state.error?.contains("too long") == true)
+}
+
+@Test func pairingFailureReasonsArePlain() {
+  for reason in [
+    "rejected", "Pair again", "Session could not be established", "UDP listener unavailable",
+    "Pairing required", "mystery",
+  ] {
+    let text = PairingReason.userFacingFailure(reason)
+    #expect(!text.isEmpty)
+    #expect(reason == "mystery" ? !text.contains(reason) : true)
+  }
 }

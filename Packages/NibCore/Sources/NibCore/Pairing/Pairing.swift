@@ -278,6 +278,98 @@ public enum PairingTransportEvent: Sendable, Equatable {
   case notice(String)
 }
 
+public enum PairingButtonAction: Sendable, Equatable {
+  case beginPairing, confirmPairing
+}
+
+/// Pure presentation state for the iPad pairing UI. The app only performs the
+/// transport action selected by `pairButtonAction`; all event-to-UI decisions
+/// stay deterministic and testable in NibCore.
+public struct PairingUIState: Sendable, Equatable {
+  public var code: String? = nil
+  public var peer: String? = nil
+  public var error: String? = nil
+  public var notice: String? = nil
+  public var sheetPresented = false
+
+  public init() {}
+
+  public var pairButtonAction: PairingButtonAction { code == nil ? .beginPairing : .confirmPairing }
+
+  public mutating func reduce(_ event: PairingTransportEvent, onboardingCompleted: Bool) {
+    switch event {
+    case .showCode(let code, let peer):
+      self.code = code
+      self.peer = peer
+      error = nil
+      notice = nil
+      sheetPresented = onboardingCompleted
+    case .pairingRequired(let peer):
+      self.peer = peer
+      code = nil
+      error = nil
+      notice = nil
+      sheetPresented = onboardingCompleted
+    case .paired:
+      code = nil
+      error = nil
+      notice = nil
+      sheetPresented = false
+    case .cancelled:
+      code = nil
+      error = "Pairing was cancelled. Try again when you’re ready."
+      notice = nil
+      sheetPresented = onboardingCompleted
+    case .timedOut:
+      code = nil
+      error = "Pairing took too long. Try again when both devices are ready."
+      notice = nil
+      sheetPresented = onboardingCompleted
+    case .failed(let reason):
+      code = nil
+      error = PairingReason.userFacingFailure(reason)
+      notice = nil
+      sheetPresented = onboardingCompleted
+    case .notice(let message):
+      code = nil
+      error = nil
+      notice = message
+      sheetPresented = onboardingCompleted
+    }
+  }
+
+  public mutating func dismiss() {
+    code = nil
+    error = nil
+    notice = nil
+    sheetPresented = false
+  }
+
+  public mutating func startAgain() {
+    code = nil
+    error = nil
+    notice = nil
+  }
+}
+
+public enum PairingReason {
+  public static func userFacingFailure(_ reason: String) -> String {
+    switch reason {
+    case "rejected": return "Your Mac declined the connection. Check that Nib is open, then pair again."
+    case "Pair again": return "Your Mac doesn’t recognise this iPad any more. Tap Pair to pair again."
+    case "Session could not be established":
+      return "Nib couldn’t establish a session with your Mac. Check the connection, then pair again."
+    case "UDP listener unavailable":
+      return "Nib couldn’t start the network connection. Check your Mac’s network, then try again."
+    case "Pairing required": return "Pair with your Mac to start."
+    default:
+      return reason.isEmpty
+        ? "Pairing could not finish. Try again when both devices are ready."
+        : "Pairing could not finish. Try again when both devices are ready."
+    }
+  }
+}
+
 public enum PairingTransportPolicy {
   /// Pairing must complete while the user is looking at both screens.
   /// Expiry stores nothing.

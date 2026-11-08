@@ -66,7 +66,7 @@ struct ProfileEditor: View {
     Section {
       ForEach(profile.wrappedValue.appIDPrefixes.indices, id: \.self) { index in
         HStack {
-          TextField("Bundle ID prefix", text: prefixBinding(index))
+          TextField("App identifier", text: prefixBinding(index))
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
           Button(role: .destructive) {
@@ -90,12 +90,12 @@ struct ProfileEditor: View {
     } header: {
       Text("Apps")
     } footer: {
-      Text("This profile is used when the Mac's front app has a bundle ID starting with one of these.")
+      Text("Use this profile when the app in front on your Mac has an identifier starting with one of these.")
     }
   }
 
   private var frontAppTitle: String {
-    frontApp.appID.isEmpty ? "none reported" : frontApp.name
+    frontApp.appID.isEmpty ? "No app reported" : frontApp.name
   }
 
   private func prefixBinding(_ index: Int) -> Binding<String> {
@@ -204,7 +204,7 @@ private struct ButtonRow: View {
 
   private static let modifiers: [(NibCore.Gesture.Modifier, String)] = [
     (.primary, "⌘ Primary"), (.control, "⌃ Control"), (.alt, "⌥ Alt"),
-    (.shift, "⇧ Shift"), (.meta, "Meta"),
+    (.shift, "⇧ Shift"), (.meta, "Meta key"),
   ]
 
   var body: some View {

@@ -72,13 +72,18 @@ tucked into Advanced, and every pairing/connection message reads naturally.
 ## Handoff
 
 ```
-Branch/commit: `t3/ipad-settings` @ `2c4a9aabdb8f834f49cda26650eff3cc81e123ba`
-Verify: `verify: ok (Test run with 194 tests; NibMac + NibPad built)`
+Branch/commit: `t3/ipad-settings` @ <this commit>
+Verify: `verify: ok (Test run with 196 tests; NibMac + NibPad built)`
 Done:
-- Replaced the companion scroll view with a dark NavigationStack/List organized into Connection, Pen, Profiles, Gestures, Display and Advanced.
-- Added live persisted reset-to-defaults logic that leaves pairing and device identity untouched, with deterministic status and reset tests.
-- Added a neutral pairing transport notice so cable switching is not shown as a failure; pairing errors remain distinct.
-- Kept pressure capture and profile editing behavior intact while making status and connection wording plain.
-Manual checks: Not run. User should run `scripts/install-devices.sh pad`, open the four-finger panel, visit every section in portrait and landscape, change pressure and verify the test strip, edit a profile, then use Advanced → Reset all settings and confirm the Mac remains paired.
-Not done / risks: Full on-device UI and edge-control live preview still need the user’s iPad check. `Apps/NibMac/NibMacApp.swift` has a small exhaustive-switch notice case because the shared event enum is used by both apps; task 0029 can refine its Mac presentation.
+- Added the pure NibCore pairing UI reducer. Cable notices clear an old Wi-Fi code, show the notice distinctly, reveal the sheet when needed, and make Pair begin a fresh pairing attempt.
+- Added plain mappings for every known rejected reason plus a safe generic fallback, and covered lifecycle/reason mappings in tests.
+- Added an in-panel edge-control preview that follows brightness, cleaned settings/profile wording, and exposed Mac platform/version under Advanced.
+- Strengthened reset and status tests while preserving the Pencil sample path.
+Manual checks (not run):
+1. Run `scripts/install-devices.sh pad`, open the four-finger panel, and visit Connection, Pen, Profiles, Gestures, Display, and Advanced in portrait and landscape.
+2. In Pen, move pressure controls and press the test strip with the Pencil; confirm the bar follows pressure and the list does not scroll.
+3. In Display, move Edge brightness and confirm the in-panel mock strip/buttons change brightness immediately.
+4. Start Wi-Fi pairing, insert the cable while the code is visible, and confirm the code disappears, the neutral cable notice is visible, and Pair starts USB pairing. Dismiss the sheet and start again; confirm stale notices are gone.
+5. Edit a profile, then use Advanced → Reset all settings and confirm the selected Mac remains paired.
+Not done / risks: Real-device checks above were not run in this environment.
 ```

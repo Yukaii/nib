@@ -169,8 +169,14 @@ public enum PenLinkState: Sendable, Equatable {
     case .rejected(let reason):
       switch reason {
       case "busy": return "Your Mac is busy. Try again in a moment."
+      case "rejected": return "Your Mac declined the connection. Check that Nib is open, then pair again."
+      case "Pair again": return "Your Mac doesn’t recognise this iPad any more. Tap Pair to pair again."
+      case "Session could not be established":
+        return "Nib couldn’t establish a session with your Mac. Check the connection, then pair again."
+      case "UDP listener unavailable":
+        return "Nib couldn’t start the network connection. Check your Mac’s network, then try again."
       case "Pairing required": return "Pair with your Mac to start."
-      default: return reason.isEmpty ? "Couldn’t connect to your Mac. Try again." : reason
+      default: return "Couldn’t connect to your Mac. Check the connection, then try again."
       }
     }
   }
