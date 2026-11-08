@@ -279,6 +279,9 @@ public final class UsbLinkListener {
 
   public func send(_ sample: PenSample) {
     guard isConnected else { return }
+    // A paired link never sends plaintext samples, even while a replaced
+    // connection's state is being torn down.
+    if deviceLink.requiresAuthentication && sessionCipher.get() == nil { return }
     streamDispatcher?.send(sample)
   }
 
@@ -294,9 +297,15 @@ public final class UsbLinkListener {
     // connection means the old one is gone (e.g. replugged), even mid-pairing:
     // replace it and let pairing restart. Refusing here kept a dead pairing
     // alive and looped the Mac's reconnects.
-    // A new connection never inherits pairing in progress.
+    // A new connection never inherits pairing in progress, nor the old
+    // session's cipher, connected state or heartbeat (same as drop()).
     pairingDriver?.connectionLost(connectionGeneration)
     deviceLink.connectionLost()
+    sessionCipher.set(nil)
+    heartbeatTask?.cancel()
+    heartbeatTask = nil
+    lastTrafficAt = nil
+    setConnected(false)
     connectionGeneration &+= 1
     pairingDriver?.newConnection(connectionGeneration)
     connection?.cancel()
@@ -335,6 +344,8 @@ public final class UsbLinkListener {
           newConnection.cancel()
           return
         }
+        // Nothing but the hello until a verified helloAck arms the session.
+        self.awaitingAuthenticatedAck = self.deviceLink.requiresAuthentication
         self.send(.hello(self.authenticatedHello()))
       }
     }
@@ -352,7 +363,7 @@ public final class UsbLinkListener {
           do {
             try self.streamDispatcher?.receive(data)
           } catch {
-            self.drop(expected)
+            self.drop(expected, reason: SessionCloseReason.name(error))
             return
           }
         }
@@ -404,8 +415,12 @@ public final class UsbLinkListener {
         setConnected(true)
         if isConnected { startHeartbeat() }
       }
-    case .probe(let sentAtNs): send(.probeReply(sentAtNs: sentAtNs))
-    case .frontApp(let app): onFrontApp(app)
+    case .probe(let sentAtNs):
+      guard isConnected else { return }
+      send(.probeReply(sentAtNs: sentAtNs))
+    case .frontApp(let app):
+      guard isConnected else { return }
+      onFrontApp(app)
     case .pairResponse, .pairResult: handlePairingMessage(message)
     case .pairRequest, .pairReveal, .hello, .geometry, .ping, .probeReply, .gesture: break
     }

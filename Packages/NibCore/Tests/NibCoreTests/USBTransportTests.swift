@@ -133,8 +133,11 @@ struct USBTransportTests {
       case .none:
         #expect(wifi == .accept)
         #expect(usb == .accept)
-      case .wifiPending, .wifiPairingOnlyIdle, .wifiSession:
+      case .wifiPending, .wifiPairingOnlyIdle:
         #expect(wifi == .replace)
+        #expect(usb == .replace)
+      case .wifiSession:
+        #expect(wifi == .busy)
         #expect(usb == .replace)
       case .wifiPairingActive:
         #expect(wifi == .busy)

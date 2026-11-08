@@ -151,8 +151,12 @@ public enum USBTransportArbitration {
       return .busy
     case (.wifiPending, .usb), (.wifiPairingOnlyIdle, .usb), (.wifiSession, .usb):
       return .replace
-    case (.wifiPending, .wifi), (.wifiPairingOnlyIdle, .wifi), (.wifiSession, .wifi):
+    case (.wifiPending, .wifi), (.wifiPairingOnlyIdle, .wifi):
       return .replace
+    case (.wifiSession, .wifi):
+      // Any LAN peer could otherwise evict a live session; a reconnecting
+      // iPad is let in once the dead session's heartbeat times out.
+      return .busy
     default:
       return .accept
     }
