@@ -23,4 +23,9 @@ public final class PadSettingsStore: @unchecked Sendable {
     guard let data = try? JSONEncoder().encode(settings) else { return }
     defaults.set(data, forKey: key)
   }
+
+  /// Restores app settings without touching pairing or device identity.
+  public func resetToDefaults() {
+    settings = PadSettings()
+  }
 }

@@ -226,7 +226,7 @@ struct USBTransportTests {
     #expect(decision.transport == .usb)
     #expect(
       decision.switchEvent
-        == .failed("Switched to the cable. Tap Pair to continue."))
+        == .notice("Switched to the cable. Tap Pair to continue."))
     #expect(
       PairingTransportRoutingDecision.accepts(
         eventTransport: .usb, selectedTransport: decision.transport))

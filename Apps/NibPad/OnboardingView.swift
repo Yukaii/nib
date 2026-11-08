@@ -26,6 +26,7 @@ struct PairingInstructionsView: View {
   let cancel: () -> Void
   let pairAgain: () -> Void
   let error: String?
+  let notice: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -47,6 +48,7 @@ struct PairingInstructionsView: View {
         Text(error).foregroundStyle(.orange)
         Button("Pair again", action: pairAgain).buttonStyle(.bordered)
       }
+      if let notice { Text(notice).foregroundStyle(.cyan) }
     }
     .padding(28)
     .foregroundStyle(.white)
@@ -65,6 +67,7 @@ struct OnboardingView: View {
   let cancelPairing: () -> Void
   let pairAgain: () -> Void
   let pairingError: String?
+  let pairingNotice: String?
   let finish: (PressureCheckResult) -> Void
   @State private var localNetworkHint = false
   @State private var localPressureSamples: [Float] = []
@@ -172,7 +175,7 @@ struct OnboardingView: View {
         cancel: {
           cancelPairing()
           step = 2
-        }, pairAgain: pairAgain, error: pairingError)
+        }, pairAgain: pairAgain, error: pairingError, notice: pairingNotice)
     }
   }
 

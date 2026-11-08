@@ -36,7 +36,7 @@ public struct PairingTransportRoutingDecision: Sendable, Equatable {
     return Self(
       transport: transport,
       switchEvent: switchedFromActiveWiFi
-        ? .failed("Switched to the cable. Tap Pair to continue.") : nil)
+        ? .notice("Switched to the cable. Tap Pair to continue.") : nil)
   }
 
   public static func accepts(
@@ -292,6 +292,7 @@ public final class UsbLinkListener {
     case .cancelled: phase = "cancelled"
     case .timedOut: phase = "timed-out"
     case .failed: phase = "failed"
+    case .notice: phase = "notice"
     }
     usbListenerLogger.info("pairing phase=\(phase, privacy: .public)")
     switch event {
@@ -310,6 +311,8 @@ public final class UsbLinkListener {
       onPairingEvent?(.timedOut)
     case .failed(let reason):
       onPairingEvent?(.failed(reason))
+    case .notice(let message):
+      onPairingEvent?(.notice(message))
     }
   }
 

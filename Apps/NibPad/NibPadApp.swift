@@ -176,10 +176,7 @@ struct NibPadApp: App {
   @State private var onboardingStep = 0
   @State private var hosts: [String] = []
   @State private var linkState: PenLinkState = .searching
-  @State private var pairingCode: String?
-  @State private var pairingPeer: String?
-  @State private var pairingSheetPresented = false
-  @State private var pairingError: String?
+  @State private var pairingUI = PairingUIState()
   @State private var pressureResult: PressureCheckResult = Self.storedPressureResult
   private let sink: NetworkSink
 
@@ -206,14 +203,18 @@ struct NibPadApp: App {
         if !onboardingCompleted {
           OnboardingView(
             step: $onboardingStep, hosts: hosts, linkState: linkState,
-            pairingCode: pairingCode, pairingPeer: pairingPeer,
+            pairingCode: pairingUI.code, pairingPeer: pairingUI.peer,
             chooseMac: { sink.chooseMac($0) },
             pair: {
-              if pairingCode == nil { sink.pairAgain() } else { sink.confirmPairing() }
+              switch pairingUI.pairButtonAction {
+              case .beginPairing: sink.beginPairing()
+              case .confirmPairing: sink.confirmPairing()
+              }
             },
             cancelPairing: { sink.cancelPairing() },
             pairAgain: { sink.pairAgain() },
-            pairingError: pairingError,
+            pairingError: pairingUI.error,
+            pairingNotice: pairingUI.notice,
             finish: { result in
               pressureResult = result
               Self.storePressureResult(result)
@@ -236,7 +237,8 @@ struct NibPadApp: App {
               onboardingStep = 2
               onboardingCompleted = false
               panelOpen = false
-            }, forgetMac: { sink.forgetMac() }, pressureResult: pressureResult, showsHUD: $showsHUD
+            }, forgetMac: { sink.forgetMac() }, pressureResult: pressureResult,
+            pairingNotice: pairingUI.notice, showsHUD: $showsHUD
           )
           .padding(20)
           .onReceive(NotificationCenter.default.publisher(for: .closeCompanionPanel)) { _ in
@@ -244,22 +246,24 @@ struct NibPadApp: App {
           }
         }
       }
-      .sheet(isPresented: $pairingSheetPresented) {
+      .sheet(isPresented: $pairingUI.sheetPresented) {
         PairingInstructionsView(
-          pairingCode: pairingCode, pairingPeer: pairingPeer,
+          pairingCode: pairingUI.code, pairingPeer: pairingUI.peer,
           pair: {
-            if pairingCode == nil { sink.pairAgain() } else { sink.confirmPairing() }
+            switch pairingUI.pairButtonAction {
+            case .beginPairing: sink.beginPairing()
+            case .confirmPairing: sink.confirmPairing()
+            }
           },
           cancel: {
             sink.cancelPairing()
-            pairingSheetPresented = false
+            pairingUI.dismiss()
           },
           pairAgain: {
             sink.pairAgain()
-            pairingCode = nil
-            pairingError = nil
+            pairingUI.startAgain()
           },
-          error: pairingError
+          error: pairingUI.error, notice: pairingUI.notice
         )
         .presentationDetents([.medium])
       }
@@ -271,35 +275,13 @@ struct NibPadApp: App {
       }
       .onReceive(NotificationCenter.default.publisher(for: .nibPairingEvent)) { note in
         guard let event = note.object as? PairingTransportEvent else { return }
+        pairingUI.reduce(event, onboardingCompleted: onboardingCompleted)
         switch event {
-        case .showCode(let code, let peer):
-          pairingCode = code
-          pairingPeer = peer
-          pairingError = nil
-        case .pairingRequired(let peer):
-          pairingPeer = peer
-          pairingCode = nil
-          pairingError = nil
-          if onboardingCompleted { pairingSheetPresented = true }
-          linkState = .rejected("Pair with \(peer) to start.")
         case .paired:
-          pairingCode = nil
-          pairingError = nil
-          pairingSheetPresented = false
-          // Onboarding's pairing screen has no other way forward.
           if !onboardingCompleted && onboardingStep == 3 { onboardingStep = 4 }
-        case .cancelled:
-          pairingCode = nil
-          pairingError = "Pairing was cancelled. Try again when you’re ready."
-          if onboardingCompleted { pairingSheetPresented = true }
-        case .timedOut:
-          pairingCode = nil
-          pairingError = "Pairing took too long. Try again when both devices are ready."
-          if onboardingCompleted { pairingSheetPresented = true }
-        case .failed(let reason):
-          pairingCode = nil
-          pairingError = "Pairing could not finish: \(reason)"
-          if onboardingCompleted { pairingSheetPresented = true }
+        case .pairingRequired(let peer):
+          linkState = .rejected("Pair with \(peer) to start.")
+        default: break
         }
       }
     }

@@ -1,7 +1,7 @@
 ---
 id: "0028"
 title: iPad settings — sectioned panel, plain wording, Advanced for debug
-status: doing
+status: review
 milestone: M3
 depends: []
 ---
@@ -72,9 +72,18 @@ tucked into Advanced, and every pairing/connection message reads naturally.
 ## Handoff
 
 ```
-Branch/commit:
-Verify:
+Branch/commit: `t3/ipad-settings` @ <this commit>
+Verify: `verify: ok (Test run with 196 tests; NibMac + NibPad built)`
 Done:
-Manual checks:
-Not done / risks:
+- Added the pure NibCore pairing UI reducer. Cable notices clear an old Wi-Fi code, show the notice distinctly, reveal the sheet when needed, and make Pair begin a fresh pairing attempt.
+- Added plain mappings for every known rejected reason plus a safe generic fallback, and covered lifecycle/reason mappings in tests.
+- Added an in-panel edge-control preview that follows brightness, cleaned settings/profile wording, and exposed Mac platform/version under Advanced.
+- Strengthened reset and status tests while preserving the Pencil sample path.
+Manual checks (not run):
+1. Run `scripts/install-devices.sh pad`, open the four-finger panel, and visit Connection, Pen, Profiles, Gestures, Display, and Advanced in portrait and landscape.
+2. In Pen, move pressure controls and press the test strip with the Pencil; confirm the bar follows pressure and the list does not scroll.
+3. In Display, move Edge brightness and confirm the in-panel mock strip/buttons change brightness immediately.
+4. Start Wi-Fi pairing, insert the cable while the code is visible, and confirm the code disappears, the neutral cable notice is visible, and Pair starts USB pairing. Dismiss the sheet and start again; confirm stale notices are gone.
+5. Edit a profile, then use Advanced → Reset all settings and confirm the selected Mac remains paired.
+Not done / risks: Real-device checks above were not run in this environment.
 ```
