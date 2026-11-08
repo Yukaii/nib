@@ -73,7 +73,7 @@ persist.
 ## Handoff
 
 ```
-Branch/commit: t3/mac-settings-window @ c9782d32bafeb2de6c4c10853cb165c8f03210e2
+Branch/commit: t3/mac-settings-window @ 2ace4f7f584ee0cd65f8f614020e92dcdcf841f3
 Verify: verify: ok (Test run with 196 tests; NibMac + NibPad built)
 Done:
 - Added Codable host mapping settings with stable display UUID targets, all-display unions, normalized active areas, and live proportion modes.
