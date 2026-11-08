@@ -67,7 +67,7 @@ downgrade). Paths are in `Packages/NibCore/Sources/NibCore/Transport/`.
 ## Handoff
 
 ```
-Branch/commit: t3/transport-tidy @ 60d4bfacc56f452bfdcb2e241169798c03d1c98a
+Branch/commit: t3/transport-tidy @ b91c6d663e66afe9578b6022db666323f46a9963
 Verify: verify: ok (Test run with 187 tests; NibMac + NibPad built)
 Done:
 - Mac USB sends the plaintext hello acknowledgement and arms the stream cipher under one dispatcher lock; receiveUSB retains the per-connection dispatcher so immediate sealed bytes are decoded safely.
